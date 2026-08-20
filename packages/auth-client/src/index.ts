@@ -36,6 +36,7 @@ export {
   desktopAuthorizationPollSchema,
   loginMethodSchema,
   loginOutcomeSchema,
+  recognizeLoginMethods,
   meResponseSchema,
   membershipSchema,
   providerConfigSchema,
