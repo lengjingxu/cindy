@@ -117,7 +117,16 @@ export class CindyAuthClient {
       z.object({ methods: z.array(z.unknown()) }),
       { email },
     );
-    const methods = recognizeLoginMethods(result.methods);
+    let methods: LoginMethod[];
+    try {
+      methods = recognizeLoginMethods(result.methods);
+    } catch {
+      throw new AuthApiError(
+        "INVALID_RESPONSE",
+        200,
+        "Authentication server returned a malformed known login method",
+      );
+    }
     // 列表非空却没有一项能识别：仍按契约漂移失败，避免空 method-choice 假成功。
     if (result.methods.length > 0 && methods.length === 0) {
       throw new AuthApiError(

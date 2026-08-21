@@ -714,7 +714,7 @@ export const authErrorMessages: Record<string, Record<LoginLocale, string>> = {
   AUTH_SERVICE_UNAVAILABLE: {
     "zh-CN": "登录服务暂不可用，请稍后重试。",
     "zh-TW": "登入服務暫不可用，請稍後再試。",
-    en: "The sign-in service is temporarily unavailable.",
+    en: "The sign-in service is temporarily unavailable. Please try again later.",
     ja: "ログインサービスは一時的に利用できません。しばらくしてからお試しください。",
     ko: "로그인 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.",
   },

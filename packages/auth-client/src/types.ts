@@ -109,8 +109,21 @@ export type LoginMethod = z.infer<typeof loginMethodSchema>;
  * `methods` 校验失败变成 INVALID_RESPONSE，把已经认识的 email_code / sso
  * 一起挡掉（移动端会落到「登录未完成」兜底，验证码发不出去）。
  */
+const knownLoginMethodTypes = new Set(["email_code", "sso"]);
+
 export function recognizeLoginMethods(items: readonly unknown[]): LoginMethod[] {
   return items.flatMap((item) => {
+    // 已知 type 但字段不完整 = 服务端契约漂移,不是向前兼容;parse 抛错,
+    // 由调用方转为 INVALID_RESPONSE,避免静默丢弃后拿残缺列表自动串发。
+    if (
+      typeof item === "object" &&
+      item !== null &&
+      "type" in item &&
+      typeof item.type === "string" &&
+      knownLoginMethodTypes.has(item.type)
+    ) {
+      return [loginMethodSchema.parse(item)];
+    }
     const parsed = loginMethodSchema.safeParse(item);
     return parsed.success ? [parsed.data] : [];
   });
