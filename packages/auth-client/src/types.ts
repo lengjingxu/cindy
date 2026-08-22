@@ -119,6 +119,7 @@ export function recognizeLoginMethods(items: readonly unknown[]): LoginMethod[] 
       item !== null &&
       "type" in item &&
       typeof item.type === "string" &&
+      item.type.length > 0 &&
       !knownLoginMethodTypes.has(item.type)
     ) {
       return [];
