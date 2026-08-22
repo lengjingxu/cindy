@@ -17,6 +17,8 @@
 - [ ] 新维护者能知道 PR 必须记录哪些证据。
 - [ ] 新维护者能区分 P0、P1、P2，并理解 AI review 不替代 CI 和人工 review。
 - [ ] 团队能根据规模删减基线，而不是被迫一次性接受全部实践。
+- [ ] 需要成套落地时，collaboration-experience-kit 的 manifest 目标、占位符和可选
+  文件说明与实际文件一致；路径见 docs/templates/collaboration-experience-kit/README.md。
 
 ## 本仓执行命令
 
