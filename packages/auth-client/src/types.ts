@@ -113,19 +113,19 @@ const knownLoginMethodTypes = new Set(["email_code", "sso"]);
 
 export function recognizeLoginMethods(items: readonly unknown[]): LoginMethod[] {
   return items.flatMap((item) => {
-    // 已知 type 但字段不完整 = 服务端契约漂移,不是向前兼容;parse 抛错,
-    // 由调用方转为 INVALID_RESPONSE,避免静默丢弃后拿残缺列表自动串发。
+    // 有 string type 且不在已知集 = 服务端新增方式,向前兼容丢弃。
     if (
       typeof item === "object" &&
       item !== null &&
       "type" in item &&
       typeof item.type === "string" &&
-      knownLoginMethodTypes.has(item.type)
+      !knownLoginMethodTypes.has(item.type)
     ) {
-      return [loginMethodSchema.parse(item)];
+      return [];
     }
-    const parsed = loginMethodSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
+    // 其余(已知 type、缺 type、type 非字符串)一律严格 parse,
+    // 字段残缺抛错由调用方转为 INVALID_RESPONSE,不静默丢弃。
+    return [loginMethodSchema.parse(item)];
   });
 }
 
