@@ -10,6 +10,9 @@
 - 把本文中的占位项替换成项目的默认分支、测试命令、类型检查和签名机制。
 - 通用方法论以正文为准；本仓实现只作为末尾参考，不应原样复制到其他项目。
 - 团队重复纠正同一类问题时，优先把它升级为规则、模板或自动化守卫。
+- 需要直接复制成套文件时，使用
+  [docs/templates/collaboration-experience-kit](../../templates/collaboration-experience-kit/README.md)；
+  本文只保存方法论和取舍依据。
 
 ## 核心模型
 
