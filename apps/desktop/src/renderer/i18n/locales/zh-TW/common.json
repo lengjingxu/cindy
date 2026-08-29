@@ -9648,7 +9648,8 @@
       "dingtalkBotNetworkFailed": "無法訪問釘釘開放平臺，請檢查網路或 Proxy 後重試",
       "dingtalkBotStreamFailed": "憑證有效，但 Stream 連線未建立；請確認已啟用機器人、選擇 Stream 模式併發布應用版本",
       "dingtalkBotDisconnected": "已解綁釘釘機器人",
-      "dingtalkBotDisconnectFailed": "釘釘機器人解綁失敗"
+      "dingtalkBotDisconnectFailed": "釘釘機器人解綁失敗",
+      "feishuQrCardActionHint": "掃碼創建的機器人需在飛書開放平台手動添加 card.action.trigger 事件訂閱才能使用卡片按鈕"
     },
     "errors": {
       "openFileFailed": "無法在系統中開啟檔案",

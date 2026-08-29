@@ -9648,7 +9648,8 @@
       "dingtalkBotNetworkFailed": "DingTalk オープンプラットフォームに接続できません。ネットワークまたはプロキシを確認して再試行してください",
       "dingtalkBotStreamFailed": "認証情報は有効ですが、Stream 接続を確立できません。ボットを有効化し、Stream モードを選択してアプリのバージョンを公開してください",
       "dingtalkBotDisconnected": "DingTalk ボットの連携を解除しました",
-      "dingtalkBotDisconnectFailed": "DingTalk ボットの連携解除に失敗しました"
+      "dingtalkBotDisconnectFailed": "DingTalk ボットの連携解除に失敗しました",
+      "feishuQrCardActionHint": "QRコードで作成したボットは、Feishuオープンプラットフォームで card.action.trigger イベント購読を手動で追加する必要があります"
     },
     "errors": {
       "openFileFailed": "システムでファイルを開けません",

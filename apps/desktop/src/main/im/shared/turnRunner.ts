@@ -960,7 +960,7 @@ export function createTurnRunner(
     }
     try {
       const row = await repo.peekSessionById(item.rowId);
-      if (row && adapter.turnPolicyOptionalForMode(row.permissionMode)) {
+      if (row && adapter.turnPolicyOptionalForMode(row.permissionMode, item.event?.speaker?.isOwner === false)) {
         log.info(
           `turn policy skipped by channel (mode=${row.permissionMode}) session=${item.rowId.slice(-8)}`,
         );

@@ -9648,7 +9648,8 @@
       "dingtalkBotNetworkFailed": "无法访问钉钉开放平台，请检查网络或 Proxy 后重试",
       "dingtalkBotStreamFailed": "凭证有效，但 Stream 连接未建立；请确认已启用机器人、选择 Stream 模式并发布应用版本",
       "dingtalkBotDisconnected": "已解绑钉钉机器人",
-      "dingtalkBotDisconnectFailed": "钉钉机器人解绑失败"
+      "dingtalkBotDisconnectFailed": "钉钉机器人解绑失败",
+      "feishuQrCardActionHint": "扫码创建的机器人需在飞书开放平台手动添加 card.action.trigger 事件订阅才能使用卡片按钮"
     },
     "errors": {
       "openFileFailed": "无法在系统中打开文件",

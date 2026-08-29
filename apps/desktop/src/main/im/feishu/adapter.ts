@@ -31,7 +31,7 @@ import { readImDefaultSettings } from '../defaultSettingsStore';
 import { claimLegacyImPath, ownerScopedImUserDataPath } from '../ownerScopedStorage';
 import { createLogger } from '../../logger';
 import { buildFeishuGroupContext, sanitizeDisplayText } from './groupContext';
-import { createFeishuGroupTurnPermissionPolicy } from './permissionPolicy';
+import { createFeishuGroupTurnPermissionPolicy, createFeishuGuestTurnPermissionPolicy } from './permissionPolicy';
 import { ui, REACTION_PROCESSING } from './uiText';
 
 const log = createLogger('im:feishu-adapter');
@@ -289,13 +289,17 @@ export function buildFeishuAdapter(
     // 群轮次(speaker 存在)统一挂强确认策略 — 群历史前缀携带成员可控文本,
     // 注入可借 owner 轮次的宽松档执行危险操作; 确认卡经 deliverToOwnerDm
     // 改投 owner 私聊, 点击也只认 owner。DM 不挂, owner 私聊保持全速。
-    turnPermissionPolicyFor: (event) =>
-      event.speaker ? createFeishuGroupTurnPermissionPolicy(event.messageId) : undefined,
+    turnPermissionPolicyFor: (event) => {
+      if (!event.speaker) return undefined;
+      return event.speaker.isOwner === false
+        ? createFeishuGuestTurnPermissionPolicy(event.messageId)
+        : createFeishuGroupTurnPermissionPolicy(event.messageId);
+    },
     // 群护栏取缔: 用户在渠道设置里显式允许群会话用「完全访问」→ 该档位
     // 不再挂强确认策略(maker 不再拒绝, 按用户选择直接执行)。群上下文的
     // 防注入过滤/包裹在 prepareAgentTurnText 里独立生效, 不随权限档关闭;
     // acceptEdits 仍保持失败路径(错误 + 私聊修复卡)。
-    turnPolicyOptionalForMode: (mode) => mode === 'bypassPermissions',
+    // removed: guest policy must always apply (fail-closed)
     // 群 lane: 触发时按页回翻群历史拼上下文前缀(含媒体附件), 落库仍是渠道原文。
     prepareAgentTurnText: async (event) => {
       const lane = decodeFeishuLaneUserId(event.senderId);

@@ -252,6 +252,7 @@ interface UnconfirmedOpenRetry {
   messageId: string;
   chatId: string;
   senderOpenId: string;
+  isOwner: boolean;
   text: string;
   attachments: Awaited<ReturnType<typeof downloadAttachments>>['attachments'];
   unsupported: ReturnType<typeof parseIncoming>['unsupported'];
@@ -394,7 +395,7 @@ async function retryUnconfirmedOpen(
     contextId: entry.botAppId,
     messageId: entry.messageId,
     text: entry.text,
-    speaker: { id: entry.senderOpenId, name: '', isOwner: true },
+    speaker: { id: entry.senderOpenId, name: '', isOwner: entry.isOwner },
     ...(groupContextLane ? { groupContextLane } : {}),
     attachments: entry.attachments,
     unsupported: entry.unsupported,
@@ -1545,6 +1546,7 @@ async function processClaimedMessage(
           messageId,
           chatId,
           senderOpenId,
+          isOwner: ownerGuard.check(senderOpenId),
           text,
           attachments,
           unsupported,

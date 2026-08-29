@@ -9661,7 +9661,8 @@
       "dingtalkBotNetworkFailed": "Cannot reach DingTalk Open Platform. Check your network or proxy and try again",
       "dingtalkBotStreamFailed": "Credentials are valid, but the Stream connection was not established. Enable the bot, select Stream mode, and publish the app version",
       "dingtalkBotDisconnected": "DingTalk bot unbound",
-      "dingtalkBotDisconnectFailed": "Failed to unbind DingTalk bot"
+      "dingtalkBotDisconnectFailed": "Failed to unbind DingTalk bot",
+      "feishuQrCardActionHint": "QR-created bots need card.action.trigger event subscription added manually in the Feishu open platform console for card buttons to work"
     },
     "errors": {
       "openFileFailed": "Cannot open file in system",
