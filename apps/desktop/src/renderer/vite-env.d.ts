@@ -470,6 +470,7 @@ interface TelegramBotBehavior {
   emojiReactions: 'off' | 'minimal' | 'expressive';
   replyQuoteGroup: 'off' | 'first' | 'all';
   replyQuoteDm: 'off' | 'first';
+  allowNonOwnerMessages?: boolean;
 }
 
 type TelegramBotTransportStatus =
@@ -2079,6 +2080,7 @@ interface ElectronAPI {
       ownerOpenId: string | null;
       error?: string;
       lifecycleAnnouncement: boolean;
+      allowStrangerChats: boolean;
       service: 'feishu' | 'lark';
     }>;
     save: (payload: { appId: string; appSecret: string; service: 'feishu' | 'lark' }) => Promise<{
@@ -2089,6 +2091,7 @@ interface ElectronAPI {
     }>;
     clear: () => Promise<{ ok: true }>;
     setLifecycleAnnouncement: (enabled: boolean) => Promise<{ ok: true }>;
+    setAllowStrangerChats: (enabled: boolean) => Promise<{ ok: true }>;
     registrationBegin: (service: 'feishu' | 'lark') => Promise<FeishuBotRegistrationBeginResult>;
     registrationCancel: () => Promise<{ ok: true }>;
     onStatusChange: (

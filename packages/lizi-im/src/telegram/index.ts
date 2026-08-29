@@ -248,6 +248,8 @@ export interface TelegramBehaviorConfig {
   replyQuoteGroup: 'off' | 'first' | 'all';
   /** DM 回复引用: off(默认) / first=首条回复挂回触发消息。 */
   replyQuoteDm: 'off' | 'first';
+  /** 陌生人对话开关: 默认仅 owner; 开启后非 owner 可私聊普通对话。 */
+  allowNonOwnerMessages?: boolean;
   /**
    * per-chat 群参与模式(chatId → 模式)。缺省 mention。
    * always = 全响应·自主判断: 每条群消息都进 turn(ambient 标记), 模型用
@@ -260,6 +262,7 @@ export const TELEGRAM_DEFAULT_BEHAVIOR: TelegramBehaviorConfig = {
   emojiReactions: 'minimal',
   replyQuoteGroup: 'first',
   replyQuoteDm: 'off',
+  allowNonOwnerMessages: false,
 };
 
 export interface TelegramIMOptions {
@@ -1345,11 +1348,15 @@ export class TelegramIM extends BaseIM implements ChannelIM {
         this.logStaleSkip(staleFor, 'private', m.message_id);
         return;
       }
-      if (String(m.from.id) !== this.ownerUserId) {
-        // 非 owner 私聊: 礼貌回应一句(官方 bot unbound 提示的个人版语义),
-        // per-user 冷却防刷屏; 不进任何业务链路。
-        this.maybeSendStrangerNotice(String(m.from.id), String(m.chat.id), m.message_id);
-        return;
+      const isOwner = String(m.from.id) === this.ownerUserId;
+      if (!isOwner) {
+        const plain = (m.text ?? '').trim();
+        const isCommand = plain.startsWith('/') || plain === '!stop' || plain === '！stop';
+        if (!this.behaviorOf().allowNonOwnerMessages || isCommand) {
+          // 开关只放开普通对话; slash / !stop 的能力和状态面继续 owner 专属。
+          this.maybeSendStrangerNotice(String(m.from.id), String(m.chat.id), m.message_id);
+          return;
+        }
       }
       // 附件下载可达数秒 — 快照受理时的配置, 完成后配置已换代就丢弃
       // (与 Discord 的 acceptedContext 模式同口径)。
@@ -1362,13 +1369,23 @@ export class TelegramIM extends BaseIM implements ChannelIM {
         ...(this.host.media ? { media: this.host.media } : {}),
       });
       if (this.disposing || this.configVersion !== acceptedConfigVersion) return;
+      const speaker = isOwner
+        ? undefined
+        : {
+            id: String(m.from.id),
+            name:
+              [m.from.first_name, m.from.last_name].filter(Boolean).join(' ') ||
+              String(m.from.id),
+            ...(m.from.username ? { username: m.from.username } : {}),
+            isOwner: false,
+          };
       if (this.behaviorOf().replyQuoteDm === 'first') {
         this.queueReplyTarget(String(m.from.id), String(m.message_id));
       }
       // DM 也要 typing: 首条真实消息落地前, 聊天列表/标题栏的「正在输入…」
       // 是唯一反馈, 靠 sendChatAction(Chris 2026-07-30 实测点名缺失)。
       this.startTypingLoop(String(m.chat.id));
-      this.emitMessage(event);
+      this.emitMessage({ ...event, ...(speaker ? { speaker } : {}) });
       return;
     }
 
