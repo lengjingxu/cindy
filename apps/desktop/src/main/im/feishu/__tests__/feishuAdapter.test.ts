@@ -323,10 +323,10 @@ describe('feishu group lane adapter hooks', () => {
     expect(adapter.sessions.permissionModeFor?.('g/oc_chat1/omt_t1')).toBe('auto');
   });
 
-  it('turnPolicyOptionalForMode: 仅完全访问档可选(护栏取缔), 其余档保持挂策略', () => {
-    expect(adapter.turnPolicyOptionalForMode?.('bypassPermissions')).toBe(true);
-    expect(adapter.turnPolicyOptionalForMode?.('auto')).toBe(false);
-    expect(adapter.turnPolicyOptionalForMode?.('acceptEdits')).toBe(false);
+  it('turnPolicyOptionalForMode: 未实现(策略始终生效, guest 不可绕过)', () => {
+    // allowOthersToChat 开启后 guest 共享 workdir, 移除护栏取缔钩子
+    // 使强确认策略在任何权限档下始终生效(fail-closed)。
+    expect(adapter.turnPolicyOptionalForMode).toBeUndefined();
   });
 
   it('prepareAgentTurnText: 群 lane 拉历史拼上下文前缀(带时间标注), 剔除触发消息', async () => {
