@@ -23,7 +23,7 @@ import { ownerScopedImUserDataPath } from '../ownerScopedStorage';
 import { buildTelegramGroupContextPrefix, buildTelegramReplyContextBlock } from './groupWindow';
 import { readTelegramPersona } from './behaviorStore';
 import { autoRegisterTelegramSpeaker } from './contactsAutoRegister';
-import { createTelegramGuestTurnPermissionPolicy } from './permissionPolicy';
+import { createTelegramGuestTurnPermissionPolicy, createTelegramGuestOnlyPolicy } from './permissionPolicy';
 import { telegramUiText, ui, PROCESSING_EMOJI } from './uiText';
 import type { GroupHistoryAccessScope } from '../shared/groupHistoryAccess';
 
@@ -98,7 +98,12 @@ export function buildTelegramAdapter(
     // owner 触发的轮次, 提示注入可借 owner 轮次的宽松档执行危险操作; 统一
     // 强确认后确认卡只认 owner 点击, owner 多一次点按换掉这条注入通路。
     // DM(无 speaker)不挂, owner 私聊保持全速。
-    turnPermissionPolicyFor: (event) =>
+    turnPermissionPolicyFor: (event) => {
+      if (!event.speaker) return undefined;
+      return event.speaker.isOwner === false
+        ? createTelegramGuestOnlyPolicy(event.messageId)
+        : createTelegramGuestTurnPermissionPolicy(event.messageId);
+    },
       event.speaker ? createTelegramGuestTurnPermissionPolicy(event.messageId) : undefined,
     groupHistoryAccessFor: (event): GroupHistoryAccessScope => {
       const lane = decodeTelegramLaneUserId(event.senderId);

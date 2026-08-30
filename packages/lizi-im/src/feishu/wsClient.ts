@@ -1427,7 +1427,7 @@ async function processClaimedMessage(
       return;
     }
 
-    if (pendingOfflineNotice) {
+    if (pendingOfflineNotice && ownerGuard.check(senderOpenId)) {
       pendingOfflineNotice = false;
       try {
         await outbound.sendText(senderOpenId, transportMessages.lifecycle.offlineNotice);
