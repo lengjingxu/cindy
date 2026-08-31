@@ -104,7 +104,6 @@ export function buildTelegramAdapter(
         ? createTelegramGuestOnlyPolicy(event.messageId)
         : createTelegramGuestTurnPermissionPolicy(event.messageId);
     },
-      event.speaker ? createTelegramGuestTurnPermissionPolicy(event.messageId) : undefined,
     groupHistoryAccessFor: (event): GroupHistoryAccessScope => {
       const lane = decodeTelegramLaneUserId(event.senderId);
       const provider = `telegram-personal:${event.contextId}`;
