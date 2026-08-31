@@ -1756,6 +1756,7 @@ async function processClaimedMessage(
                 messageId,
                 chatId,
                 senderOpenId,
+                isOwner: ownerGuard.check(senderOpenId),
                 text,
                 attachments,
                 unsupported,
@@ -1791,6 +1792,7 @@ async function processClaimedMessage(
             messageId,
             chatId,
             senderOpenId,
+            isOwner: ownerGuard.check(senderOpenId),
             text,
             attachments,
             unsupported,
@@ -1844,6 +1846,7 @@ async function processClaimedMessage(
                 messageId,
                 chatId,
                 senderOpenId,
+                isOwner: ownerGuard.check(senderOpenId),
                 text,
                 attachments,
                 unsupported,
@@ -1877,6 +1880,18 @@ async function processClaimedMessage(
 
   // Emit raw fields — orchestrator decides how to render unsupported (it owns
   // the user-facing wording and the "skip agent for pure-unsupported" rule).
+  const inboundMirror = parentChatMirror(
+    chatId,
+    finalReplyMirrorKey && decodeLaneUserId(laneUserId ?? '')?.threadId
+      ? finalReplyMirrorKey
+      : undefined,
+    outbound.getAccountEpoch(),
+    finalReplyMirrorConfirmed,
+  );
+  const speaker =
+    laneUserId || !ownerGuard.check(senderOpenId)
+      ? { id: senderOpenId, name: '', isOwner: ownerGuard.check(senderOpenId) }
+      : undefined;
   feishuEvents.emit('message', {
     channelName: 'feishu',
     senderId: laneUserId ?? senderOpenId,
