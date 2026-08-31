@@ -384,7 +384,12 @@ function FeishuBotQrConfig(props: {
             ) : null}
             {secondsLeft !== null ? (
               <span className="text-11 text-[var(--settings-section-desc)]">
-                {t('settings.feishuBot.qr.expiresInSeconds', { seconds: secondsLeft })}
+                {secondsLeft < 60
+                  ? t('settings.feishuBot.qr.expiresInSeconds', { seconds: secondsLeft })
+                  : t('settings.feishuBot.qr.expiresInMinutes', {
+                      minutes: Math.floor(secondsLeft / 60),
+                      seconds: secondsLeft % 60,
+                    })}
               </span>
             ) : null}
           </>

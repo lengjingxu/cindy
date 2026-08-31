@@ -2124,6 +2124,7 @@
         "qrAlt": "飛書 / Lark 授權 QR Code",
         "userCode": "授權碼",
         "expiresInSeconds": "{{seconds}} 秒內有效",
+        "expiresInMinutes": "{{minutes}} 分 {{seconds}} 秒內有效",
         "qrPlaceholder": "QR Code 尚未產生",
         "generate": "產生授權 QR Code",
         "regenerate": "重新產生 QR Code",

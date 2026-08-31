@@ -2132,6 +2132,7 @@
         "qrAlt": "Feishu / Lark 認証 QR コード",
         "userCode": "認証コード",
         "expiresInSeconds": "{{seconds}} 秒以内に有効",
+        "expiresInMinutes": "{{minutes}} 分 {{seconds}} 秒以内に有効",
         "qrPlaceholder": "QR コードは未生成です",
         "generate": "認証 QR コードを生成",
         "regenerate": "QR コードを再生成",

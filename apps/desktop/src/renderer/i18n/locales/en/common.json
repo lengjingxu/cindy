@@ -2133,6 +2133,7 @@
         "qrAlt": "Feishu / Lark authorization QR code",
         "userCode": "Auth code",
         "expiresInSeconds": "Expires in {{seconds}}s",
+        "expiresInMinutes": "Expires in {{minutes}}m {{seconds}}s",
         "qrPlaceholder": "QR code not generated",
         "generate": "Generate authorization QR code",
         "regenerate": "Regenerate QR code",

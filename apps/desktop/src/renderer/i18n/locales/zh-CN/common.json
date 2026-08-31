@@ -2124,6 +2124,7 @@
         "qrAlt": "飞书 / Lark 授权二维码",
         "userCode": "授权码",
         "expiresInSeconds": "{{seconds}} 秒内有效",
+        "expiresInMinutes": "{{minutes}} 分 {{seconds}} 秒内有效",
         "qrPlaceholder": "二维码未生成",
         "generate": "生成授权二维码",
         "regenerate": "重新生成二维码",
