@@ -747,6 +747,14 @@ export class TelegramIM extends BaseIM implements ChannelIM {
     // lane 投递, 不吞掉这次交互。
     const groupLane =
       opts?.deliverToOwnerDm === true && this.ownerUserId ? decodeLaneUserId(userId) : null;
+    // Guest DM 轮次的授权卡同样改投 owner: 访客私聊触发工具确认时, 卡片如果
+    // 原样发回访客, 回调只认 owner 点击 → 主人收不到入口, 轮次只会等超时。
+    // 访客 DM 没有群深链, 只带说明文案。
+    const guestDmRedirect =
+      !groupLane &&
+      opts?.deliverToOwnerDm === true &&
+      this.ownerUserId != null &&
+      userId !== this.ownerUserId;
     if (groupLane) {
       // 来源深链只认调用方给的那条触发消息 id —— 只有它知道这张卡属于哪一轮业务 turn。
       // 传输层能看到的两个信号都不等于业务轮次: 回挂目标在 'first' 档发出首条回复即被
@@ -774,6 +782,25 @@ export class TelegramIM extends BaseIM implements ChannelIM {
       });
       // 刻意不动群 lane 的回挂目标: 那条触发消息在私聊里不存在, 消耗掉还会让本轮真正的
       // 回答失去引用。回声按**实际落地**的私聊维度记, 否则群窗口会以为 bot 在群里说过这段。
+      this.recordOwnEcho(
+        this.ownerUserId,
+        spec.title ? `[${spec.title}]` : spec.body.slice(0, 100),
+        sent,
+      );
+      return { messageId: encodeMessageId(String(sent.chat.id), String(sent.message_id)) };
+    }
+    if (guestDmRedirect) {
+      const notice = opts?.ownerDmNote ?? '';
+      const { html, replyMarkup } = buildCardPayload({
+        ...spec,
+        body: notice ? `${notice}\n\n${spec.body}` : spec.body,
+      });
+      const sent = await this.callSend<TgMessage>('sendMessage', {
+        chat_id: this.ownerUserId,
+        text: html,
+        parse_mode: 'HTML',
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      });
       this.recordOwnEcho(
         this.ownerUserId,
         spec.title ? `[${spec.title}]` : spec.body.slice(0, 100),

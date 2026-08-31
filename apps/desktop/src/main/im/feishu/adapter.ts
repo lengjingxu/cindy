@@ -341,8 +341,12 @@ export function buildFeishuAdapter(
         ? createFeishuGuestTurnPermissionPolicy(event.messageId)
         : createFeishuGroupTurnPermissionPolicy(event.messageId);
     },
-    // Guest access must never bypass the group turn policy.
-    // Policy always applies (fail-closed).
+    // Guest turns always keep the group turn policy (fail-closed) — a guest
+    // must never be able to ride a Full-access session past confirmations.
+    // Owner-initiated turns keep the previous Full-access exemption: the
+    // channel explicitly opted in via the UI, so we do not block them.
+    turnPolicyOptionalForMode: (mode, isGuestTurn) =>
+      mode === 'bypassPermissions' && !isGuestTurn,
     // 群 lane: 触发时按页回翻群历史拼上下文前缀(含媒体附件), 落库仍是渠道原文。
     prepareAgentTurnText: async (event) => {
       const lane = decodeFeishuLaneUserId(event.senderId);
