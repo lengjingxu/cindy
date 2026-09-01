@@ -173,6 +173,22 @@ export const ui = {
       resolved: '✅ 已切到「自动审批」— 回群里继续发消息吧~',
       failed: (reason: string) => `❌ 没切过去：${reason}。可以发 /permission auto 手动切换`,
     },
+    project: {
+      title: '📂 换个项目目录',
+      hint: (currentName: string) =>
+        `**当前**：${currentName}\n选一个项目，接下来的消息就在那个目录里干活（会重开上下文，模型和权限设置保留）`,
+      emptyBody: '_desktop 端还没有活跃的项目工作区~ 先在 desktop 里打开一个项目再来_',
+      btnDialogue: '💬 回到对话',
+      btnCancel: '🚪 算了',
+      resolvedPick: (displayName: string) =>
+        `📂 已切到 **${displayName}** —— 新上下文已就位，直接发指令开干。想回普通聊天发 /project 选「回到对话」`,
+      resolvedDialogue: '💬 已回到对话目录，上下文重新开始~',
+      resolvedCancel: '🚪 没切，保持现状',
+      switchFailed: (reason: string) => `❌ 没切过去：${reason}（目录可能已被移动或删除）`,
+      attachedUnsupported:
+        '🎮 你正在 /ctr 接管一个 desktop 任务——接管期间消息直接进那个任务，不需要 /project。想切项目先 `/exctr` 退出接管',
+      dialogueName: '对话（托管目录）',
+    },
     control: {
       title: '🎮 挑个工作区上号',
       emptyBody: '_暂时还没有可接管的工作区~ 在 desktop 端打开/创建一个任务再来_',
