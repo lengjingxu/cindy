@@ -299,6 +299,15 @@ describe('session runtime control wiring', () => {
     expect(patchBlock).toContain('patch.effort = atomicSelection.effort;');
   });
 
+  it('normalizes hydrated effort to the current model capability on restart', () => {
+    // 重启后 DB 行里的 effort 是历史值;bootstrapSession hydrate 必须按当前模型
+    // 能力归一化(固定 effort → null,可调 → 兼容档),否则旧值会作为
+    // reasoningEffort 打给不支持的模型被 provider 拒绝(Greptile P1)。
+    expect(registerSource).toContain(
+      'resolveCompatibleSessionRuntimeEffort(hydrateModel, efRow?.effort ?? null)',
+    );
+  });
+
   it('commits user effort and Fast state only after the live runtime call succeeds', () => {
     const effort = handlerBody(
       registerSource,

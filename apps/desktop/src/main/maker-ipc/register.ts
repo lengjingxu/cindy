@@ -945,6 +945,7 @@ import {
   recordRecoveredSessionRuntimeAxisMutation,
   recordUserSessionRuntimeAxisMutation,
   recordUserSessionRuntimeMutation,
+  resolveCompatibleSessionRuntimeEffort,
   resolveCompatibleSessionRuntimeAxisPatch,
   resolveSessionRuntimeAxes,
   sessionRuntimeGenerationMatches,
@@ -7859,7 +7860,25 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         setSessionEffort(session.id, runtimeOverride.effort);
         setSessionFastMode(session.id, runtimeOverride.fastMode);
       } else {
-        setSessionEffort(session.id, efRow?.effort);
+        // DB 行里的 effort 是历史合法值(固定 effort 模型切换时省略了字段),
+        // hydrate 时必须按**当前模型能力**归一化:固定 effort 模型 → null,
+        // 可调模型 → 兼容档位。直接回灌旧值会把不支持 reasoningEffort 的模型
+        // 请求打给 provider 被拒(issue #3691 / PR #3727 Greptile P1)。
+        const hydrateProviderId = getSessionProvider(session.id) ?? o.providerId ?? null;
+        const hydrateProvider = getActiveCatalog().providers.find(
+          (candidate) => candidate.id === hydrateProviderId,
+        );
+        const hydrateModel = findCatalogModel(
+          hydrateProvider,
+          session.model,
+          o.agentKind,
+        );
+        setSessionEffort(
+          session.id,
+          hydrateModel
+            ? resolveCompatibleSessionRuntimeEffort(hydrateModel, efRow?.effort ?? null)
+            : efRow?.effort,
+        );
         setSessionFastMode(session.id, !!efRow?.fastMode);
       }
     } catch (err) {
