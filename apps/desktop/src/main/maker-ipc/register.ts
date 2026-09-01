@@ -15808,7 +15808,14 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
             );
           }
           if (atomicSelection) {
-            patch.effort = atomicSelection.effort;
+            // 固定 effort 模型(efforts.length === 0)的运行时语义是 effort: null,
+            // 但 sessions.effort 列是 NOT NULL —— 运行时能力与持久化表示在此分离:
+            // DB patch 省略该字段,行内保留旧模型的历史合法值;内存 store(上面
+            // commitControlStores / setSessionEffort)照常清为 null,重启后按目标
+            // 模型能力重新归一化。不写 ''/"none" 等枚举外值,不改 schema。
+            if (atomicSelection.effort !== null) {
+              patch.effort = atomicSelection.effort;
+            }
             patch.fastMode = atomicSelection.fastMode;
           }
           try {
