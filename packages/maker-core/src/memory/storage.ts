@@ -39,7 +39,7 @@ import {
 } from './types.js';
 
 const INDEX_FILENAME = 'MEMORY.md';
-const META_FILENAME = 'meta.json';
+export const META_FILENAME = 'meta.json';
 const SHARD_EXT = '.md';
 const SLUG_REGEX = /^[a-z0-9_-]+$/;
 
@@ -92,6 +92,14 @@ export function memoryScopeDirName(scopeKey: string): string {
   const hostSegment = scopeKey.slice(SSH_SCOPE_KEY_PREFIX.length).split(':', 1)[0] ?? '';
   const digest = createHash('sha256').update(scopeKey, 'utf8').digest('hex').slice(0, 16);
   return `ssh-${sanitizeWorkdir(hostSegment).slice(0, 24)}-${digest}`;
+}
+
+/** 远端 scope 目录名特征: `ssh-<host 片段>-<sha256 前 16 hex>` (见 memoryScopeDirName)。 */
+const REMOTE_SCOPE_DIR_NAME_RE = /^ssh-.+-[0-9a-f]{16}$/;
+
+/** 判断落盘目录名是否远端 scope (Memory Hub 的展示 / 还原策略按此分叉)。 */
+export function isRemoteScopeDirName(dirName: string): boolean {
+  return REMOTE_SCOPE_DIR_NAME_RE.test(dirName);
 }
 
 /** filename = `<type>_<slug>.md`; slug 误带 `<type>_` 前缀会被拒绝 (见 validateNoTypePrefix) */

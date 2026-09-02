@@ -336,6 +336,12 @@ export const MAKER_INVOKE = {
   //   - RESET: 删 <userData>/maker-memory/ 全部内容 + close db pool
   MAKER_MEMORY_SET_ENABLED: 'maker:maker-memory:set-enabled',
   MAKER_MEMORY_RESET: 'maker:maker-memory:reset',
+  // ── Memory Hub (P1 只读): 记忆中心的 scope / 条目 / 搜索 / 注入预览 ──
+  MEMORY_HUB_SCOPES: 'maker:memory:hub:scopes',
+  MEMORY_HUB_ENTRIES: 'maker:memory:hub:entries',
+  MEMORY_HUB_ENTRY_READ: 'maker:memory:hub:entry-read',
+  MEMORY_HUB_SEARCH: 'maker:memory:hub:search',
+  MEMORY_HUB_INDEX_PREVIEW: 'maker:memory:hub:index-preview',
   /**
    * 启动期 renderer 同步 main 持久化的三个 memory 开关 (maker / claudeCode / codex)。
    * main 的 <userData>/memory-settings.json 是 source of truth, renderer localStorage
