@@ -84,6 +84,20 @@ export function MemorySection() {
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
   const [hubOpen, setHubOpen] = useState(false);
+  const [hubBackgroundAnalysis, setHubBackgroundAnalysis] = useState(true);
+  const [hubBackgroundPending, setHubBackgroundPending] = useState(false);
+
+  const handleHubBackgroundToggle = useCallback(async (next: boolean) => {
+    setHubBackgroundPending(true);
+    try {
+      const res = await window.electronAPI.maker.memoryHubSetSettings({ backgroundAnalysis: next });
+      setHubBackgroundAnalysis(res.backgroundAnalysis);
+    } catch (err) {
+      log.warn('memoryHubSetSettings failed', err);
+    } finally {
+      setHubBackgroundPending(false);
+    }
+  }, []);
 
   // 加载/刷新: 各 agent 独立, 一个失败不影响另一个 (Promise.allSettled)。
   // 触发时机:
@@ -118,6 +132,9 @@ export function MemorySection() {
     void reloadSlots();
     void window.electronAPI.maker.memoryGetSettingsState()
       .then((settings) => setSettingsCustomized(settings.isCustomized))
+      .catch(() => undefined);
+    void window.electronAPI.maker.memoryHubGetSettings()
+      .then((settings) => setHubBackgroundAnalysis(settings.backgroundAnalysis))
       .catch(() => undefined);
     const onFocus = () => void reloadSlots();
     window.addEventListener('focus', onFocus);
@@ -420,6 +437,37 @@ export function MemorySection() {
             </div>
           );
         })}
+        <div
+          className={cn(
+            'flex items-center justify-between gap-3 px-4 py-[14px]',
+            'border-t border-[var(--settings-theme-card-border)]',
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                'bg-[var(--settings-input-bg)]',
+              )}
+            >
+              <Database size={18} className="text-[var(--settings-section-title)]" />
+            </div>
+            <div className="flex flex-col gap-[8px]">
+              <p className="text-14 font-medium leading-none text-[var(--settings-section-title)]">
+                {t('settings.memory.hub.backgroundToggleLabel')}
+              </p>
+              <p className="text-12 leading-none text-[var(--settings-section-desc)]">
+                {t('settings.memory.hub.backgroundToggleDescription')}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={hubBackgroundAnalysis}
+            disabled={hubBackgroundPending}
+            onCheckedChange={(v) => void handleHubBackgroundToggle(v)}
+            aria-label={t('settings.memory.hub.backgroundToggleLabel')}
+          />
+        </div>
       </div>
       <MemoryHubDialog open={hubOpen} onClose={() => setHubOpen(false)} />
     </div>

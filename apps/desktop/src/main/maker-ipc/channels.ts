@@ -349,6 +349,10 @@ export const MAKER_INVOKE = {
   MEMORY_HUB_HISTORY: 'maker:memory:hub:history',
   MEMORY_HUB_INSIGHTS: 'maker:memory:hub:insights',
   MEMORY_HUB_RECOMMENDATIONS: 'maker:memory:hub:recommendations',
+  MEMORY_HUB_AI_ANALYSIS: 'maker:memory:hub:ai-analysis',
+  MEMORY_HUB_RUN_AI_ANALYSIS: 'maker:memory:hub:run-ai-analysis',
+  MEMORY_HUB_GET_SETTINGS: 'maker:memory:hub:get-settings',
+  MEMORY_HUB_SET_SETTINGS: 'maker:memory:hub:set-settings',
   /**
    * 启动期 renderer 同步 main 持久化的三个 memory 开关 (maker / claudeCode / codex)。
    * main 的 <userData>/memory-settings.json 是 source of truth, renderer localStorage

@@ -348,6 +348,16 @@ import {
   type MemorySettings,
   writeMemorySetting,
 } from '../maker-host/memory-settings-store.js';
+import {
+  readMemoryHubSettings,
+  writeMemoryHubSetting,
+} from '../maker-host/memory-hub-settings-store.js';
+import {
+  cacheMemoryHubAiAnalysis,
+  getCachedMemoryHubAiAnalysis,
+  startMemoryHubBackgroundAnalysis,
+} from '../maker-host/memory-hub-analysis-scheduler.js';
+import { runMemoryHubAiAnalysisForStore } from '../maker-host/memory-hub-ai-analysis.js';
 import { GLOBAL_PLUGIN_IDS } from '../maker-host/plugins/types.js';
 import {
   assertCollabProjectEnabled,
@@ -14296,6 +14306,46 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       }
     },
   );
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_AI_ANALYSIS, async (e, workdir: unknown) => {
+    assertTrustedAppRendererEvent(e);
+    const scopeKey = requireString(workdir, 'workdir');
+    return { analysis: getCachedMemoryHubAiAnalysis(scopeKey) };
+  });
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_RUN_AI_ANALYSIS, async (e, workdir: unknown) => {
+    assertTrustedAppRendererEvent(e);
+    const scopeKey = requireString(workdir, 'workdir');
+    try {
+      const manager = requireMemoryHubManager();
+      const store = await manager.getStore(scopeKey);
+      const result = await runMemoryHubAiAnalysisForStore({ maker, store, source: 'manual', log });
+      if (result) cacheMemoryHubAiAnalysis(scopeKey, result);
+      return { analysis: result };
+    } catch (err) {
+      mapMemoryHubError(err);
+    }
+  });
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_GET_SETTINGS, async () => {
+    return readMemoryHubSettings();
+  });
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_SET_SETTINGS, async (_e, opts: unknown) => {
+    const patch = opts as { backgroundAnalysis?: unknown };
+    if (!patch || typeof patch !== 'object' || typeof patch.backgroundAnalysis !== 'boolean') {
+      throwIpcError('INVALID_PARAMS', 'backgroundAnalysis (boolean) required');
+    }
+    return writeMemoryHubSetting({ backgroundAnalysis: patch.backgroundAnalysis as boolean });
+  });
+
+  // P4 后台分析: registerMakerIpc 只会在应用生命周期内调用一次;
+  // scheduler 自带 running 去重 + unref, 不阻塞应用退出。
+  startMemoryHubBackgroundAnalysis({
+    maker,
+    getManager: () => maker.makerMemory ?? null,
+    isBackgroundAnalysisEnabled: () => readMemoryHubSettings().backgroundAnalysis,
+  });
 
   // 占位：MetaAgent 入口
   ipcMain.handle(MAKER_INVOKE.RUN, () => {
