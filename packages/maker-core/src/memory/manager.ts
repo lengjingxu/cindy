@@ -417,9 +417,13 @@ export class MakerMemoryManager {
     if (!root) {
       throw new MemoryError('not-ready', 'owner scope unresolved; refusing to list scopes');
     }
+    const memoryRoot = path.join(root, MEMORY_SUBDIR);
     let dirNames: string[];
     try {
-      dirNames = await fs.readdir(root);
+      dirNames = (await fs.readdir(memoryRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => entry.name)
+        .sort();
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw new MemoryError('io-error', `list memory scopes failed: ${(err as Error).message}`);
@@ -429,7 +433,7 @@ export class MakerMemoryManager {
       const kind: MemoryScopeInfo['kind'] = isRemoteScopeDirName(dirName) ? 'remote' : 'local';
       let displayPath: string | null = null;
       try {
-        const raw = await fs.readFile(path.join(root, dirName, META_FILENAME), 'utf8');
+        const raw = await fs.readFile(path.join(memoryRoot, dirName, META_FILENAME), 'utf8');
         const meta = JSON.parse(raw) as { absPath?: unknown };
         displayPath = typeof meta.absPath === 'string' && meta.absPath !== '' ? meta.absPath : null;
       } catch {
