@@ -14184,6 +14184,119 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     }
   });
 
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_ENTRY_WRITE,
+    async (e, workdir: unknown, opts: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const writeOpts = opts as { type: string; name: string; title: string; description: string; body: string; mode?: string };
+      if (!writeOpts || typeof writeOpts !== 'object') throwIpcError('INVALID_PARAMS', 'opts required');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        const result = await store.write({
+          type: writeOpts.type as Parameters<typeof store.write>[0]['type'],
+          name: writeOpts.name,
+          title: writeOpts.title,
+          description: writeOpts.description,
+          body: writeOpts.body,
+          mode: (writeOpts.mode as 'create' | 'update' | 'append') ?? 'create',
+        });
+        return result;
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_ENTRY_DELETE,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        await store.softDelete(entryFilename);
+        return { ok: true };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_TRASH_LIST,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { entries: await store.listTrash() };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_RESTORE,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return await store.restore(entryFilename);
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_HISTORY,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { events: await store.history(entryFilename) };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_INSIGHTS,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return await store.insights();
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_RECOMMENDATIONS,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { recommendations: await store.recommendations() };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
   // 占位：MetaAgent 入口
   ipcMain.handle(MAKER_INVOKE.RUN, () => {
     throwIpcError('INTERNAL', `${MAKER_INVOKE.RUN} reserved for future MetaAgent feature`);

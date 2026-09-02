@@ -5936,7 +5936,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('maker:memory:hub:search', workdir, query, type ?? null, limit ?? null),
     memoryHubIndexPreview: (workdir: string): Promise<{ index: string }> =>
       ipcRenderer.invoke('maker:memory:hub:index-preview', workdir),
-
+    memoryHubEntryWrite: (
+      workdir: string,
+      opts: { type: string; name: string; title: string; description: string; body: string; mode?: string },
+    ): Promise<{ ok: true; filename: string }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_ENTRY_WRITE, workdir, opts),
+    memoryHubEntryDelete: (workdir: string, filename: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_ENTRY_DELETE, workdir, filename),
+    memoryHubTrashList: (workdir: string): Promise<{ entries: Array<{ filename: string; type: string; title: string; description: string; deletedAt: string; sizeBytes: number }> }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_TRASH_LIST, workdir),
+    memoryHubRestore: (workdir: string, filename: string): Promise<{ ok: true; filename: string }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_RESTORE, workdir, filename),
+    memoryHubHistory: (workdir: string, filename: string): Promise<{ events: Array<{ id: number; ts: string; op: string; actor: string; filename: string; type: string; title: string; description: string }> }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_HISTORY, workdir, filename),
+    memoryHubInsights: (workdir: string): Promise<{ totalEntries: number; byType: Record<string, number>; staleCount: number; lastActivityAt: string | null; recommendations: Array<{ id: string; kind: string; severity: string; filename: string; relatedFilename?: string; title: string; reason: string; suggestedAction: string }> }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_INSIGHTS, workdir),
+    memoryHubRecommendations: (workdir: string): Promise<{ recommendations: Array<{ id: string; kind: string; severity: string; filename: string; relatedFilename?: string; title: string; reason: string; suggestedAction: string }> }> =>
+      ipcRenderer.invoke(MAKER_INVOKE.MEMORY_HUB_RECOMMENDATIONS, workdir),
     /**
      * 启动期同步三个 memory 开关的真实持久化值 (main <userData>/memory-settings.json)。
      * renderer localStorage 只是 UI 即时态镜像 — 启动时调一次, main 是 source of truth。

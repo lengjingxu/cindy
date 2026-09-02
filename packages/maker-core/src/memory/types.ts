@@ -183,3 +183,30 @@ export interface MemoryScopeInfo {
   /** meta.json 记录的原始工作目录 / 远端路径; 缺失为 null */
   displayPath: string | null;
 }
+
+// ── P2: 事件日志 / 回收站 ─────────────────────────────────────────────────
+
+export type MemoryEventOp = 'create' | 'update' | 'append' | 'delete' | 'restore' | 'consolidate';
+
+export interface MemoryEvent {
+  id: number;
+  ts: string;
+  op: MemoryEventOp;
+  /** 'agent' | 'user' | 'maintenance' */
+  actor: string;
+  filename: string;
+  type: MemoryType;
+  /** op 前的 title (delete/consolidate 时为删除前的 title) */
+  title: string;
+  description: string;
+}
+
+export interface MemoryTrashEntry {
+  filename: string;
+  type: MemoryType;
+  title: string;
+  description: string;
+  /** ISO 删除时间 */
+  deletedAt: string;
+  sizeBytes: number;
+}
