@@ -14113,7 +14113,12 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       // L1 概览只需要摘要; 正文按需经 MEMORY_HUB_ENTRY_READ 拉取, 避免一次
       // IPC 把全部 body 拖进 renderer。
       return {
-        entries: entries.map(({ body: _body, ...summary }) => summary),
+        entries: entries.map((entry) => ({
+          filename: entry.filename,
+          slug: entry.slug,
+          frontmatter: entry.frontmatter,
+          sizeBytes: entry.sizeBytes,
+        })),
       };
     } catch (err) {
       mapMemoryHubError(err);
