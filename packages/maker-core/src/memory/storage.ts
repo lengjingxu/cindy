@@ -36,6 +36,7 @@ import {
   type WriteOptions,
   type WriteResult,
   type WriteWarningDetail,
+  type MemoryTrashEntry,
 } from './types.js';
 
 const INDEX_FILENAME = 'MEMORY.md';
@@ -420,6 +421,56 @@ export class MemoryStorage {
    *   ## feedback
    *   ...
    */
+
+  // ── P2: 回收站 ──────────────────────────────────────────────────────────
+
+  /** P2: 列出 .trash/ 下的已删除条目 */
+  async listTrash(): Promise<MemoryTrashEntry[]> {
+    const trashDir = path.join(this.dir, '.trash');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(trashDir);
+    } catch {
+      return [];
+    }
+    const results: MemoryTrashEntry[] = [];
+    for (const filename of entries.filter((f) => f.endsWith('.md')).sort()) {
+      try {
+        const fullPath = path.join(trashDir, filename);
+        const stat = await fs.stat(fullPath);
+        const raw = await fs.readFile(fullPath, 'utf8');
+        const parsed = parseRawShard(raw, filename);
+        results.push({
+          filename,
+          type: parsed.frontmatter.type,
+          title: parsed.frontmatter.title,
+          description: parsed.frontmatter.description,
+          deletedAt: (stat.mtime ?? new Date()).toISOString(),
+          sizeBytes: stat.size,
+        });
+      } catch {
+        // skip corrupt trash files
+      }
+    }
+    return results;
+  }
+
+  /** P2: 从 .trash/ 恢复条目到主目录 */
+  async restore(filename: string): Promise<WriteResult> {
+    this.assertSafeFilename(filename);
+    const trashPath = path.join(this.dir, '.trash', filename);
+    const mainPath = path.join(this.dir, filename);
+    try {
+      await fs.rename(trashPath, mainPath);
+    } catch (e) {
+      if (isENOENT(e)) throw new MemoryError('not-found', `trash entry not found: ${filename}`);
+      throw new MemoryError('io-error', `restore failed: ${(e as Error).message}`);
+    }
+    this.beforeFileWrite?.();
+    await this.rebuildIndex();
+    this.beforeFileWrite?.();
+    return { ok: true, filename };
+  }
   async rebuildIndex(): Promise<void> {
     try {
       await this.rebuildIndexInner();
