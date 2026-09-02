@@ -42,6 +42,7 @@ export {
   createEncryptedContentRecoveryRule,
   createImageGenerationIdRecoveryRule,
   createToolExchangeAdjacencyRecoveryRule,
+  compactOversizedImageHistory,
   createToolUseProviderSpecificFieldsRecoveryRule,
   dedupeDuplicateToolUseIds,
   dedupeDuplicateToolUseIdsFromBody,
@@ -67,6 +68,7 @@ export {
   supportsXaiReasoningModel,
   xaiBareModelId,
 } from './xai-model-input.js';
+export { createVllmResponsesCompatibilityRule } from './vllm-responses-compatibility.js';
 export { createVisionBridgeTransform } from './vision-bridge-transform.js';
 export { createThreadStripController } from './thread-strip-controller.js';
 export type { ThreadStripController } from './thread-strip-controller.js';
@@ -81,6 +83,7 @@ export type {
 } from './instructions-injection.js';
 export type {
   LocalRequestHandler,
+  OversizedRequestCompactor,
   ProxyHandle,
   ProxyLogger,
   ProxyOptions,
@@ -88,6 +91,7 @@ export type {
   ResponseObserver,
   ResponseObserverCtx,
   ResponseObserverSink,
+  ResponseTransform,
   RequestTransform,
   RequestTransformCtx,
   RoutingDecision,

@@ -2,6 +2,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type ButtonHTMLAttributes,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -21,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 
 import * as Select from '@radix-ui/react-select';
 import { Switch } from '@/components/ui/switch';
+import { useCodexMicroGuard } from '@/hooks/useCodexMicroGuard';
 import { useWorkLouderCodex } from '@/hooks/useWorkLouderCodex';
 import { useSkillhub } from '@/features/skillhub/hooks/useSkillhub';
 import { cn } from '@/lib/utils';
@@ -37,6 +39,12 @@ import {
   workLouderCodexCommandDescription,
   workLouderCodexCommandName,
 } from './workLouderCodexCommandCopy';
+import {
+  InputDeviceConnectionStatus,
+  inputDeviceConnectionTone,
+  inputDeviceStatusLabelKey,
+  resolveInputDeviceStatusKey,
+} from './InputDeviceConnectionStatus';
 import {
   WORKLOUDER_CODEX_AGENT_SOURCES,
   WORKLOUDER_CODEX_ANALOG_DIRECTIONS,
@@ -111,20 +119,27 @@ function compatibleKeycapForSlot(
 interface WorkLouderCodexEntryProps {
   state: WorkLouderCodexState | null;
   loading: boolean;
+  grouped?: boolean;
   onOpen(): void;
 }
 
-export function WorkLouderCodexEntry({ state, loading, onOpen }: WorkLouderCodexEntryProps) {
+export function WorkLouderCodexEntry({
+  state,
+  loading,
+  grouped = false,
+  onOpen,
+}: WorkLouderCodexEntryProps) {
   const { t } = useTranslation();
   const enabled = state?.settings.deviceEnabled ?? false;
-  const status = enabled ? (state?.connectionStatus ?? 'connecting') : 'disabled';
   return (
     <button
       type="button"
       onClick={onOpen}
       className={cn(
-        'flex w-full items-center gap-3 rounded-xl border p-4 text-left outline-none transition-colors',
-        'border-[var(--settings-theme-card-border)] bg-[var(--settings-theme-card-bg)]',
+        'flex w-full items-center gap-3 text-left outline-none transition-colors',
+        grouped
+          ? 'rounded-none border-0 bg-transparent px-4 py-[14px]'
+          : 'rounded-xl border p-4 border-[var(--settings-theme-card-border)] bg-[var(--settings-theme-card-bg)]',
         'hover:bg-[var(--settings-menu-bg-hover)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)]',
       )}
       aria-label={t('settings.shortcuts.workLouderCodex.openAria')}
@@ -133,11 +148,8 @@ export function WorkLouderCodexEntry({ state, loading, onOpen }: WorkLouderCodex
         <CodexMicroGlyph />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-13 font-medium text-[var(--text-primary)]">
-            {t('settings.shortcuts.workLouderCodex.title')}
-          </span>
-          <BetaBadge />
+        <span className="truncate text-13 font-medium text-[var(--text-primary)]">
+          {t('settings.shortcuts.workLouderCodex.title')}
         </span>
         <span className="text-12 leading-[1.4] text-[var(--text-secondary)]">
           {t('settings.shortcuts.workLouderCodex.entryDescription')}
@@ -145,8 +157,9 @@ export function WorkLouderCodexEntry({ state, loading, onOpen }: WorkLouderCodex
       </span>
       <span className="flex shrink-0 items-center gap-2">
         <ConnectionStatus
-          status={status}
+          enabled={enabled}
           present={state?.devicePresent ?? null}
+          connectionStatus={state?.connectionStatus}
           loading={loading}
           compact
         />
@@ -173,6 +186,14 @@ export function WorkLouderCodexSettings({ onBack }: { onBack(): void }) {
     openInputMonitoringSettings,
     reload,
   } = useWorkLouderCodex({ watchConnection: true });
+  const {
+    state: guardState,
+    loading: guardLoading,
+    saving: guardSaving,
+    error: guardError,
+    setEnabled: setGuardEnabled,
+    recover: recoverGuard,
+  } = useCodexMicroGuard();
   const { skills, bootstrapped, refresh: refreshSkills } = useSkillhub();
   const [brightnessDraft, setBrightnessDraft] = useState(100);
   const [editingSlot, setEditingSlot] = useState<WorkLouderCodexCommandSlot | null>(null);
@@ -387,7 +408,6 @@ export function WorkLouderCodexSettings({ onBack }: { onBack(): void }) {
           <h2 className="text-16 font-medium leading-[1.2] text-[var(--settings-section-title)]">
             {t('settings.shortcuts.workLouderCodex.title')}
           </h2>
-          <BetaBadge />
         </div>
         <button
           type="button"
@@ -413,12 +433,9 @@ export function WorkLouderCodexSettings({ onBack }: { onBack(): void }) {
                 aria-label={t('settings.shortcuts.workLouderCodex.connection.toggle.aria')}
               />
               <ConnectionStatus
-                status={
-                  settings.deviceEnabled
-                    ? (state?.connectionStatus ?? 'connecting')
-                    : 'disabled'
-                }
+                enabled={settings.deviceEnabled}
                 present={state?.devicePresent ?? null}
+                connectionStatus={state?.connectionStatus}
                 loading={loading}
               />
             </div>
@@ -454,6 +471,41 @@ export function WorkLouderCodexSettings({ onBack }: { onBack(): void }) {
           )}
         </div>
       </SettingsCard>
+
+      <SettingsGroup title={t('settings.shortcuts.workLouderCodex.codexGuard.title')}>
+        <SettingsRow
+          label={t('settings.shortcuts.workLouderCodex.codexGuard.label')}
+          description={t(
+            `settings.shortcuts.workLouderCodex.codexGuard.descriptions.${guardDescriptionKey(
+              guardState?.status,
+              guardError,
+            )}`,
+          )}
+          control={
+            <div className="flex items-center justify-end gap-2">
+              {guardState?.status === 'recovery-required' ? (
+                <SettingsSecondaryButton disabled={guardSaving} onClick={() => void recoverGuard()}>
+                  {t('settings.shortcuts.workLouderCodex.codexGuard.recover')}
+                </SettingsSecondaryButton>
+              ) : (
+                <Switch
+                  checked={guardState?.enabled ?? false}
+                  disabled={guardLoading || guardSaving || !guardState || !guardState.supported}
+                  onCheckedChange={(checked) => void setGuardEnabled(checked)}
+                  aria-label={t('settings.shortcuts.workLouderCodex.codexGuard.aria')}
+                />
+              )}
+              <DeviceChip>
+                {t(
+                  `settings.shortcuts.workLouderCodex.codexGuard.status.${
+                    guardState?.status ?? (guardError ? 'error' : 'disabled')
+                  }`,
+                )}
+              </DeviceChip>
+            </div>
+          }
+        />
+      </SettingsGroup>
 
       <SettingsCard className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
@@ -809,19 +861,17 @@ export function WorkLouderCodexSettings({ onBack }: { onBack(): void }) {
             {t('settings.shortcuts.workLouderCodex.layout.reset.description')}
           </p>
         </div>
-        <button
-          type="button"
+        <SettingsSecondaryButton
           disabled={!state || saving}
           onClick={() =>
             void setSettings({
               layout: cloneWorkLouderCodexLayout(WORKLOUDER_CODEX_DEFAULT_LAYOUT),
             })
           }
-          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[var(--settings-input-border)] bg-[var(--settings-input-bg)] px-3 py-2 text-12 text-[var(--settings-input-text)] transition-colors hover:bg-[var(--settings-menu-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <RotateCcw size={13} />
           {t('settings.shortcuts.workLouderCodex.layout.reset.button')}
-        </button>
+        </SettingsSecondaryButton>
       </SettingsCard>
     </div>
   );
@@ -1087,12 +1137,18 @@ function SettingsDivider() {
   return <div className="my-1 h-px bg-[var(--settings-theme-card-border)]" />;
 }
 
-function BetaBadge() {
-  const { t } = useTranslation();
+function SettingsSecondaryButton({
+  children,
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'className' | 'type'>) {
   return (
-    <span className="shrink-0 rounded-full border border-[var(--settings-badge-border)] bg-[var(--settings-badge-bg)] px-2 py-[1px] text-10 font-medium uppercase leading-[1.5] tracking-wide text-[var(--text-secondary)]">
-      {t('settings.shortcuts.workLouderCodex.beta')}
-    </span>
+    <button
+      {...props}
+      type="button"
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[var(--settings-input-border)] bg-[var(--settings-input-bg)] px-3 py-2 text-12 text-[var(--settings-input-text)] transition-colors hover:bg-[var(--settings-menu-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1106,44 +1162,33 @@ function DeviceChip({ icon, children }: { icon?: ReactNode; children: ReactNode 
 }
 
 function ConnectionStatus({
-  status,
+  enabled,
   present = null,
+  connectionStatus = null,
   loading,
   compact = false,
 }: {
-  status: WorkLouderCodexConnectionStatus;
+  enabled: boolean;
   present?: boolean | null;
+  connectionStatus?: WorkLouderCodexConnectionStatus | null;
   loading: boolean;
   compact?: boolean;
 }) {
   const { t } = useTranslation();
-  const effectiveStatus = loading && status !== 'disabled' ? 'connecting' : status;
-  const label =
-    effectiveStatus === 'disabled'
-      ? present === true
-        ? t('settings.shortcuts.workLouderCodex.connection.status.connected')
-        : present === false
-          ? t('settings.shortcuts.workLouderCodex.connection.status.not-detected')
-          : t('settings.shortcuts.workLouderCodex.connection.status.disabled')
-      : t(`settings.shortcuts.workLouderCodex.connection.status.${effectiveStatus}`);
-  const dotClass =
-    effectiveStatus === 'connected' || (effectiveStatus === 'disabled' && present === true)
-      ? 'bg-[var(--settings-badge-connected)]'
-      : effectiveStatus === 'error' || effectiveStatus === 'unavailable'
-        ? 'bg-[var(--error-fg)]'
-        : 'bg-[var(--text-tertiary)]';
+  const key = resolveInputDeviceStatusKey({
+    enabled,
+    present,
+    connectionStatus,
+    loading,
+  });
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full text-12 text-[var(--text-secondary)]',
-        compact
-          ? 'px-1.5 py-1'
-          : 'border border-[var(--settings-theme-card-border)] bg-[var(--surface-chip)] px-2.5 py-1.5',
+    <InputDeviceConnectionStatus
+      label={t(
+        `settings.shortcuts.workLouderCodex.connection.status.${inputDeviceStatusLabelKey(key)}`,
       )}
-    >
-      <span className={cn('size-1.5 rounded-full', dotClass)} aria-hidden="true" />
-      {label}
-    </span>
+      tone={inputDeviceConnectionTone({ status: key, present })}
+      compact={compact}
+    />
   );
 }
 
@@ -1201,6 +1246,28 @@ function CodexMicroGlyph() {
       <rect x={17} y={17} width={4.5} height={4.5} rx={1} fill="currentColor" opacity={0.45} />
     </svg>
   );
+}
+
+function guardDescriptionKey(
+  status: import('../../../shared/codexMicroGuard').CodexMicroGuardStatus | undefined,
+  requestFailed: boolean,
+): string {
+  if (requestFailed) return 'error';
+  switch (status) {
+    case 'unsupported':
+      return 'unsupported';
+    case 'protecting':
+      return 'protecting';
+    case 'intercepted':
+      return 'intercepted';
+    case 'recovery-required':
+      return 'recovery-required';
+    case 'error':
+      return 'error';
+    case 'disabled':
+    case undefined:
+      return 'disabled';
+  }
 }
 
 function connectionDescription(

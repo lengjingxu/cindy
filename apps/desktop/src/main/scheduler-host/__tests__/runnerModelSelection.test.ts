@@ -333,7 +333,7 @@ describe('MakerScheduleRunner model selection', () => {
   });
 
   describe('Pi 派发前路由重裁决', () => {
-    it('晚到 reroute 在 send 前同步 Pi 原生 provider-model，再更新 host store', async () => {
+    it('晚到 reroute 跨 Pi proxy 身份时本轮失败，留给下次 fire 关进程重建', async () => {
       const checkModelRoute = vi
         .fn()
         .mockResolvedValueOnce({ kind: 'pass' as const })
@@ -341,31 +341,6 @@ describe('MakerScheduleRunner model selection', () => {
       const h = createSessionHarness();
       (h.session as { agentKind: string }).agentKind = 'pi';
       (h.session as { model: string }).model = 'chatgpt/gpt-5.6-sol';
-      const harness = createRunnerHarness(h, null, { checkModelRoute });
-
-      await fireToCompletion(
-        harness,
-        h,
-        baseSchedule({ agentKind: 'pi', model: 'chatgpt/gpt-5.6-sol' }),
-      );
-
-      expect(checkModelRoute).toHaveBeenCalledTimes(2);
-      expect(h.setModel).toHaveBeenCalledWith('chatgpt/gpt-5.6-sol', { providerId: 'byom-b' });
-      expect(h.setModel.mock.invocationCallOrder[0]).toBeLessThan(
-        h.send.mock.invocationCallOrder[0],
-      );
-      expect(mocks.setSessionProvider).toHaveBeenCalledWith('scheduler-session', 'byom-b');
-    });
-
-    it('晚到 reroute 的 Pi 原生同步失败时不写 store，也不发送 prompt', async () => {
-      const checkModelRoute = vi
-        .fn()
-        .mockResolvedValueOnce({ kind: 'pass' as const })
-        .mockResolvedValueOnce({ kind: 'reroute' as const, providerId: 'byom-b' });
-      const h = createSessionHarness();
-      (h.session as { agentKind: string }).agentKind = 'pi';
-      (h.session as { model: string }).model = 'chatgpt/gpt-5.6-sol';
-      h.setModel.mockRejectedValue(new Error('provider snapshot unavailable'));
       const harness = createRunnerHarness(h, null, { checkModelRoute });
 
       await expect(
@@ -373,8 +348,9 @@ describe('MakerScheduleRunner model selection', () => {
           baseSchedule({ agentKind: 'pi', model: 'chatgpt/gpt-5.6-sol' }),
           createFireContext(),
         ),
-      ).rejects.toThrow('Session send failed before dispatch');
-      expect(h.setModel).toHaveBeenCalledWith('chatgpt/gpt-5.6-sol', { providerId: 'byom-b' });
+      ).rejects.toThrow(/Session send failed before dispatch/);
+      expect(checkModelRoute).toHaveBeenCalledTimes(2);
+      expect(h.setModel).not.toHaveBeenCalled();
       expect(mocks.setSessionProvider).not.toHaveBeenCalled();
       expect(h.send).not.toHaveBeenCalled();
     });
@@ -1148,7 +1124,7 @@ describe('MakerScheduleRunner model selection', () => {
       );
     });
 
-    it('heartbeat 复用 Pi 时即使模型不变也把 provider-model 原子同步到原生进程', async () => {
+    it('heartbeat 复用 Pi 跨 proxy 身份时先关闭再按新来源重建', async () => {
       mocks.getSessionRowSnapshot.mockResolvedValue({ status: 'active', providerId: 'byom-a' });
       mocks.getSessionProvider.mockReturnValue('byom-a');
       const h = createSessionHarness();
@@ -1175,14 +1151,51 @@ describe('MakerScheduleRunner model selection', () => {
         }),
       );
 
-      expect(h.setModel).toHaveBeenCalledWith('gpt-5.6-sol', { providerId: 'byom-b' });
+      expect(harness.closeSession).toHaveBeenCalledWith('scheduler-session');
+      expect(harness.closeSession.mock.invocationCallOrder[0]).toBeLessThan(
+        harness.createSession.mock.invocationCallOrder[0],
+      );
+      expect(h.setModel).not.toHaveBeenCalled();
+      expect(harness.createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ providerId: 'byom-b', model: 'gpt-5.6-sol' }),
+      );
+    });
+
+    it('heartbeat 复用 Pi 同身份时即使模型不变也把 provider-model 原子同步到原生进程', async () => {
+      mocks.getSessionRowSnapshot.mockResolvedValue({ status: 'active', providerId: 'byom-a' });
+      mocks.getSessionProvider.mockReturnValue('byom-a');
+      const h = createSessionHarness();
+      (h.session as { agentKind: string }).agentKind = 'pi';
+      (h.session as { model: string }).model = 'gpt-5.6-sol';
+      const harness = createRunnerHarness(
+        h,
+        {
+          model: 'gpt-5.6-sol',
+          workDir: '/work',
+          sdkSessionId: 'sdk-pi-1',
+        },
+        { sessionAlive: true },
+      );
+
+      await fireToCompletion(
+        harness,
+        h,
+        baseSchedule({
+          agentKind: 'pi',
+          model: 'gpt-5.6-sol',
+          providerId: 'byom-a',
+          targetSessionId: 'scheduler-session',
+        }),
+      );
+
+      expect(harness.closeSession).not.toHaveBeenCalled();
+      expect(h.setModel).toHaveBeenCalledWith('gpt-5.6-sol', { providerId: 'byom-a' });
       expect(h.setModel.mock.invocationCallOrder[0]).toBeLessThan(
         h.send.mock.invocationCallOrder[0],
       );
-      expect(mocks.setSessionProvider).toHaveBeenCalledWith('scheduler-session', 'byom-b');
     });
 
-    it('heartbeat 复用 Pi 的原生路由同步失败时在 send 前 fail-closed', async () => {
+    it('heartbeat 复用 Pi 同身份的原生路由同步失败时在 send 前 fail-closed', async () => {
       mocks.getSessionRowSnapshot.mockResolvedValue({ status: 'active', providerId: 'byom-a' });
       mocks.getSessionProvider.mockReturnValue('byom-a');
       const h = createSessionHarness();
@@ -1204,7 +1217,7 @@ describe('MakerScheduleRunner model selection', () => {
           baseSchedule({
             agentKind: 'pi',
             model: 'gpt-5.6-sol',
-            providerId: 'byom-b',
+            providerId: 'byom-a',
             targetSessionId: 'scheduler-session',
           }),
           createFireContext(),
@@ -1253,6 +1266,54 @@ describe('MakerScheduleRunner model selection', () => {
         'scheduler-session',
         expect.objectContaining({ model: 'gpt-5.4', providerId: 'openai' }),
         expect.anything(),
+      );
+    });
+
+    it('heartbeat 修复 Codex thread/store 错配时只关闭目标会话，不受其它忙会话阻塞', async () => {
+      mocks.getSessionRowSnapshot.mockResolvedValue({
+        status: 'active',
+        providerId: 'deepseek',
+      });
+      mocks.getSessionProvider.mockReturnValue('deepseek');
+      const h = createSessionHarness();
+      Object.defineProperties(h.session, {
+        agentKind: { value: 'codex' },
+        model: { value: 'deepseek/deepseek-v4-pro', writable: true },
+        codexProxyActive: { value: true },
+        codexThreadModelProviderId: { value: 'cindy_openai' },
+      });
+      const unrelatedBusyCodex = {
+        id: 'unrelated-busy-codex',
+        agentKind: 'codex',
+        remoteHostId: null,
+        isTurnRunning: () => true,
+      } as unknown as Session;
+      const harness = createRunnerHarness(
+        h,
+        {
+          model: 'deepseek/deepseek-v4-pro',
+          workDir: '/work',
+          sdkSessionId: 'sdk-1',
+        },
+        { sessionAlive: true, activeSessions: [h.session, unrelatedBusyCodex] },
+      );
+
+      await fireToCompletion(
+        harness,
+        h,
+        baseSchedule({
+          agentKind: 'codex',
+          model: 'deepseek/deepseek-v4-pro',
+          providerId: 'deepseek',
+          targetSessionId: 'scheduler-session',
+        }),
+      );
+
+      expect(harness.closeSession).toHaveBeenCalledTimes(1);
+      expect(harness.closeSession).toHaveBeenCalledWith('scheduler-session');
+      expect(harness.closeSession).not.toHaveBeenCalledWith('unrelated-busy-codex');
+      expect(harness.closeSession.mock.invocationCallOrder[0]).toBeLessThan(
+        harness.createSession.mock.invocationCallOrder[0],
       );
     });
 

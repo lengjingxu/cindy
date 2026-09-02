@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { createLogger, maskPath } from '../logger';
+import { assertCjkSegRegistered, registerCjkSeg } from './registerCjkSeg';
 
 const log = createLogger('localDb/betterSqliteFactory');
 
@@ -50,7 +51,7 @@ export function getElectronNativeBindingPath(
 }
 
 export function resolveBetterSqliteNativeBinding(
-  env: EnvLike = process.env,
+  env: EnvLike = runtimeProcessEnv(),
   versions: ProcessVersionsLike = process.versions,
   options: ResolveNativeBindingOptions = {},
 ): string | undefined {
@@ -70,6 +71,18 @@ export function resolveBetterSqliteNativeBinding(
   }
 
   return undefined;
+}
+
+/**
+ * Vite replaces the literal `process.env` expression in preload-target bundles
+ * with a build-time object. Utility processes still need their fork-time env,
+ * especially the Electron-native better-sqlite3 binding selected by Main.
+ */
+function runtimeProcessEnv(): EnvLike {
+  const runtimeProcess = Reflect.get(globalThis, 'process') as
+    | { env?: EnvLike }
+    | undefined;
+  return runtimeProcess?.env ?? {};
 }
 
 // createRequire 绑定到本 bundle 文件位置 —— 与主进程静态 `import Database from 'better-sqlite3'`
@@ -117,6 +130,8 @@ export function createBetterSqliteDatabase(
   // 打开成功后再收紧一次:覆盖本次刚创建的新库,以及 WAL pragma 之前 / 之后 SQLite
   // 创建的 -wal / -shm 伴随文件(继承主库 0600)。
   restrictDbFilePermissions(filename);
+  registerCjkSeg(db);
+  assertCjkSegRegistered(db);
   return db;
 }
 

@@ -5,11 +5,34 @@ import {
   getSessionProvider,
   setSessionProvider,
 } from '../../maker-host/session-provider-store.js';
-import { applyRuntimeSetModelChange, type RuntimeSetModelMaker } from '../runtimeSetModel.js';
+import {
+  applyRuntimeSetModelChange,
+  closeRejectedRuntimeAndRestoreControlStores,
+  isRemoteModelSwitchRouteChangeError,
+  type RuntimeSetModelMaker,
+} from '../runtimeSetModel.js';
+
+const sessionProviderWriteObserver = vi.hoisted(() => ({
+  current: null as ((sessionId: string, providerId: string | null) => void) | null,
+}));
+
+vi.mock('../../maker-host/session-provider-store.js', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('../../maker-host/session-provider-store.js')
+  >();
+  return {
+    ...actual,
+    setSessionProvider: (sessionId: string, providerId: string | null) => {
+      actual.setSessionProvider(sessionId, providerId);
+      sessionProviderWriteObserver.current?.(sessionId, providerId);
+    },
+  };
+});
 
 const touchedSessions = new Set<string>();
 
 afterEach(() => {
+  sessionProviderWriteObserver.current = null;
   for (const sessionId of touchedSessions) {
     clearSessionProvider(sessionId);
   }
@@ -20,6 +43,77 @@ function rememberSession(sessionId: string): string {
   touchedSessions.add(sessionId);
   return sessionId;
 }
+
+describe('isRemoteModelSwitchRouteChangeError', () => {
+  it('recognizes both IPC codes and remote daemon message markers', () => {
+    expect(
+      isRemoteModelSwitchRouteChangeError({ code: 'REMOTE_MODEL_SWITCH_ROUTE_CHANGE' }),
+    ).toBe(true);
+    expect(
+      isRemoteModelSwitchRouteChangeError(
+        new Error('[REMOTE_MODEL_SWITCH_ROUTE_CHANGE] close and recreate'),
+      ),
+    ).toBe(true);
+    expect(isRemoteModelSwitchRouteChangeError(new Error('ordinary set-model failure'))).toBe(
+      false,
+    );
+  });
+});
+
+describe('closeRejectedRuntimeAndRestoreControlStores', () => {
+  it('restores the old control route and rejects when runtime close leaves the handle alive', async () => {
+    const closeError = new Error('close transport rejected');
+    const retainedRuntimeError = new Error('rejected runtime is still live');
+    const closeRuntime = vi.fn(async () => {
+      throw closeError;
+    });
+    const controlStores = {
+      providerId: 'target-provider',
+      effort: 'max',
+      fastMode: true,
+    };
+    const persistedRoute = {
+      model: 'old-model',
+      providerId: 'old-provider',
+      effort: 'low',
+      fastMode: false,
+    } as const;
+    const restoreControlStores = vi.fn(() => {
+      controlStores.providerId = persistedRoute.providerId;
+      controlStores.effort = persistedRoute.effort;
+      controlStores.fastMode = persistedRoute.fastMode;
+    });
+    const reportCloseError = vi.fn();
+    const assertRuntimeClosed = vi.fn(() => {
+      expect(controlStores).toEqual({
+        providerId: persistedRoute.providerId,
+        effort: persistedRoute.effort,
+        fastMode: persistedRoute.fastMode,
+      });
+      throw retainedRuntimeError;
+    });
+
+    await expect(
+      closeRejectedRuntimeAndRestoreControlStores({
+        closeRuntime,
+        restoreControlStores,
+        reportCloseError,
+        assertRuntimeClosed,
+      }),
+    ).rejects.toBe(retainedRuntimeError);
+
+    expect(closeRuntime).toHaveBeenCalledOnce();
+    expect(reportCloseError).toHaveBeenCalledWith(closeError);
+    expect(restoreControlStores).toHaveBeenCalledOnce();
+    expect(assertRuntimeClosed).toHaveBeenCalledOnce();
+    expect(controlStores).toEqual({
+      providerId: persistedRoute.providerId,
+      effort: persistedRoute.effort,
+      fastMode: persistedRoute.fastMode,
+    });
+    expect(persistedRoute.model).toBe('old-model');
+  });
+});
 
 describe('applyRuntimeSetModelChange', () => {
   it('rolls back provider route when live setModel rejects', async () => {
@@ -204,6 +298,43 @@ describe('applyRuntimeSetModelChange', () => {
     expect(getSessionProvider(sessionId)).toBe('xd');
   });
 
+  it('keeps an idle Cindy Codex thread local when its independent subagent is incompatible', async () => {
+    const sessionId = rememberSession('runtime-set-model-cindy-local-compaction');
+    setSessionProvider(sessionId, 'xd');
+    const setModel = vi.fn(async () => {});
+    const closeSession = vi.fn(async () => {});
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'codex',
+        remoteHostId: null,
+        codexProxyActive: true,
+        codexThreadModelProviderId: 'cindy_gateway',
+        codexCindyRemoteCompactionCompatible: false,
+        model: 'codex/gpt-5.5',
+        setModel,
+      }),
+      listActiveSessions: () => [{
+        id: sessionId,
+        agentKind: 'codex',
+        remoteHostId: null,
+        isTurnRunning: () => false,
+      }],
+      closeSession,
+    };
+
+    const result = await applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'codex/gpt-5.6-sol',
+      providerId: 'xd',
+    });
+
+    expect(result).toEqual({ status: 'applied' });
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(setModel).toHaveBeenCalledWith('codex/gpt-5.6-sol', { providerId: 'xd' });
+    expect(getSessionProvider(sessionId)).toBe('xd');
+  });
+
   it('soft-closes a local Codex session before switching into xAI provider OAuth routing', async () => {
     const sessionId = rememberSession('runtime-set-model-close-codex-xai');
     setSessionProvider(sessionId, 'xd');
@@ -345,6 +476,42 @@ describe('applyRuntimeSetModelChange', () => {
     expect(closeSession).toHaveBeenCalledWith(sessionId);
     expect(setModel).not.toHaveBeenCalled();
     expect(getSessionProvider(sessionId)).toBe('xd');
+  });
+
+  it('closes an idle OpenAI thread when the provider store was already overwritten with DeepSeek', async () => {
+    const sessionId = rememberSession('runtime-set-model-stale-openai-thread-to-deepseek');
+    setSessionProvider(sessionId, 'deepseek');
+    const setModel = vi.fn(async () => {});
+    const closeSession = vi.fn(async () => {});
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'codex',
+        remoteHostId: null,
+        codexProxyActive: true,
+        codexThreadModelProviderId: 'cindy_openai',
+        model: 'deepseek/deepseek-v4-pro',
+        setModel,
+      }),
+      listActiveSessions: () => [{
+        id: sessionId,
+        agentKind: 'codex',
+        remoteHostId: null,
+        isTurnRunning: () => false,
+      }],
+      closeSession,
+    };
+
+    const result = await applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'deepseek/deepseek-v4-pro',
+      providerId: 'deepseek',
+    });
+
+    expect(result).toEqual({ status: 'applied' });
+    expect(closeSession).toHaveBeenCalledWith(sessionId);
+    expect(setModel).not.toHaveBeenCalled();
+    expect(getSessionProvider(sessionId)).toBe('deepseek');
   });
 
   it('defers a busy subscription-to-XD Codex switch to the turn boundary (远端压缩身份边界)', async () => {
@@ -734,6 +901,258 @@ describe('applyRuntimeSetModelChange', () => {
     // 唤醒在 close + 写路由完成之后。
     expect(order).toEqual(['clear-no-wake', 'close', 'wake']);
     expect(getSessionProvider(sessionId)).toBe('xd');
+  });
+
+  it('closes a stopped Pi runtime before publishing the new route and waking its queued first send', async () => {
+    const sessionId = rememberSession('runtime-set-model-pi-stop-switch');
+    setSessionProvider(sessionId, 'openai');
+    const order: string[] = [];
+    const closeSession = vi.fn(async () => {
+      order.push('close');
+      expect(getSessionProvider(sessionId)).toBe('openai');
+    });
+    sessionProviderWriteObserver.current = (writtenSessionId, providerId) => {
+      if (writtenSessionId === sessionId && providerId === 'xd') order.push('route');
+    };
+    const wakeSessionInputQueue = vi.fn(() => {
+      order.push('wake');
+      expect(getSessionProvider(sessionId)).toBe('xd');
+    });
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'pi',
+        remoteHostId: null,
+        model: 'chatgpt/gpt-5.5',
+        setModel: vi.fn(async () => {}),
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'pi', remoteHostId: null, isTurnRunning: () => false },
+      ],
+      closeSession,
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'gpt-5.5',
+      providerId: 'xd',
+      clearPendingCredentialSwitch: vi.fn((_sid, opts) => {
+        expect(opts).toEqual({ wake: false });
+      }),
+      wakeSessionInputQueue,
+    })).resolves.toEqual({ status: 'applied' });
+
+    expect(order).toEqual(['close', 'route', 'wake']);
+    expect(closeSession).toHaveBeenCalledOnce();
+    expect(wakeSessionInputQueue).toHaveBeenCalledOnce();
+  });
+
+  it('lets the Pi guard reject an incompatible runtime replacement before route side effects', async () => {
+    const sessionId = rememberSession('runtime-set-model-pi-replacement-guard');
+    setSessionProvider(sessionId, 'openai');
+    const closeSession = vi.fn(async () => {});
+    const clearPendingCredentialSwitch = vi.fn();
+    const wakeSessionInputQueue = vi.fn();
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'pi',
+        remoteHostId: null,
+        model: 'chatgpt/gpt-5.5',
+        setModel: vi.fn(async () => {}),
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'pi', remoteHostId: null, isTurnRunning: () => false },
+      ],
+      closeSession,
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'gpt-5.5',
+      providerId: 'xd',
+      assertSessionCloseSupported: () => { throw new Error('replacement unsupported'); },
+      clearPendingCredentialSwitch,
+      wakeSessionInputQueue,
+    })).rejects.toThrow('replacement unsupported');
+
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(clearPendingCredentialSwitch).not.toHaveBeenCalled();
+    expect(wakeSessionInputQueue).not.toHaveBeenCalled();
+    expect(getSessionProvider(sessionId)).toBe('openai');
+  });
+
+  it.each([
+    { fromProvider: 'xai', fromModel: 'grok-4.6', toProvider: 'openai', toModel: 'gpt-5.6-sol' },
+    { fromProvider: 'openai', fromModel: 'gpt-5.6-sol', toProvider: 'xai', toModel: 'grok-4.6' },
+    { fromProvider: 'xai', fromModel: 'grok-4.6', toProvider: 'xd', toModel: 'gpt-5.6-sol' },
+    { fromProvider: 'xd', fromModel: 'gpt-5.6-sol', toProvider: 'xai', toModel: 'grok-4.6' },
+  ] as const)(
+    'closes idle Pi before $fromProvider → $toProvider so the next send lazy-creates',
+    async ({ fromProvider, fromModel, toProvider, toModel }) => {
+      const sessionId = rememberSession(`runtime-set-model-pi-${fromProvider}-to-${toProvider}`);
+      setSessionProvider(sessionId, fromProvider);
+      const setModel = vi.fn(async () => {});
+      const closeSession = vi.fn(async () => {
+        expect(getSessionProvider(sessionId)).toBe(fromProvider);
+      });
+      const maker: RuntimeSetModelMaker = {
+        getSession: () => ({
+          agentKind: 'pi',
+          remoteHostId: null,
+          model: fromModel,
+          setModel,
+        }),
+        listActiveSessions: () => [
+          { id: sessionId, agentKind: 'pi', remoteHostId: null, isTurnRunning: () => false },
+        ],
+        closeSession,
+      };
+
+      await expect(applyRuntimeSetModelChange({
+        maker,
+        sessionId,
+        model: toModel,
+        providerId: toProvider,
+        clearPendingCredentialSwitch: vi.fn(),
+        wakeSessionInputQueue: vi.fn(),
+      })).resolves.toEqual({ status: 'applied' });
+
+      expect(closeSession).toHaveBeenCalledWith(sessionId);
+      expect(setModel).not.toHaveBeenCalled();
+      expect(getSessionProvider(sessionId)).toBe(toProvider);
+    },
+  );
+
+  it('hot-switches idle Pi inside the same proxy identity without closing', async () => {
+    const sessionId = rememberSession('runtime-set-model-pi-same-xai');
+    setSessionProvider(sessionId, 'xai');
+    const setModel = vi.fn(async () => {});
+    const closeSession = vi.fn(async () => {});
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'pi',
+        remoteHostId: null,
+        model: 'grok-4.6',
+        setModel,
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'pi', remoteHostId: null, isTurnRunning: () => false },
+      ],
+      closeSession,
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'grok-4.5',
+      providerId: 'xai',
+    })).resolves.toEqual({ status: 'applied' });
+
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(setModel).toHaveBeenCalledWith('grok-4.5', { providerId: 'xai' });
+    expect(getSessionProvider(sessionId)).toBe('xai');
+  });
+
+  it('defers a busy Pi proxy-identity switch until the turn boundary', async () => {
+    const sessionId = rememberSession('runtime-set-model-pi-busy-xai-to-openai');
+    setSessionProvider(sessionId, 'xai');
+    const setModel = vi.fn(async () => {});
+    const closeSession = vi.fn(async () => {});
+    const registerPendingCredentialSwitch = vi.fn();
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'pi',
+        remoteHostId: null,
+        model: 'grok-4.6',
+        setModel,
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'pi', remoteHostId: null, isTurnRunning: () => true },
+      ],
+      closeSession,
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'gpt-5.6-sol',
+      providerId: 'openai',
+      registerPendingCredentialSwitch,
+    })).resolves.toEqual({ status: 'deferred' });
+
+    expect(registerPendingCredentialSwitch).toHaveBeenCalledWith(sessionId, {
+      model: 'gpt-5.6-sol',
+      providerId: 'openai',
+    });
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(setModel).not.toHaveBeenCalled();
+    expect(getSessionProvider(sessionId)).toBe('xai');
+  });
+
+  it('rebuilds an idle Orca Worker instead of hot-switching its live model', async () => {
+    const sessionId = rememberSession('runtime-set-model-orca-worker-rebuild');
+    setSessionProvider(sessionId, 'xd');
+    const setModel = vi.fn(async () => {});
+    const closeSession = vi.fn(async () => {});
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'codex',
+        remoteHostId: null,
+        model: 'gpt-5.5',
+        setModel,
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'codex', remoteHostId: null, isTurnRunning: () => false },
+      ],
+      closeSession,
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'gpt-5.4',
+      providerId: 'xd',
+      forceSessionRebuild: true,
+      clearPendingCredentialSwitch: vi.fn(),
+    })).resolves.toEqual({ status: 'applied' });
+
+    expect(closeSession).toHaveBeenCalledWith(sessionId);
+    expect(setModel).not.toHaveBeenCalled();
+  });
+
+  it('defers a busy Orca Worker rebuild to the turn boundary', async () => {
+    const sessionId = rememberSession('runtime-set-model-orca-worker-defer');
+    setSessionProvider(sessionId, 'xd');
+    const registerPendingCredentialSwitch = vi.fn();
+    const setModel = vi.fn(async () => {});
+    const maker: RuntimeSetModelMaker = {
+      getSession: () => ({
+        agentKind: 'codex',
+        remoteHostId: null,
+        model: 'gpt-5.5',
+        setModel,
+      }),
+      listActiveSessions: () => [
+        { id: sessionId, agentKind: 'codex', remoteHostId: null, isTurnRunning: () => true },
+      ],
+      closeSession: vi.fn(async () => {}),
+    };
+
+    await expect(applyRuntimeSetModelChange({
+      maker,
+      sessionId,
+      model: 'gpt-5.4',
+      providerId: 'xd',
+      forceSessionRebuild: true,
+      registerPendingCredentialSwitch,
+    })).resolves.toEqual({ status: 'deferred' });
+
+    expect(registerPendingCredentialSwitch).toHaveBeenCalledWith(sessionId, {
+      model: 'gpt-5.4',
+      providerId: 'xd',
+    });
+    expect(setModel).not.toHaveBeenCalled();
   });
 
   it('falls back to the busy throw when no pending channel is injected', async () => {
