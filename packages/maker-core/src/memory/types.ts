@@ -172,3 +172,14 @@ export interface SearchOptions {
   /** 默认 10 */
   limit?: number;
 }
+
+/** 记忆作用域目录信息 (Memory Hub scope 列表用)。 */
+export interface MemoryScopeInfo {
+  /** 落盘目录名 (memoryScopeDirName 产物) */
+  dirName: string;
+  kind: 'local' | 'remote';
+  /** 可直接传给 getStore 的 scope key; remote / meta 缺失时为 null (仅展示) */
+  scopeKey: string | null;
+  /** meta.json 记录的原始工作目录 / 远端路径; 缺失为 null */
+  displayPath: string | null;
+}

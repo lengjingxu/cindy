@@ -5885,6 +5885,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
     makerMemoryReset: (): Promise<{ removedCount: number }> =>
       ipcRenderer.invoke('maker:maker-memory:reset'),
 
+    // ── Memory Hub (P1 只读): 记忆中心面板 — scope / 条目 / 搜索 / 注入预览 ──
+    memoryHubListScopes: (): Promise<{
+      scopes: Array<{
+        dirName: string;
+        kind: 'local' | 'remote';
+        scopeKey: string | null;
+        displayPath: string | null;
+      }>;
+    }> => ipcRenderer.invoke('maker:memory:hub:scopes'),
+    memoryHubListEntries: (
+      workdir: string,
+    ): Promise<{
+      entries: Array<{
+        filename: string;
+        slug: string;
+        frontmatter: {
+          title: string;
+          description: string;
+          type: 'user' | 'feedback' | 'project' | 'reference' | 'digest';
+          updatedAt: string;
+        };
+        sizeBytes: number;
+      }>;
+    }> => ipcRenderer.invoke('maker:memory:hub:entries', workdir),
+    memoryHubReadEntry: (
+      workdir: string,
+      filename: string,
+    ): Promise<{
+      entry: {
+        filename: string;
+        slug: string;
+        frontmatter: {
+          title: string;
+          description: string;
+          type: 'user' | 'feedback' | 'project' | 'reference' | 'digest';
+          updatedAt: string;
+        };
+        body: string;
+        sizeBytes: number;
+      };
+    }> => ipcRenderer.invoke('maker:memory:hub:entry-read', workdir, filename),
+    memoryHubSearch: (
+      workdir: string,
+      query: string,
+      type?: 'user' | 'feedback' | 'project' | 'reference' | 'digest',
+      limit?: number,
+    ): Promise<{
+      hits: Array<{ filename: string; type: string; title: string; snippet: string; score: number }>;
+    }> => ipcRenderer.invoke('maker:memory:hub:search', workdir, query, type ?? null, limit ?? null),
+    memoryHubIndexPreview: (workdir: string): Promise<{ index: string }> =>
+      ipcRenderer.invoke('maker:memory:hub:index-preview', workdir),
+
     /**
      * 启动期同步三个 memory 开关的真实持久化值 (main <userData>/memory-settings.json)。
      * renderer localStorage 只是 UI 即时态镜像 — 启动时调一次, main 是 source of truth。

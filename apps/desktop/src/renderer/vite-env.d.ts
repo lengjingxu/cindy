@@ -5422,6 +5422,52 @@ interface ElectronAPI {
     /** Maker Memory 整库重置: 删 <userData>/maker-memory/ 全部 workdir 目录 */
     makerMemoryReset: () => Promise<{ removedCount: number }>;
 
+    /** ── Memory Hub (P1 只读): 见 preload 同名方法 — scope / 条目 / 搜索 / 注入预览 ── */
+    memoryHubListScopes: () => Promise<{
+      scopes: Array<{
+        dirName: string;
+        kind: 'local' | 'remote';
+        scopeKey: string | null;
+        displayPath: string | null;
+      }>;
+    }>;
+    memoryHubListEntries: (workdir: string) => Promise<{
+      entries: Array<{
+        filename: string;
+        slug: string;
+        frontmatter: {
+          title: string;
+          description: string;
+          type: 'user' | 'feedback' | 'project' | 'reference' | 'digest';
+          updatedAt: string;
+        };
+        sizeBytes: number;
+      }>;
+    }>;
+    memoryHubReadEntry: (workdir: string, filename: string) => Promise<{
+      entry: {
+        filename: string;
+        slug: string;
+        frontmatter: {
+          title: string;
+          description: string;
+          type: 'user' | 'feedback' | 'project' | 'reference' | 'digest';
+          updatedAt: string;
+        };
+        body: string;
+        sizeBytes: number;
+      };
+    }>;
+    memoryHubSearch: (
+      workdir: string,
+      query: string,
+      type?: 'user' | 'feedback' | 'project' | 'reference' | 'digest',
+      limit?: number,
+    ) => Promise<{
+      hits: Array<{ filename: string; type: string; title: string; snippet: string; score: number }>;
+    }>;
+    memoryHubIndexPreview: (workdir: string) => Promise<{ index: string }>;
+
     /** 启动期拉 main 持久化的三个 memory 开关 — 见 preload memoryGetSettings 注释 */
     memoryGetSettings: () => Promise<{
       maker: boolean;

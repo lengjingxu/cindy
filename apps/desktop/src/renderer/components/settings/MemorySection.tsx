@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, Sparkles } from 'lucide-react';
+import { Database, RotateCcw, Sparkles } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
@@ -26,6 +26,7 @@ import { PiMark } from '@/components/icons/PiMark';
 import { createLogger } from '@/lib/logger';
 import { useMemorySettings } from '@/hooks/useMemorySettings';
 import { DefaultOverrideControls } from './DefaultOverrideControls';
+import { MemoryHubDialog } from './MemoryHubDialog';
 
 const log = createLogger('MemorySection');
 
@@ -82,6 +83,7 @@ export function MemorySection() {
   // 把用户刚改的乐观值或回滚状态覆盖掉。任一 slot pending 都跳过整轮 reload。
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
+  const [hubOpen, setHubOpen] = useState(false);
 
   // 加载/刷新: 各 agent 独立, 一个失败不影响另一个 (Promise.allSettled)。
   // 触发时机:
@@ -277,11 +279,24 @@ export function MemorySection() {
           <h2 className="text-16 font-medium leading-[1.2] text-[var(--settings-section-title)]">
             {t('settings.memory.title')}
           </h2>
-          <DefaultOverrideControls
-            isCustomized={settingsCustomized}
-            disabled={makerTogglePending}
-            onReset={() => void handleResetSettings()}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setHubOpen(true)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg bg-[var(--settings-input-bg)]',
+                'px-3 py-1.5 text-13 text-[var(--settings-section-title)] hover:opacity-80',
+              )}
+            >
+              <Database size={14} />
+              {t('settings.memory.hub.open')}
+            </button>
+            <DefaultOverrideControls
+              isCustomized={settingsCustomized}
+              disabled={makerTogglePending}
+              onReset={() => void handleResetSettings()}
+            />
+          </div>
         </div>
         <p className="text-13 leading-[1.5] text-[var(--settings-section-desc)]">
           {t('settings.memory.description')}
@@ -406,6 +421,7 @@ export function MemorySection() {
           );
         })}
       </div>
+      <MemoryHubDialog open={hubOpen} onClose={() => setHubOpen(false)} />
     </div>
   );
 }
