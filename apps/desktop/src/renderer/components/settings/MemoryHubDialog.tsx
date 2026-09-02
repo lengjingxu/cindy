@@ -765,7 +765,7 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
                                 {formatMemoryHubTimestamp(event.ts)}
                               </span>
                               <span className="font-medium text-[var(--settings-section-title)]">
-                                {t('settings.memory.hub.op_' + event.op, event.op)}
+                                {t(`settings.memory.hub.op_${event.op}`)}
                               </span>
                               <span className="truncate text-[var(--settings-section-desc)]">
                                 {event.title}
@@ -825,7 +825,7 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
                       return (
                         <div key={type} className="flex flex-col gap-2">
                           <p className="text-12 font-medium uppercase tracking-wide text-[var(--settings-section-desc)]">
-                            {t('settings.memory.hub.type_' + type)}
+                            {t(`settings.memory.hub.type_${type}`)}
                           </p>
                           {typeEntries.map((entry) => (
                             <EntryRow
@@ -933,7 +933,7 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
                       >
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-13 font-medium text-[var(--settings-section-title)]">
-                            {t('settings.memory.hub.rec_' + rec.kind, rec.kind)} · {rec.title}
+                            {t(`settings.memory.hub.rec_${rec.kind}`)} · {rec.title}
                           </p>
                           {rec.suggestedAction === 'deprecate' && recConfirmingId !== rec.id && (
                             <button
@@ -1017,7 +1017,7 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
                         {aiAnalysis.recommendations.map((rec) => (
                           <div key={rec.id} className="text-12">
                             <span className="font-medium text-[var(--settings-section-title)]">
-                              {t('settings.memory.hub.rec_' + rec.kind, rec.kind)} · {rec.title}
+                              {t(`settings.memory.hub.rec_${rec.kind}`)} · {rec.title}
                             </span>
                             {rec.reason && (
                               <span className="text-[var(--settings-section-desc)]"> — {rec.reason}</span>
