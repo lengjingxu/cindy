@@ -241,12 +241,16 @@ export class MakerMemoryStore {
 
   // ── P2: 软删除 / 回收站 / 恢复 / 历史 ──────────────────────────────────
 
-  /** P2: 软删除 — 移入 .trash/ 子目录而不是 unlink */
+  /**
+   * P2: 软删除 — 移入 .trash/ 子目录而不是 unlink (review: 此前误调
+   * storage.delete 实际永久删除; 现在 storage.softDelete 用 rename 保留文件,
+   * listTrash/restore 才真的有内容可恢复)。
+   */
   async softDelete(filename: string): Promise<void> {
     this.assertScopeOk();
     await this.init();
     const rec = await this.storage.read(filename);
-    await this.storage.delete(filename);
+    await this.storage.softDelete(filename);
     this.assertScopeOk();
     try { this.fts.delete(filename); } catch { /* will rebuild */ }
     const parsed = parseFilename(filename);

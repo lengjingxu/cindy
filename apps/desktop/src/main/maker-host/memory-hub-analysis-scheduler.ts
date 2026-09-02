@@ -85,15 +85,24 @@ export function getCachedMemoryHubAiAnalysis(
   return readMemoryHubAnalysisState(rootPath).byScope[scopeKey]?.cached ?? null;
 }
 
-/** 手动触发也复用这条缓存写路径, manual 与 background 结果最终一致。 */
+/**
+ * 手动触发与后台 tick 共用的缓存写路径。所有写入进同一进程内串行队列
+ * (main 单进程; manual 按钮与后台 tick 可能并发, 各自整文件读改写会互相覆盖),
+ * 配合 writeMemoryHubAnalysisState 的 tmp+rename 原子落盘, 不会丢对方的
+ * lastAnalysisAt / 缓存 (review: 并发分析丢失缓存状态)。
+ */
+let stateWriteQueue: Promise<void> = Promise.resolve();
+
 export function cacheMemoryHubAiAnalysis(
   scopeKey: string,
   result: MemoryHubAiAnalysisResult,
   rootPath?: string,
 ): void {
-  const state = readMemoryHubAnalysisState(rootPath);
-  state.byScope[scopeKey] = { lastAnalysisAt: result.generatedAt, cached: result };
-  writeMemoryHubAnalysisState(state, rootPath);
+  stateWriteQueue = stateWriteQueue.then(() => {
+    const state = readMemoryHubAnalysisState(rootPath);
+    state.byScope[scopeKey] = { lastAnalysisAt: result.generatedAt, cached: result };
+    writeMemoryHubAnalysisState(state, rootPath);
+  });
 }
 
 export function startMemoryHubBackgroundAnalysis(deps: {
