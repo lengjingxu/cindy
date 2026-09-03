@@ -20,6 +20,7 @@ import { McpServersSection } from './McpServersSection';
 import { RemoteControlSection } from './RemoteControlSection';
 import { NotificationSection } from './NotificationSection';
 import { WindowBehaviorSection } from './WindowBehaviorSection';
+import { SessionTitleSection } from './SessionTitleSection';
 import { ComposerSendShortcutSection } from './ComposerSendShortcutSection';
 import { KeyboardShortcutsSection } from './KeyboardShortcutsSection';
 import { AgentIslandSection } from './AgentIslandSection';
@@ -353,6 +354,15 @@ export function SettingsView() {
                       aria-label={t('settings.sections.windowBehavior')}
                     >
                       <WindowBehaviorSection />
+                    </section>
+
+                    {/* Section — Session title auto-update (任务标题自动更新)。 */}
+                    <section
+                      id="settings-session-title"
+                      className="py-[18px]"
+                      aria-label={t('settings.sections.sessionTitle')}
+                    >
+                      <SessionTitleSection />
                     </section>
 
                     {/* Section — Composer send shortcut (应用级、本地输入偏好)。 */}

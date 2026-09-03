@@ -171,6 +171,11 @@ export async function isSessionAutoTitleEligible(sessionId: string): Promise<boo
   return eligible;
 }
 
+/** 动态任务标题刷新用:该会话是否被用户手动改过名(本进程内记号)。 */
+export function hasSessionBeenManuallyRenamed(sessionId: string): boolean {
+  return manuallyRenamed.has(sessionId);
+}
+
 async function runUnsynchronized(
   request: SessionAutoTitleRequest,
   deps: SessionAutoTitleDeps,
