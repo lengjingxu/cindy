@@ -28,6 +28,11 @@ vi.mock('../../session-title-settings-store.js', () => ({
   readSessionTitleSettings: vi.fn(() => ({ dynamicTitleEnabled: true })),
 }));
 
+vi.mock('../../session-title-user-renames-store.js', () => ({
+  hasPersistedManualSessionTitleRename: vi.fn(() => false),
+  noteSessionTitleManuallyRenamed: vi.fn(),
+}));
+
 vi.mock('../sessionAutoTitle.js', () => ({
   hasSessionBeenManuallyRenamed: vi.fn(() => false),
   isSessionAutoTitleEligible: vi.fn(),
@@ -161,11 +166,12 @@ describe('resolveDynamicTitleEligibility', () => {
       agentKind: 'codex',
     });
     expect(resolveDynamicTitleEligibility(makeRow({ title: '0903｜修复｜x' }), false).ok).toBe(true);
+    expect(resolveDynamicTitleEligibility(makeRow({ title: '你好' }), false).ok).toBe(true);
   });
 
-  it('skips user-owned, renamed, archived, worker and hidden-source sessions', () => {
+  it('skips renamed, archived, worker and hidden-source sessions', () => {
     expect(resolveDynamicTitleEligibility(makeRow(), true)).toEqual({ ok: false, reason: 'manually-renamed' });
-    expect(resolveDynamicTitleEligibility(makeRow({ title: '我自己起的名字' }), false).ok).toBe(false);
+    expect(resolveDynamicTitleEligibility(makeRow({ title: '我自己起的名字' }), false).ok).toBe(true);
     expect(resolveDynamicTitleEligibility(makeRow({ status: 'archived' }), false).ok).toBe(false);
     expect(resolveDynamicTitleEligibility(makeRow({ orcaRole: 'worker' }), false).ok).toBe(false);
     expect(resolveDynamicTitleEligibility(makeRow({ source: 'hidden-source' }), false).ok).toBe(false);
@@ -192,10 +198,10 @@ describe('refreshSessionDynamicTitle', () => {
     expect(deps.generateTitle).not.toHaveBeenCalled();
   });
 
-  it('skips user-curated titles that match neither placeholder nor pattern', async () => {
-    const deps = makeDeps({ readSessionRow: vi.fn(async () => makeRow({ title: '我自己起的名字' })) });
-    await expect(refreshSessionDynamicTitle('s1', deps)).resolves.toEqual({ applied: false });
-    expect(deps.generateTitle).not.toHaveBeenCalled();
+  it('rewrites first-message auto titles such as 你好', async () => {
+    const deps = makeDeps({ readSessionRow: vi.fn(async () => makeRow({ title: '你好' })) });
+    await expect(refreshSessionDynamicTitle('s1', deps)).resolves.toEqual({ applied: true });
+    expect(deps.persistTitle).toHaveBeenCalledWith('s1', '0903｜修复｜维护者确认门分析', '你好');
   });
 
   it('throttles repeat attempts within the cooldown window', async () => {

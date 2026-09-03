@@ -144,6 +144,9 @@ export function registerSessionAutoTitleHooks(hooks?: {
   setOnUserSessionTitleWritten((sessionId) => {
     manuallyRenamed.add(sessionId);
     synthesizedPlaceholders.delete(sessionId);
+    void import('../session-title-user-renames-store.js')
+      .then((store) => store.noteSessionTitleManuallyRenamed(sessionId))
+      .catch(() => undefined);
   });
   if (hooks?.isUserMessageScreeningActive) {
     isUserMessageScreeningActive = hooks.isUserMessageScreeningActive;

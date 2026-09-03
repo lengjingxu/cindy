@@ -8,17 +8,14 @@
  * 任务的实质与进度,而不是停在「第一句话」。
  *
  * 保护与节制:
- *  - 用户手动改过名的会话永不覆盖(与自动起名共用 manuallyRenamed 记号);
- *  - 重启后靠形状识别:只有「系统占位」或「本模式写出的 MMDD｜TYPE｜Topic」
- *    可继续更新,其余标题一律视为用户自定义并跳过。已知取舍:用户手动保存
- *    一个恰好长得像本格式的串,之后仍可能被刷新覆盖;
- *  - per-session 冷却窗,连续短 turn 不放大模型调用;
+ *  - 用户手动改过名的任务永不覆盖(进程内记号 + userData 持久化);
+ *  - 开关打开后会覆盖首条自动起名(例如「你好」)和本模式历史标题;
+*  - per-session 冷却窗,连续短 turn 不放大模型调用;
  *  - 解析失败 / 模型无结果 / 供应商不可用 → 保留原标题,fire-and-forget,
  *    绝不阻塞 turn 主流程,也不向用户暴露失败。
  */
 
 import type { AgentKind } from '@cindy/maker-core';
-import { DEFAULT_DRAFT_SESSION_TITLE } from '@cindy/maker-shared/session-title';
 import { eq } from 'drizzle-orm';
 
 import { getDbClient } from '../localDb/client/current.js';
@@ -34,10 +31,10 @@ import {
 import { DESKTOP_VISIBLE_SESSION_SOURCES } from '../../shared/sessionSource.js';
 import { createLogger } from '../logger.js';
 import { readSessionTitleSettings } from '../session-title-settings-store.js';
+import { hasPersistedManualSessionTitleRename } from '../session-title-user-renames-store.js';
 import { hasSessionBeenManuallyRenamed } from './sessionAutoTitle.js';
 import {
   buildDynamicSessionTitle,
-  isDynamicTitlePattern,
   parseDynamicTitleModelOutput,
   shouldAttemptDynamicTitle,
 } from './dynamicSessionTitle.logic.js';
@@ -70,8 +67,8 @@ export type DynamicTitleEligibility =
   | { ok: false; reason: string };
 
 /**
- * 刷新资格:可见 source、非 Orca worker、有 createdAt,且标题属于
- * 「系统占位」或「本模式历史写出」—— 其余一律视为用户自定义。
+ * 刷新资格:开关打开 = Cindy 可以改标题,除非用户手动改过名。
+ * 首条自动起名(「你好」这类)必须能被覆盖,否则开关对真实任务永远不生效。
  */
 export function resolveDynamicTitleEligibility(
   row: DynamicTitleSessionRow,
@@ -86,9 +83,6 @@ export function resolveDynamicTitleEligibility(
   }
   if (row.orcaRole === 'worker') return { ok: false, reason: 'orca-worker' };
   if (row.createdAt == null) return { ok: false, reason: 'no-created-at' };
-  const overwritable =
-    row.title === DEFAULT_DRAFT_SESSION_TITLE || isDynamicTitlePattern(row.title);
-  if (!overwritable) return { ok: false, reason: 'title-not-system-owned' };
   const agentKind =
     row.agentKind === 'codex' || row.agentKind === 'pi' ? row.agentKind : 'claude-code';
   return {
@@ -156,7 +150,8 @@ const defaultDeps: DynamicTitleDeps = {
   collectMaterial: (sessionId, recentLimit) => regenerateTitleMaterial(sessionId, recentLimit),
   generateTitle: generateDynamicTitleViaProvider,
   persistTitle: persistSessionTitleIfStillDraft,
-  hasBeenManuallyRenamed: hasSessionBeenManuallyRenamed,
+  hasBeenManuallyRenamed: (sessionId) =>
+    hasSessionBeenManuallyRenamed(sessionId) || hasPersistedManualSessionTitleRename(sessionId),
   now: () => Date.now(),
 };
 
