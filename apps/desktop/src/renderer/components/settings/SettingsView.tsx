@@ -356,15 +356,6 @@ export function SettingsView() {
                       <WindowBehaviorSection />
                     </section>
 
-                    {/* Section — Session title auto-update (任务标题自动更新)。 */}
-                    <section
-                      id="settings-session-title"
-                      className="py-[18px]"
-                      aria-label={t('settings.sections.sessionTitle')}
-                    >
-                      <SessionTitleSection />
-                    </section>
-
                     {/* Section — Composer send shortcut (应用级、本地输入偏好)。 */}
                     <section
                       id="settings-composer"
@@ -448,6 +439,14 @@ export function SettingsView() {
                 </section>
                 <section className="pb-[18px]" aria-label={t('settings.sections.subagentModels')}>
                   <SubagentModelSection key={`subagent-models:${mode}:${dataOwnerId ?? 'none'}`} />
+                </section>
+                {/* 任务标题自动更新：和「任务自动命名」模型选择放在一起。 */}
+                <section
+                  id="settings-session-title"
+                  className="pb-[18px]"
+                  aria-label={t('settings.sections.sessionTitle')}
+                >
+                  <SessionTitleSection />
                 </section>
                 <section className="pb-[18px]" aria-label={t('settings.sections.auxiliaryModels')}>
                   <AuxiliaryModelSection

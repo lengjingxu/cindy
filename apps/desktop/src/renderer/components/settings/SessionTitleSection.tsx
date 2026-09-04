@@ -3,7 +3,7 @@
  *
  * 开启后,任务每轮收尾由 main 自动把标题更新成「日期｜类型｜主题」全中文格式,
  * 让侧边栏只看标题就能分辨任务的实质与进度。手动改过的名字永不覆盖
- * (见 maker-ipc/dynamicSessionTitle.ts)。卡片样式与 WindowBehaviorSection 一致。
+ * (见 maker-ipc/dynamicSessionTitle.ts)。放在设置「个性化」、紧挨「任务自动命名」模型选择；卡片样式沿用设置页开关卡。
  */
 
 import { useState } from 'react';
