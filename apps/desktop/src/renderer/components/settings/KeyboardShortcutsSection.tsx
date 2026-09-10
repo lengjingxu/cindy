@@ -62,6 +62,8 @@ import {
   type GamepadFamily,
 } from '../../../shared/xboxGamepad';
 import { XboxGamepadEntry, XboxGamepadSettings } from './XboxGamepadSettings';
+import { PassportSettings } from './PassportSettings';
+import { Button } from '@/components/ui/button';
 
 const log = createLogger('settings:keyboard-shortcuts');
 
@@ -72,7 +74,7 @@ function shouldShowHardwareOutside(device: {
   return device.present === true || device.enabled === true;
 }
 
-type HardwarePane = 'list' | 'accessories' | WorkLouderModel | GamepadFamily;
+type HardwarePane = 'list' | 'accessories' | 'passport' | WorkLouderModel | GamepadFamily;
 
 function AccessoriesEntry({ onOpen }: { onOpen(): void }) {
   const { t } = useTranslation();
@@ -369,6 +371,7 @@ export function KeyboardShortcutsSection() {
       />
     );
   }
+  if (hardwarePane === 'passport') return <PassportSettings onBack={() => setHardwarePane('accessories')} />;
   if (hardwarePane === 'accessories') {
     return (
       <div className="flex flex-col gap-[14px]">
@@ -393,6 +396,7 @@ export function KeyboardShortcutsSection() {
             '[&>*+*]:border-t [&>*+*]:border-[var(--settings-theme-card-border)]',
           )}
         >
+          <Button onClick={() => setHardwarePane('passport')}>Cindy Passport</Button>
           {VISIBLE_WORKLOUDER_MODELS.map((model) => (
             <WorkLouderCodexEntry
               key={model}

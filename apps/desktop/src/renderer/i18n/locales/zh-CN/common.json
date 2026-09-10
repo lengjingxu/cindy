@@ -169,6 +169,27 @@
     }
   },
   "settings": {
+    "passport": {
+      "back": "返回",
+      "description": "在 Passport 上查看任务并录音。Cindy 将录音转成文字放入所选任务，检查草稿后再发送。",
+      "enabled": "启用 Passport",
+      "unsupported": "需要 macOS",
+      "disabled": "已停用",
+      "connected": "已连接",
+      "scanning": "选择附近的 Passport，并输入设备屏幕显示的配对码",
+      "bluetooth": "请允许 Cindy 使用蓝牙，并打开电脑蓝牙",
+      "connect": "连接",
+      "disconnect": "断开并取消自动连接",
+      "reset": "恢复默认",
+      "error": "无法更新 Passport，请重试",
+      "voice": {
+        "idle": "在 Passport 上选择任务后录音",
+        "recording": "正在接收录音",
+        "transcribing": "Cindy 正在转写",
+        "draft": "文字等待填入所选任务的空白草稿",
+        "error": "录音或转写失败，请重新录音"
+      }
+    },
     "title": "设置",
     "back": "返回",
     "defaults": {
