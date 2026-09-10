@@ -169,6 +169,27 @@
     }
   },
   "settings": {
+    "passport": {
+      "back": "Back",
+      "description": "View tasks and record on Passport. Cindy transcribes the audio into the selected task. Review the draft before sending.",
+      "enabled": "Enable Passport",
+      "unsupported": "Requires macOS",
+      "disabled": "Disabled",
+      "connected": "Connected",
+      "scanning": "Choose a nearby Passport and enter the code shown on its screen",
+      "bluetooth": "Allow Cindy Bluetooth access and turn on Bluetooth",
+      "connect": "Connect",
+      "disconnect": "Disconnect and stop reconnecting",
+      "reset": "Reset to default",
+      "error": "Could not update Passport. Try again.",
+      "voice": {
+        "idle": "Choose a task on Passport to record",
+        "recording": "Receiving recording",
+        "transcribing": "Transcribing with Cindy",
+        "draft": "Text is waiting for an empty draft in the selected task",
+        "error": "Recording or transcription failed. Record again."
+      }
+    },
     "title": "Settings",
     "back": "Back",
     "defaults": {

@@ -1798,6 +1798,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  passport: {
+    getState: () => ipcRenderer.invoke('passport:state'),
+    setEnabled: (enabled: boolean | null) => ipcRenderer.invoke('passport:enabled', enabled),
+    connect: (id: string) => ipcRenderer.invoke('passport:connect', id),
+    disconnect: () => ipcRenderer.invoke('passport:disconnect'),
+    getDictation: (sessionId: string) => ipcRenderer.invoke('passport:dictation', sessionId),
+    acknowledgeDictation: (token: string) => ipcRenderer.invoke('passport:dictation-ack', token),
+  } satisfies import('../shared/passport').PassportApi,
+
   xboxGamepad: {
     getState: (): Promise<GamepadAccessoriesState> =>
       ipcRenderer.invoke(XBOX_GAMEPAD_GET_STATE_CHANNEL),

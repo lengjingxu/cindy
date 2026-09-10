@@ -169,6 +169,27 @@
     }
   },
   "settings": {
+    "passport": {
+      "back": "戻る",
+      "description": "Passport でタスクを確認して録音できます。Cindy が音声を文字に変換し、選択したタスクの下書きに入力します。内容を確認してから送信してください。",
+      "enabled": "Passport を有効にする",
+      "unsupported": "macOS が必要です",
+      "disabled": "無効",
+      "connected": "接続済み",
+      "scanning": "近くの Passport を選び、デバイスに表示されたコードを入力してください",
+      "bluetooth": "Cindy の Bluetooth アクセスを許可し、Bluetooth をオンにしてください",
+      "connect": "接続",
+      "disconnect": "切断して自動接続を停止",
+      "reset": "デフォルトに戻す",
+      "error": "Passport を更新できませんでした。もう一度お試しください",
+      "voice": {
+        "idle": "Passport でタスクを選択して録音してください",
+        "recording": "録音を受信中",
+        "transcribing": "Cindy が文字起こし中",
+        "draft": "選択したタスクの下書きが空になるのを待っています",
+        "error": "録音または文字起こしに失敗しました。もう一度録音してください"
+      }
+    },
     "title": "設定",
     "back": "戻る",
     "defaults": {

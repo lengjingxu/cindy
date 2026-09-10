@@ -3994,6 +3994,32 @@ export function CCAgentSessionView({
   // 只回填、不自动补发(理由见 pendingFirstMessage 的「可恢复副本」注释)。
   // 内存里还有 pending 时不该走这里 —— 那是正常交接,由下面的消费逻辑负责。
   const handoffRestoredRef = useRef<string | null>(null);
+  // Passport dictation belongs to the selected local task. Never send it or
+  // overwrite an existing draft; retain it in main until the composer is empty.
+  const passportDraftToken = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionId || isRemoteSession || readOnly) return;
+    let disposed = false, polling = false;
+    const poll = async (): Promise<void> => {
+      if (polling || getComposerDraftPresence(sessionId)) return;
+      polling = true;
+      const owner = getDataOwnerGeneration();
+      try {
+        const draft = await window.electronAPI.passport.getDictation(sessionId);
+        if (disposed || !isDataOwnerGenerationCurrent(owner) || !draft ||
+            !isDataOwnerPushCurrent(draft.ownerStamp) || getComposerDraftPresence(sessionId)) return;
+        if (passportDraftToken.current !== draft.token) {
+          saveComposerDraft(sessionId, { text: plainTextToTiptapDoc(draft.text), attachments: [] });
+          passportDraftToken.current = draft.token;
+        }
+        await window.electronAPI.passport.acknowledgeDictation(draft.token);
+      } catch { log.warn('Passport dictation could not be loaded'); }
+      finally { polling = false; }
+    };
+    void poll();
+    const timer = setInterval(() => { void poll(); }, 1000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [sessionId, isRemoteSession, readOnly]);
   const restoreRecoverableHandoff = useCallback(
     (kind: RecoverableHandoffKind) => {
       if (!sessionId) return;
