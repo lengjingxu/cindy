@@ -171,7 +171,13 @@
   "settings": {
     "passport": {
       "back": "戻る",
-      "description": "Passport でタスクを確認して録音できます。Cindy が音声を文字に変換し、選択したタスクの下書きに入力します。内容を確認してから送信してください。",
+      "title": "Cindy Passport",
+      "loading": "読み込み中",
+      "entryDescription": "タスクの状態や返信を確認し、音声でタスクを続けます。",
+      "description": "デバイスでタスクの状態や返信を読み、録音後に文字を確認して送信します。音声認識には Cindy の音声入力設定を使います。",
+      "disconnected": "未接続",
+      "devices": "Bluetooth デバイス",
+      "voiceTitle": "音声で返信",
       "enabled": "Passport を有効にする",
       "unsupported": "macOS が必要です",
       "disabled": "無効",
@@ -186,7 +192,8 @@
         "idle": "Passport でタスクを選択して録音してください",
         "recording": "録音を受信中",
         "transcribing": "Cindy が文字起こし中",
-        "draft": "選択したタスクの下書きが空になるのを待っています",
+        "draft": "Passport で文字を確認し、OK を押して送信してください",
+        "sending": "選択したタスクに送信中",
         "error": "録音または文字起こしに失敗しました。もう一度録音してください"
       }
     },
