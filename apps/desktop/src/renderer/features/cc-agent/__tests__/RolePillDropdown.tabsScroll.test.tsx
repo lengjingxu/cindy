@@ -110,10 +110,12 @@ describe('WorkerTabsList overflow scrolling', () => {
     const scroller = screen.getByTestId('worker-tabs-scroller');
     mockScrollerOverflow(scroller, { clientWidth: 400, scrollWidth: 200 });
     fireEvent.scroll(scroller);
-    const left = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeft' });
-    const right = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersRight' });
+    const left = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeftEdge' });
+    const right = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersRightEdge' });
     expect(left.getAttribute('aria-disabled')).toBe('true');
     expect(right.getAttribute('aria-disabled')).toBe('true');
+    expect(left.getAttribute('tabindex')).toBe('-1');
+    expect(right.getAttribute('tabindex')).toBe('-1');
   });
 
   it('shows a right arrow when tabs overflow and scrolls one step', () => {
@@ -124,10 +126,14 @@ describe('WorkerTabsList overflow scrolling', () => {
     scroller.scrollBy = scrollBy;
     fireEvent.scroll(scroller);
 
-    const left = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeft' });
+    const left = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeftEdge' });
     const right = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersRight' });
     expect(left.getAttribute('aria-disabled')).toBe('true');
     expect(right.getAttribute('aria-disabled')).toBeNull();
+    expect(left.getAttribute('tabindex')).toBe('-1');
+    expect(right.getAttribute('tabindex')).toBe('0');
+    expect(left.className).toContain('focus-visible:ring-[var(--focus-ring)]');
+    expect(right.className).toContain('focus-visible:ring-[var(--focus-ring)]');
     fireEvent.click(right);
     expect(scrollBy).toHaveBeenCalledWith({ left: workerTabsScrollStep(200), behavior: 'smooth' });
   });
@@ -167,6 +173,36 @@ describe('WorkerTabsList overflow scrolling', () => {
 
     expect(right.getAttribute('aria-disabled')).toBe('true');
     expect(document.activeElement).toBe(right);
+    expect(right.getAttribute('tabindex')).toBe('-1');
+    expect(screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersRightEdge' })).toBe(right);
+    expect(right.className).toContain('focus-visible:ring-[var(--focus-ring)]');
+  });
+
+  it('keeps keyboard focus on the left arrow after it reaches the start', async () => {
+    vi.useFakeTimers();
+    renderOverflowToolbar();
+    const scroller = screen.getByTestId('worker-tabs-scroller');
+    mockScrollerOverflow(scroller, { scrollLeft: 240, clientWidth: 200, scrollWidth: 800 });
+    fireEvent.scroll(scroller);
+
+    const left = screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeft' });
+    await act(async () => {
+      left.focus();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    mockScrollerOverflow(scroller, { scrollLeft: 0, clientWidth: 200, scrollWidth: 800 });
+    fireEvent.scroll(scroller);
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(left.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(left);
+    expect(left.getAttribute('tabindex')).toBe('-1');
+    expect(screen.getByRole('button', { name: 'orca.rolePill.scrollWorkersLeftEdge' })).toBe(left);
   });
 
   it('scrolls instantly for reduced motion users', () => {
