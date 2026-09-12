@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InputDeviceHost } from '../../input-devices/registry.js';
 
@@ -202,7 +203,7 @@ describe('Passport host transcription boundary', () => {
   });
   it('waits for the previous helper to exit before starting another one', async () => {
     const oldChild = mocks.spawn.mock.results[0].value;
-    expect(mocks.createHelperLock).toHaveBeenCalledWith('/test/profile/passport-helper-ownership.lock.db');
+    expect(mocks.createHelperLock).toHaveBeenCalledWith(path.join('/test/profile', 'passport-helper-ownership.lock.db'));
     host.suspendTaskSlots();
     const resume = host.resumeTaskSlots();
     await flush();
