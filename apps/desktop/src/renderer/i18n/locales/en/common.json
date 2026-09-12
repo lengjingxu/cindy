@@ -186,7 +186,8 @@
         "idle": "Choose a task on Passport to record",
         "recording": "Receiving recording",
         "transcribing": "Transcribing with Cindy",
-        "draft": "Text is waiting for an empty draft in the selected task",
+        "draft": "Review the text on Passport and press OK to send",
+        "sending": "Sending to the selected task",
         "error": "Recording or transcription failed. Record again."
       }
     },

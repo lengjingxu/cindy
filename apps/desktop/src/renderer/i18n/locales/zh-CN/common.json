@@ -186,7 +186,8 @@
         "idle": "在 Passport 上选择任务后录音",
         "recording": "正在接收录音",
         "transcribing": "Cindy 正在转写",
-        "draft": "文字等待填入所选任务的空白草稿",
+        "draft": "请在 Passport 上检查文字并按确认发送",
+        "sending": "正在向所选任务发送",
         "error": "录音或转写失败，请重新录音"
       }
     },

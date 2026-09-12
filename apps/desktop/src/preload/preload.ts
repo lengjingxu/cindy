@@ -1805,7 +1805,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     connect: (id: string) => ipcRenderer.invoke('passport:connect', id),
     disconnect: () => ipcRenderer.invoke('passport:disconnect'),
     getDictation: (sessionId: string) => ipcRenderer.invoke('passport:dictation', sessionId),
-    acknowledgeDictation: (token: string) => ipcRenderer.invoke('passport:dictation-ack', token),
+    acknowledgeDictation: (token: string, sent: boolean) => ipcRenderer.invoke('passport:dictation-ack', token, sent),
   } satisfies import('../shared/passport').PassportApi,
 
   xboxGamepad: {

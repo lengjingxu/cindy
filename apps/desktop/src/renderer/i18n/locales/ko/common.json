@@ -186,7 +186,8 @@
         "idle": "Passport에서 작업을 선택한 후 녹음하세요",
         "recording": "녹음 수신 중",
         "transcribing": "Cindy가 텍스트로 변환 중",
-        "draft": "선택한 작업의 초안이 비워지기를 기다리고 있습니다",
+        "draft": "Passport에서 내용을 확인하고 OK를 눌러 보내세요",
+        "sending": "선택한 작업에 보내는 중",
         "error": "녹음 또는 텍스트 변환에 실패했습니다. 다시 녹음하세요"
       }
     },

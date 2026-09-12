@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AgentIslandSessionActivity } from '../../../shared/agentIsland.js';
-import { encodeSnapshot, parseHelperLine, passportTasks, PassportTaskHistory } from '../protocol.js';
+import { encodeSnapshot, parseHelperLine, passportTasks, PassportTaskHistory, passportTextPage } from '../protocol.js';
 import { PassportController } from '../controller.js';
 
 const task = { id: 'session-1', title: 'Task title', status: 'waiting', message: 'Needs your input' };
@@ -10,6 +10,42 @@ const activity = (id: string, phase: AgentIslandSessionActivity['phase']): Agent
   gracefulStopState: 'none', source: 'live',
 });
 describe('Passport BLE protocol', () => {
+  it('keeps the task being read visible without erasing terminal history', () => {
+    const catalog = Array.from({ length: 9 }, (_, i) => ({ id: `task-${i}`, title: `Task ${i}` }));
+    const history = new PassportTaskHistory();
+    history.observe([activity('task-0', 'error')]);
+    const running = catalog.slice(1, 8).map((task) => activity(task.id, 'running'));
+    const tasks = history.tasks(catalog, running, 'task-8');
+    expect(tasks).toHaveLength(8);
+    expect(tasks.some((task) => task.id === 'task-8')).toBe(true);
+    expect(history.tasks(catalog, []).find((task) => task.id === 'task-0')?.status).toBe('failed');
+  });
+  it('pages complete Chinese replies inside the existing message field', () => {
+    const text = '这是完整的回复，需要逐页阅读。'.repeat(50);
+    let joined = '';
+    for (let i = 0; ; i++) {
+      const page = passportTextPage(text, i);
+      if (page.page !== i) break;
+      expect(Buffer.byteLength(page.message)).toBeLessThan(192);
+      expect(page.message.split('\n').length).toBeLessThanOrEqual(5);
+      joined += page.message.split('\n').slice(1).join('');
+    }
+    expect(joined).toBe(text);
+  });
+  it('validates the task and recording token on control events', () => {
+    const event = { kind: 'action', action: 5, id: task.id, token: 0x12345678 };
+    expect(parseHelperLine(JSON.stringify(event))).toEqual(event);
+    for (const patch of [{ token: -1 }, { token: 2 ** 32 }, { action: 7 }, { id: '中'.repeat(20) }]) {
+      expect(parseHelperLine(JSON.stringify({ ...event, ...patch }))).toBeNull();
+    }
+    const action = vi.fn();
+    const controller = new PassportController(() => {}, () => {}, action);
+    controller.update([task]);
+    controller.handle(JSON.stringify(event));
+    expect(action).not.toHaveBeenCalled();
+    controller.handle('{"kind":"ready"}'); controller.handle(JSON.stringify(event));
+    expect(action).toHaveBeenCalledOnce();
+  });
   it('matches the firmware fixed-width v1 frame', () => {
     const bytes = encodeSnapshot([task]);
     expect(bytes.length).toBe(332);
@@ -27,10 +63,13 @@ describe('Passport BLE protocol', () => {
     expect(() => encodeSnapshot([task, task])).toThrow();
     expect(() => encodeSnapshot(Array(9).fill(task))).toThrow();
   });
-  it('uses Cindy states and the canonical catalog, with waiting first', () => {
-    expect(passportTasks([activity('done', 'completed'), activity('wait', 'needs-interaction'),
-      activity('hidden', 'running')], new Map([['done', 'Done'], ['wait', 'Waiting']]))
-      .map((t) => [t.id, t.status])).toEqual([['wait', 'waiting'], ['done', 'done']]);
+  it('lists every catalog task, live ones first, and marks idle ones done', () => {
+    expect(passportTasks(
+      [{ id: 'done', title: 'Done' }, { id: 'wait', title: 'Waiting' }, { id: 'idle', title: null }],
+      [activity('done', 'completed'), activity('wait', 'needs-interaction'), activity('hidden', 'running')],
+    ).map((t) => [t.id, t.status, t.title])).toEqual([
+      ['wait', 'waiting', 'Waiting'], ['done', 'done', 'Done'], ['idle', 'done', ''],
+    ]);
   });
   it('rejects malformed or unauthorized helper actions', () => {
     expect(parseHelperLine('{')).toBeNull();
@@ -74,21 +113,21 @@ describe('Passport BLE protocol', () => {
 });
 
 describe('Passport completed tasks', () => {
+  const catalog = [{ id: 's1', title: '中文任务' }];
   it('retains completed tasks after overlay expiry, then replaces them when work resumes', () => {
     const history = new PassportTaskHistory();
-    const titles = new Map([['s1', '中文任务']]);
     history.observe([activity('s1', 'completed')]);
-    expect(history.tasks([], titles)[0]).toMatchObject({ id: 's1', status: 'done', title: '中文任务' });
+    expect(history.tasks(catalog, [])[0]).toMatchObject({ id: 's1', status: 'done', title: '中文任务' });
     history.observe([activity('s1', 'running')]);
-    expect(history.tasks([activity('s1', 'running')], titles)[0].status).toBe('running');
-    expect(history.tasks([], titles)).toEqual([]);
+    expect(history.tasks(catalog, [activity('s1', 'running')])[0].status).toBe('running');
+    expect(history.tasks([], [])).toEqual([]);
   });
-  it('removes archived tasks and clears records at the owner lifecycle boundary', () => {
+  it('forgets remembered detail for archived tasks and across owner changes', () => {
     const history = new PassportTaskHistory();
     history.observe([activity('s1', 'completed')]);
-    expect(history.tasks([], new Map())).toEqual([]);
-    expect(history.tasks([], new Map([['s1', 'Restored']]))).toEqual([]);
+    expect(history.tasks([], [])).toEqual([]);
+    expect(history.tasks(catalog, [])[0].message).toBe('');
     history.observe([activity('s1', 'completed')]); history.clear();
-    expect(history.tasks([], new Map([['s1', 'Other owner']]))).toEqual([]);
+    expect(history.tasks(catalog, [])[0].message).toBe('');
   });
 });

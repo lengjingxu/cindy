@@ -4,11 +4,11 @@
 export class PassportVoice {
   private recording: { token: number; id: string; packets: Buffer[]; started: number } | null = null;
   reset(): void { this.recording = null; }
-  accept(packet: Buffer, canRecord: (id: string) => boolean, now = Date.now()): { id: string; audio: Buffer } | null {
+  accept(packet: Buffer, canRecord: (id: string) => boolean, now = Date.now()): { id: string; token: number; audio: Buffer } | null {
     try { return this.read(packet, canRecord, now); }
     catch (error) { this.reset(); throw error; }
   }
-  private read(p: Buffer, canRecord: (id: string) => boolean, now: number): { id: string; audio: Buffer } | null {
+  private read(p: Buffer, canRecord: (id: string) => boolean, now: number): { id: string; token: number; audio: Buffer } | null {
     if (p.length < 7 || p.length > 127) throw new Error('Invalid voice packet');
     const kind = p[0], token = p.readUInt32LE(1), sequence = p.readUInt16LE(5);
     if (kind === 1) {
@@ -29,7 +29,7 @@ export class PassportVoice {
     }
     if (kind !== 3 || p.length !== 7 || !r.packets.length) throw new Error('Invalid voice finish');
     this.reset();
-    return { id: r.id, audio: opusOgg(r.packets, r.token) };
+    return { id: r.id, token: r.token, audio: opusOgg(r.packets, r.token) };
   }
 }
 

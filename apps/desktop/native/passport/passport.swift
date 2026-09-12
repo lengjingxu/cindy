@@ -25,6 +25,8 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     var ready = false
     var epoch = 0
     var retry: DispatchWorkItem?
+    var attempts = 0
+    var seen: [UUID: Date] = [:]
     var deadline: DispatchWorkItem?
     let preferences: UserDefaults
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -59,6 +61,7 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     func connect(_ id: UUID) {
         guard let next = devices[id] else { return }
         preferences.set(id.uuidString, forKey: "device")
+        attempts = 0
         reset()
         if let old = device { central.cancelPeripheralConnection(old) }
         device = next; next.delegate = self
@@ -86,12 +89,24 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     }
     func centralManager(_ central: CBCentralManager, didDiscover p: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         devices[p.identifier] = p; refreshMenu()
-        if device == nil && selected == p.identifier.uuidString {
-            device = p; p.delegate = self; central.connect(p)
+        guard selected == p.identifier.uuidString else { return }
+        let now = Date()
+        // The page that owns the radio stops advertising when it closes, so a
+        // fresh sighting after a gap means the device just came back. Reconnect
+        // at once with a cleared backoff, but only then: a device that keeps
+        // advertising while connect() fails must not be hammered.
+        let gap = now.timeIntervalSince(seen[p.identifier] ?? .distantPast)
+        seen[p.identifier] = now
+        if device == nil || (p.state == .disconnected && gap >= 5) {
+            attempts = 0
+            retry?.cancel(); retry = nil
+            device = p; p.delegate = self
+            central.connect(p)
         }
     }
     func centralManager(_ central: CBCentralManager, didConnect p: CBPeripheral) {
         guard p == device else { central.cancelPeripheralConnection(p); return }
+        attempts = 0
         p.discoverServices([serviceID])
     }
     func reconnect(_ p: CBPeripheral) {
@@ -99,11 +114,16 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         reset()
         guard selected == p.identifier.uuidString, central.state == .poweredOn else { device = nil; return }
         let generation = epoch
+        // macOS denies connections from a central that retries without pause, so
+        // back off 3s, 6s, 12s, 24s and then 30s instead of reconnecting on a
+        // fixed interval.
+        attempts = min(attempts + 1, 5)
+        let delay = min(30, 3 * pow(2, Double(attempts - 1)))
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.epoch == generation, self.selected == p.identifier.uuidString else { return }
             self.central.connect(p)
         }
-        retry = work; DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
+        retry = work; DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) { reconnect(p) }
     func centralManager(_ central: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) { reconnect(p) }
@@ -137,6 +157,17 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
         }
         if bytes.count == 1 && bytes[0] == 1 {
             if !reading { reading = true; p.readValue(for: characteristic) }
+            return
+        }
+        if bytes.count == 46 && bytes[0] == 2 {
+            let raw = bytes.subdata(in: 2..<42)
+            guard ready, bytes[1] >= 1, bytes[1] <= 6,
+                  let end = raw.firstIndex(of: 0), end > 0,
+                  raw[end...].allSatisfy({ $0 == 0 }),
+                  let id = String(data: raw.prefix(end), encoding: .utf8) else { fail(p); return }
+            var token: UInt32 = 0
+            for i in 0..<4 { token |= UInt32(bytes[42 + i]) << (i * 8) }
+            emit(["kind": "action", "action": Int(bytes[1]), "id": id, "token": token])
             return
         }
         guard bytes.count == 40 else { fail(p); return }

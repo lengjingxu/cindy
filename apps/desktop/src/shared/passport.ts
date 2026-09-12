@@ -12,13 +12,14 @@ export interface PassportState {
   connected: boolean;
   devices: string[];
   bluetooth: number;
-  voice: 'idle' | 'recording' | 'transcribing' | 'draft' | 'error';
+  voice: 'idle' | 'recording' | 'transcribing' | 'draft' | 'sending' | 'error';
 }
 export interface PassportApi {
   getState(): Promise<PassportState>;
   setEnabled(enabled: boolean | null): Promise<void>;
   connect(id: string): Promise<void>;
   disconnect(): Promise<void>;
+  /** Atomically claims hardware-confirmed text for delivery; not a read-only query. */
   getDictation(sessionId: string): Promise<PassportDictation | null>;
-  acknowledgeDictation(token: string): Promise<void>;
+  acknowledgeDictation(token: string, sent: boolean): Promise<void>;
 }
