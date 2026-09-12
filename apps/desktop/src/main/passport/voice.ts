@@ -1,5 +1,5 @@
 /** Passport voice characteristic v1: kind, uint32 token, uint16 sequence, payload.
- * Fixed 16 kHz mono Opus, 60 ms / 120 bytes. Never transcribe partial audio.
+ * Fixed 16 kHz mono Opus, 40 ms / <=120 bytes. Never transcribe partial audio.
  */
 export class PassportVoice {
   private recording: { token: number; id: string; packets: Buffer[]; started: number } | null = null;
@@ -24,7 +24,7 @@ export class PassportVoice {
     if (!r || r.token !== token || sequence !== r.packets.length || now - r.started > 45000 || !canRecord(r.id))
       throw new Error('Interrupted voice recording');
     if (kind === 4 && p.length === 7) { this.reset(); return null; }
-    if (kind === 2 && p.length === 127 && r.packets.length < 502) {
+    if (kind === 2 && p.length >= 8 && p.length <= 127 && r.packets.length < 752) {
       r.packets.push(Buffer.from(p.subarray(7))); return null;
     }
     if (kind !== 3 || p.length !== 7 || !r.packets.length) throw new Error('Invalid voice finish');
@@ -53,5 +53,6 @@ export function opusOgg(packets: readonly Buffer[], serial: number): Buffer {
     out.writeUInt32LE(crc >>> 0, 22); return out;
   };
   return Buffer.concat([page(head, 0, 2, 0), page(tags, 1, 0, 0),
-    ...packets.map((p, i) => page(p, i + 2, i === packets.length - 1 ? 4 : 0, (i + 1) * 2880))]);
+    // Ogg Opus granules always use 48 kHz, independent of the 16 kHz input.
+    ...packets.map((p, i) => page(p, i + 2, i === packets.length - 1 ? 4 : 0, (i + 1) * 1920))]);
 }

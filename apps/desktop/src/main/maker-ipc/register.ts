@@ -65,6 +65,8 @@ import {
   storedCustomProviderId,
   isLocalOnlyProviderForAgent,
 } from '@cindy/model-providers';
+import { MemoryError } from '@cindy/maker-core';
+
 import { createId } from '@paralleldrive/cuid2';
 import {
   GATEWAY_PROXY_TOKEN_INVALID_REASON,
@@ -577,11 +579,12 @@ import {
   piPackageMutationNeedsGrant,
 } from '../maker-host/pi-package-mutation-grant.js';
 import { readXaiSubscriptionUsageSnapshotForDeviceLink, readClaudeSubscriptionUsageSnapshotForDeviceLink } from './usage.js';
-import { requireEnum, requireObject, throwIpcError } from '../utils/ipcValidate.js';
+import { requireEnum, requireObject, requireString, throwIpcError } from '../utils/ipcValidate.js';
 import { applyPersistedCindyMakeMarker } from './cindyMakeSessionStart.js';
 import { CINDY_MAKE_SESSION_SOURCE } from '../../shared/cindyMakeSession.js';
 import { isIpcError, type IpcErrorCode } from '../../shared/ipc-errors.js';
 import { piPackageCommandDiagnostic } from '../maker-host/pi-package-diagnostic.js';
+
 import {
   runPiPackageListIpcBoundary,
   runPiPackageMutationIpcBoundary,
@@ -17406,6 +17409,234 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     log.info('maker-memory:reset');
     return maker.makerMemory.resetAll();
   });
+
+  // ── Memory Hub (P1 只读): 记忆中心的 scope / 条目 / 搜索 / 注入预览 ────
+  // 只读旁路: 写入仍只走 agent 的 cindy_memory MCP 与 flush controller,
+  // UI 不提供任何写路径 (方案 docs/product-rules/memory-hub-plan.md P1)。
+  const MEMORY_HUB_ENTRY_TYPES = [
+    'user',
+    'feedback',
+    'project',
+    'reference',
+    'digest',
+  ] as const;
+  type MemoryHubEntryType = (typeof MEMORY_HUB_ENTRY_TYPES)[number];
+
+  function requireMemoryHubManager() {
+    if (!maker.makerMemory) {
+      throwIpcError('MAKER_MEMORY_NOT_READY', 'maker memory not initialized');
+    }
+    return maker.makerMemory;
+  }
+
+  function mapMemoryHubError(err: unknown): never {
+    if (err instanceof MemoryError && err.code === 'not-ready') {
+      throwIpcError('MAKER_MEMORY_NOT_READY', 'maker memory not ready');
+    }
+    throwIpcError('INTERNAL', err instanceof Error ? err.message : String(err));
+  }
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_SCOPES, async (e) => {
+    assertTrustedAppRendererEvent(e);
+    try {
+      return { scopes: await requireMemoryHubManager().listScopes() };
+    } catch (err) {
+      mapMemoryHubError(err);
+    }
+  });
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_ENTRIES, async (e, workdir: unknown) => {
+    assertTrustedAppRendererEvent(e);
+    const scopeKey = requireString(workdir, 'workdir');
+    try {
+      const store = await requireMemoryHubManager().getStore(scopeKey);
+      const entries = await store.list();
+      // L1 概览只需要摘要; 正文按需经 MEMORY_HUB_ENTRY_READ 拉取, 避免一次
+      // IPC 把全部 body 拖进 renderer。
+      return {
+        entries: entries.map((entry) => ({
+          filename: entry.filename,
+          slug: entry.slug,
+          frontmatter: entry.frontmatter,
+          sizeBytes: entry.sizeBytes,
+        })),
+      };
+    } catch (err) {
+      mapMemoryHubError(err);
+    }
+  });
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_ENTRY_READ,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { entry: await store.read(entryFilename) };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_SEARCH,
+    async (e, workdir: unknown, query: unknown, type: unknown, limit: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const searchQuery = requireString(query, 'query');
+      let searchType: MemoryHubEntryType | undefined;
+      if (type !== undefined && type !== null) {
+        if (!MEMORY_HUB_ENTRY_TYPES.includes(type as MemoryHubEntryType)) {
+          throwIpcError(
+            'INVALID_PARAMS',
+            `type must be one of ${MEMORY_HUB_ENTRY_TYPES.join('|')}`,
+          );
+        }
+        searchType = type as MemoryHubEntryType;
+      }
+      let searchLimit: number | undefined;
+      if (limit !== undefined && limit !== null) {
+        if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+          throwIpcError('INVALID_PARAMS', 'limit must be an integer in [1, 50]');
+        }
+        searchLimit = limit;
+      }
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        const hits = await store.search(searchQuery, { type: searchType, limit: searchLimit });
+        return { hits };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_INDEX_PREVIEW, async (e, workdir: unknown) => {
+    assertTrustedAppRendererEvent(e);
+    const scopeKey = requireString(workdir, 'workdir');
+    try {
+      const store = await requireMemoryHubManager().getStore(scopeKey);
+      return { index: await store.getIndex() };
+    } catch (err) {
+      mapMemoryHubError(err);
+    }
+  });
+
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_ENTRY_WRITE,
+    async (e, workdir: unknown, opts: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const writeOpts = opts as { type: string; name: string; title: string; description: string; body: string; mode?: string };
+      if (!writeOpts || typeof writeOpts !== 'object') throwIpcError('INVALID_PARAMS', 'opts required');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        const result = await store.write({
+          type: writeOpts.type as Parameters<typeof store.write>[0]['type'],
+          name: writeOpts.name,
+          title: writeOpts.title,
+          description: writeOpts.description,
+          body: writeOpts.body,
+          mode: (writeOpts.mode as 'create' | 'update' | 'append') ?? 'create',
+        });
+        return result;
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_ENTRY_DELETE,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        await store.softDelete(entryFilename);
+        return { ok: true };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_TRASH_LIST,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { entries: await store.listTrash() };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_RESTORE,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return await store.restore(entryFilename);
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_HISTORY,
+    async (e, workdir: unknown, filename: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      const entryFilename = requireString(filename, 'filename');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { events: await store.history(entryFilename) };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_INSIGHTS,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return await store.insights();
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    MAKER_INVOKE.MEMORY_HUB_RECOMMENDATIONS,
+    async (e, workdir: unknown) => {
+      assertTrustedAppRendererEvent(e);
+      const scopeKey = requireString(workdir, 'workdir');
+      try {
+        const store = await requireMemoryHubManager().getStore(scopeKey);
+        return { recommendations: await store.recommendations() };
+      } catch (err) {
+        mapMemoryHubError(err);
+      }
+    },
+  );
 
   // 占位：MetaAgent 入口
   ipcMain.handle(MAKER_INVOKE.RUN, () => {

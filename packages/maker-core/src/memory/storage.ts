@@ -36,10 +36,11 @@ import {
   type WriteOptions,
   type WriteResult,
   type WriteWarningDetail,
+  type MemoryTrashEntry,
 } from './types.js';
 
 const INDEX_FILENAME = 'MEMORY.md';
-const META_FILENAME = 'meta.json';
+export const META_FILENAME = 'meta.json';
 const SHARD_EXT = '.md';
 const SLUG_REGEX = /^[a-z0-9_-]+$/;
 
@@ -130,6 +131,14 @@ export function memoryScopeDirName(scopeKey: string): string {
   const hostSegment = scopeKey.slice(SSH_SCOPE_KEY_PREFIX.length).split(':', 1)[0] ?? '';
   const digest = createHash('sha256').update(scopeKey, 'utf8').digest('hex').slice(0, 16);
   return `ssh-${sanitizeWorkdir(hostSegment).slice(0, 24)}-${digest}`;
+}
+
+/** 远端 scope 目录名特征: `ssh-<host 片段>-<sha256 前 16 hex>` (见 memoryScopeDirName)。 */
+const REMOTE_SCOPE_DIR_NAME_RE = /^ssh-.+-[0-9a-f]{16}$/;
+
+/** 判断落盘目录名是否远端 scope (Memory Hub 的展示 / 还原策略按此分叉)。 */
+export function isRemoteScopeDirName(dirName: string): boolean {
+  return REMOTE_SCOPE_DIR_NAME_RE.test(dirName);
 }
 
 /** filename = `<type>_<slug>.md`; slug 误带 `<type>_` 前缀会被拒绝 (见 validateNoTypePrefix) */
@@ -450,6 +459,56 @@ export class MemoryStorage {
    *   ## feedback
    *   ...
    */
+
+  // ── P2: 回收站 ──────────────────────────────────────────────────────────
+
+  /** P2: 列出 .trash/ 下的已删除条目 */
+  async listTrash(): Promise<MemoryTrashEntry[]> {
+    const trashDir = path.join(this.dir, '.trash');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(trashDir);
+    } catch {
+      return [];
+    }
+    const results: MemoryTrashEntry[] = [];
+    for (const filename of entries.filter((f) => f.endsWith('.md')).sort()) {
+      try {
+        const fullPath = path.join(trashDir, filename);
+        const stat = await fs.stat(fullPath);
+        const raw = await fs.readFile(fullPath, 'utf8');
+        const parsed = parseRawShard(raw, filename);
+        results.push({
+          filename,
+          type: parsed.frontmatter.type,
+          title: parsed.frontmatter.title,
+          description: parsed.frontmatter.description,
+          deletedAt: (stat.mtime ?? new Date()).toISOString(),
+          sizeBytes: stat.size,
+        });
+      } catch {
+        // skip corrupt trash files
+      }
+    }
+    return results;
+  }
+
+  /** P2: 从 .trash/ 恢复条目到主目录 */
+  async restore(filename: string): Promise<WriteResult> {
+    this.assertSafeFilename(filename);
+    const trashPath = path.join(this.dir, '.trash', filename);
+    const mainPath = path.join(this.dir, filename);
+    try {
+      await fs.rename(trashPath, mainPath);
+    } catch (e) {
+      if (isENOENT(e)) throw new MemoryError('not-found', `trash entry not found: ${filename}`);
+      throw new MemoryError('io-error', `restore failed: ${(e as Error).message}`);
+    }
+    this.beforeFileWrite?.();
+    await this.rebuildIndex();
+    this.beforeFileWrite?.();
+    return { ok: true, filename };
+  }
   async rebuildIndex(): Promise<void> {
     try {
       await this.rebuildIndexInner();
