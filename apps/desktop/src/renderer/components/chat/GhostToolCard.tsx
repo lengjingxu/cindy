@@ -98,7 +98,7 @@ function buildAudioRowHtml(durationLabel: string): string {
     'flex-shrink:0;font-size:11px;font-weight:500;font-variant-numeric:tabular-nums;color:var(--msg-tool-card-chevron,#525252)';
   return (
     '<div data-x-row style="display:flex;align-items:center;gap:12px;user-select:none">' +
-    '<button type="button" data-x-play aria-label="" style="display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:9999px;border:0;padding:0;cursor:pointer;background:var(--msg-tool-card-text,#262626);color:var(--msg-tool-card-bg,#ffffff)">' +
+    '<button type="button" data-x-play aria-label="" style="display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:9999px;border:0;padding:0;cursor:pointer;background:var(--msg-tool-card-text);color:var(--msg-tool-card-bg)">' +
     AUDIO_PLAY_SVG +
     '</button>' +
     `<span data-x-cur style="${timeStyle}">0:00</span>` +
