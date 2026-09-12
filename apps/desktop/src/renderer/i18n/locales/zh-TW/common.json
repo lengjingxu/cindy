@@ -171,7 +171,13 @@
   "settings": {
     "passport": {
       "back": "返回",
-      "description": "在 Passport 上查看任務並錄音。Cindy 將錄音轉成文字放入所選任務，檢查草稿後再傳送。",
+      "title": "Cindy Passport",
+      "loading": "讀取中",
+      "entryDescription": "查看任務狀態、閱讀回覆，並用語音繼續任務。",
+      "description": "在裝置上閱讀任務狀態和回覆，錄音後檢查文字並確認傳送。語音辨識使用 Cindy 的語音輸入設定。",
+      "disconnected": "未連接",
+      "devices": "藍牙裝置",
+      "voiceTitle": "語音回覆",
       "enabled": "啟用 Passport",
       "unsupported": "需要 macOS",
       "disabled": "已停用",

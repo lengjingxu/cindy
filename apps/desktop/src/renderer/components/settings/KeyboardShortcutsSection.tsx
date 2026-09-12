@@ -62,8 +62,7 @@ import {
   type GamepadFamily,
 } from '../../../shared/xboxGamepad';
 import { XboxGamepadEntry, XboxGamepadSettings } from './XboxGamepadSettings';
-import { PassportSettings } from './PassportSettings';
-import { Button } from '@/components/ui/button';
+import { PassportEntry, PassportSettings } from './PassportSettings';
 
 const log = createLogger('settings:keyboard-shortcuts');
 
@@ -396,7 +395,7 @@ export function KeyboardShortcutsSection() {
             '[&>*+*]:border-t [&>*+*]:border-[var(--settings-theme-card-border)]',
           )}
         >
-          <Button onClick={() => setHardwarePane('passport')}>Cindy Passport</Button>
+          <PassportEntry onOpen={() => setHardwarePane('passport')} />
           {VISIBLE_WORKLOUDER_MODELS.map((model) => (
             <WorkLouderCodexEntry
               key={model}

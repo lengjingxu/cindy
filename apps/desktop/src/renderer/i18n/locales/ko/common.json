@@ -171,7 +171,13 @@
   "settings": {
     "passport": {
       "back": "뒤로",
-      "description": "Passport에서 작업을 확인하고 녹음하세요. Cindy가 음성을 텍스트로 변환하여 선택한 작업의 초안에 입력합니다. 내용을 확인한 후 전송하세요.",
+      "title": "Cindy Passport",
+      "loading": "불러오는 중",
+      "entryDescription": "작업 상태와 답변을 확인하고 음성으로 작업을 이어갑니다.",
+      "description": "기기에서 작업 상태와 답변을 읽고, 녹음한 내용을 확인한 뒤 보냅니다. 음성 인식은 Cindy의 음성 입력 설정을 따릅니다.",
+      "disconnected": "연결되지 않음",
+      "devices": "Bluetooth 기기",
+      "voiceTitle": "음성 답장",
       "enabled": "Passport 활성화",
       "unsupported": "macOS가 필요합니다",
       "disabled": "비활성화됨",
