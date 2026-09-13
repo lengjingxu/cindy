@@ -7,6 +7,7 @@ import { app, ipcMain } from 'electron';
 import type { AgentIslandSessionActivity } from '../../shared/agentIsland.js';
 import { registerInputDevice } from '../input-devices/registry.js';
 import { createLogger } from '../logger.js';
+import { getResolvedMainLocale } from '../i18n.js';
 import { openMainWindowSession } from '../deepLink.js';
 import { buildWorkLouderCodexTaskCatalog, listWorkLouderCodexTaskCatalog } from '../worklouder-codex/taskSlots.js';
 import { readRendererTaskCatalog, subscribeRendererTaskCatalog } from '../worklouder-codex/taskCatalogPublication.js';
@@ -21,6 +22,7 @@ import { PassportTaskHistory, passportTextPage, type PassportAction } from './pr
 import { latestMessage } from '../localDb/latestMessageText.js';
 import { PassportVoice } from './voice.js';
 import type { PassportDictation, PassportState } from '../../shared/passport.js';
+import type { SupportedLocale } from '../../shared/locale.js';
 import {
   activeOwnerScopeKey, getActiveDataOwnerPushStamp, isAppSessionBoundaryPending,
   ownerScopedUserDataPath,
@@ -36,6 +38,20 @@ let registered = false;
 
 const PASSPORT_HELPER_LOCK_FILE = 'passport-helper-ownership.lock.db';
 const PASSPORT_HELPER_RESTART_DELAYS_MS = [3_000, 6_000, 12_000, 24_000, 30_000] as const;
+
+let menuLocale: SupportedLocale | null = null;
+let pushMenuLocale: ((locale: SupportedLocale) => void) | null = null;
+
+/**
+ * Mirrors Cindy's effective app language into the helper so its native status
+ * menu follows the renderer language instead of the macOS system language.
+ * Called alongside the other main-process surfaces on the app-menu locale IPC.
+ */
+export function setPassportMenuLocale(locale: SupportedLocale): void {
+  if (menuLocale === locale) return;
+  menuLocale = locale;
+  pushMenuLocale?.(locale);
+}
 
 export function registerPassportInputDevice(): void {
   // Explicit opt-in development feature; does not prompt every Mac for Bluetooth.
@@ -80,6 +96,12 @@ export function registerPassportInputDevice(): void {
     readLocal: () => listWorkLouderCodexTaskCatalog(),
     build: (rows) => buildWorkLouderCodexTaskCatalog(rows, { publishedVisibleOrder: true }),
   });
+  const menuLocaleArg = (): SupportedLocale => menuLocale ?? getResolvedMainLocale();
+  // The helper outlives a language change, so push the new locale instead of
+  // waiting for the next launch to relabel the status menu.
+  pushMenuLocale = (locale) => {
+    child?.stdin.write(JSON.stringify({ kind: 'locale', locale }) + '\n');
+  };
   const releaseOwnershipLock = (): void => {
     ownershipLock?.release();
     ownershipLock = null;
@@ -346,7 +368,7 @@ export function registerPassportInputDevice(): void {
       }
       if (!wanted || !ownership.isOwner() || epoch !== generation) return;
       const profile = createHash('sha256').update(app.getPath('userData') + ':' + getActiveDataOwnerPushStamp().dataOwnerId).digest('hex').slice(0, 16);
-      const next = spawn(executable, [profile], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const next = spawn(executable, [profile, menuLocaleArg()], { stdio: ['pipe', 'pipe', 'pipe'] });
       child = next;
       expectedExitChild = null;
       const launchedAt = Date.now();
@@ -508,6 +530,6 @@ export function registerPassportInputDevice(): void {
     updateSessionActivity: (next) => { activity = next; history.observe(next); void refresh(); },
     resumeTaskSlots: start,
     suspendTaskSlots: stop,
-    dispose: async () => { unsubscribeTaskCatalog(); stop(); await childExit; },
+    dispose: async () => { unsubscribeTaskCatalog(); stop(); pushMenuLocale = null; await childExit; },
   });
 }

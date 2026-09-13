@@ -5,6 +5,57 @@ let serviceID = CBUUID(string: "C1DC0001-51C4-499D-A186-4621A4938301")
 let receiveID = CBUUID(string: "C1DC0001-51C4-499D-A186-4621A4938302")
 let transmitID = CBUUID(string: "C1DC0001-51C4-499D-A186-4621A4938303")
 let voiceID = CBUUID(string: "C1DC0001-51C4-499D-A186-4621A4938304")
+
+enum PassportLocale: String {
+    case zhCN = "zh-CN"
+    case zhTW = "zh-TW"
+    case en
+    case ja
+    case ko
+}
+
+/** Native status-menu copy synced from Cindy's effective app language. */
+struct PassportMenuCopy {
+    let connected: String
+    let chooseDevice: String
+    let disconnect: String
+
+    static func resolve(_ locale: PassportLocale) -> PassportMenuCopy {
+        switch locale {
+        case .zhCN:
+            return PassportMenuCopy(
+                connected: "已连接",
+                chooseDevice: "选择设备",
+                disconnect: "断开并取消自动连接"
+            )
+        case .zhTW:
+            return PassportMenuCopy(
+                connected: "已連線",
+                chooseDevice: "選擇裝置",
+                disconnect: "中斷並取消自動連線"
+            )
+        case .ja:
+            return PassportMenuCopy(
+                connected: "接続済み",
+                chooseDevice: "デバイスを選択",
+                disconnect: "切断して自動接続を停止"
+            )
+        case .ko:
+            return PassportMenuCopy(
+                connected: "연결됨",
+                chooseDevice: "기기 선택",
+                disconnect: "연결 해제 및 자동 연결 중지"
+            )
+        case .en:
+            return PassportMenuCopy(
+                connected: "Connected",
+                chooseDevice: "Choose device",
+                disconnect: "Disconnect and stop reconnecting"
+            )
+        }
+    }
+}
+
 func emit(_ value: [String: Any]) {
     guard let bytes = try? JSONSerialization.data(withJSONObject: value) else { return }
     FileHandle.standardOutput.write(bytes + Data([10]))
@@ -30,9 +81,10 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     var deadline: DispatchWorkItem?
     let preferences: UserDefaults
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    let zh = Locale.preferredLanguages.first?.hasPrefix("zh") == true
+    var copy = PassportMenuCopy.resolve(.en)
     var selected: String? { preferences.string(forKey: "device") }
-    init(profile: String) {
+    init(profile: String, locale: PassportLocale) {
+        copy = PassportMenuCopy.resolve(locale)
         preferences = UserDefaults(suiteName: "app.cindy.passport." + profile)!
         super.init()
         item.button?.title = "Cindy BLE"
@@ -41,7 +93,7 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
     }
     func refreshMenu() {
         let menu = NSMenu()
-        let state = ready ? (zh ? "已连接" : "Connected") : (zh ? "选择设备" : "Choose device")
+        let state = ready ? copy.connected : copy.chooseDevice
         menu.addItem(withTitle: state, action: nil, keyEquivalent: "")
         for p in devices.values.sorted(by: { $0.identifier.uuidString < $1.identifier.uuidString }) {
             let entry = NSMenuItem(title: "Cindy Passport · " + p.identifier.uuidString.prefix(8), action: #selector(choose(_:)), keyEquivalent: "")
@@ -49,10 +101,14 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
             menu.addItem(entry)
         }
         menu.addItem(.separator())
-        let disconnect = NSMenuItem(title: zh ? "断开并取消自动连接" : "Disconnect and stop reconnecting", action: #selector(forget), keyEquivalent: "")
+        let disconnect = NSMenuItem(title: copy.disconnect, action: #selector(forget), keyEquivalent: "")
         disconnect.target = self; menu.addItem(disconnect)
         item.menu = menu
         emit(["kind": "devices", "devices": devices.keys.map { $0.uuidString }, "bluetooth": central?.state.rawValue ?? 0])
+    }
+    func setLocale(_ locale: PassportLocale) {
+        copy = PassportMenuCopy.resolve(locale)
+        refreshMenu()
     }
     @objc func choose(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
@@ -210,7 +266,10 @@ final class Passport: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let profile = CommandLine.arguments.dropFirst().first ?? "standalone"
-let passport = Passport(profile: profile)
+let locale = CommandLine.arguments.count >= 3
+    ? PassportLocale(rawValue: CommandLine.arguments[2]) ?? .en
+    : .en
+let passport = Passport(profile: profile, locale: locale)
 DispatchQueue.global().async {
     var buffer = Data()
     while true {
@@ -223,6 +282,8 @@ DispatchQueue.global().async {
                     DispatchQueue.main.async {
                         if command["kind"] == "forget" { passport.forget() }
                         if command["kind"] == "connect", let text = command["id"], let id = UUID(uuidString: text) { passport.connect(id) }
+                        if command["kind"] == "locale", let text = command["locale"],
+                           let next = PassportLocale(rawValue: text) { passport.setLocale(next) }
                     }
                     continue
                 }

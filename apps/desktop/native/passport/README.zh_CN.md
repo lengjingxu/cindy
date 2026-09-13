@@ -13,7 +13,7 @@
 ## 连接 Cindy
 
 
-配套 ESP32-C3 固件连接 macOS Cindy。在设置 → 快捷键 → 配件 → Cindy Passport 中启用，选择发现的设备；macOS 请求时输入设备显示的配对码。菜单栏控制仍可使用。需要蓝牙权限，默认关闭。按账号隔离的 `passport-settings.json` 只保存显式覆盖，恢复默认会删除覆盖；开发环境的 `CINDY_PASSPORT_BLE=1` 设置开发默认值。其他系统显示不支持。
+配套 ESP32-C3 固件连接 macOS Cindy。在设置 → 快捷键 → 配件 → Cindy Passport 中启用，选择发现的设备；macOS 请求时输入设备显示的配对码。菜单栏控制仍可使用，并跟随 Cindy 的界面语言。需要蓝牙权限，默认关闭。按账号隔离的 `passport-settings.json` 只保存显式覆盖，恢复默认会删除覆盖；开发环境的 `CINDY_PASSPORT_BLE=1` 设置开发默认值。其他系统显示不支持。
 
 开发使用正式的隔离启动入口：
 
