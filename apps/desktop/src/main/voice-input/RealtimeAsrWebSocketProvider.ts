@@ -676,6 +676,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
   private lastInboundAt = 0;
   private lastSendAt = 0;
   private serverVadFinishRequested = false;
+  private serverVadFinished = false;
   private healthLogTimer?: ReturnType<typeof setInterval>;
   private inboundTypesSeenThisSession = new Set<string>();
   // Optional full-fidelity recording of audio + WS messages, gated by
@@ -1009,6 +1010,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
       ]);
     }
     if (this.protocolProfile === 'qwen-asr-server-vad') {
+      this.serverVadFinished = false;
       const finished = this.finishServerVadSession('flush');
       if (!finished) return;
       await new Promise<void>((resolve) => {
@@ -1018,6 +1020,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
           resolve();
         });
       });
+      if (!this.serverVadFinished) throw new Error('Realtime ASR session finish was not acknowledged');
       return;
     }
     const committed = this.commitBufferedAudio('flush');
@@ -1215,7 +1218,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
               message: this.redactUpstreamErrors ? this.errorFallbackMessage : upstreamMessage,
               aggregateChars: this.aggregateTranscript().length,
             });
-            this.resolveFlushWaiters();
+            // Tolerating this message must not bypass the session.finished barrier.
             break;
           }
           const message = this.redactUpstreamErrors
@@ -1230,6 +1233,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
         this.resolveFlushWaiters();
         break;
       case 'session.finished':
+        this.serverVadFinished = true;
         this.resolveFlushWaiters();
         break;
     }
@@ -1309,7 +1313,10 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
       pendingCommitCount: this.pendingCommitCount,
     });
     if (aggregateTranscript) this.callback({ type: 'stable', text: aggregateTranscript, at: Date.now() });
-    if (this.pendingCommitCount === 0) this.resolveFlushWaiters();
+    // Server VAD completes individual utterances while the recording continues.
+    // Only session.finished acknowledges the whole Qwen recording.
+    if (this.protocolProfile !== 'qwen-asr-server-vad' && this.pendingCommitCount === 0)
+      this.resolveFlushWaiters();
   }
 
   private registerItem(itemId: string): void {
@@ -1344,6 +1351,7 @@ export class RealtimeAsrWebSocketProvider implements AsrProvider {
     this.lastInboundAt = 0;
     this.lastSendAt = 0;
     this.serverVadFinishRequested = false;
+    this.serverVadFinished = false;
     this.inboundTypesSeenThisSession = new Set();
     this.stopKeepAlive();
     this.stopHealthLog();

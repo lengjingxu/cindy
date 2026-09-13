@@ -1,3 +1,4 @@
+import { transcribeRecordedPcm } from '../recordedAudio.js';
 import { WebSocket, WebSocketServer } from 'ws';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +37,59 @@ import {
   getVoiceInputRefinerProfiles,
   resolveVoiceInputRefinerProviderKindAlias,
 } from '../../../shared/voiceInputRefinerProfiles.js';
+
+describe('Passport recording through the actual Qwen provider', () => {
+  it.each([false, true])('waits for session.finished with late buffer error=%s', async (lateBufferError) => {
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    const sockets: WebSocket[] = [];
+    const messages: string[] = [];
+    let provider: RealtimeAsrWebSocketProvider | undefined;
+    let result: Promise<string> | undefined;
+    server.on('connection', (socket) => {
+      sockets.push(socket);
+      socket.on('message', (data) => {
+        const message = JSON.parse(data.toString());
+        messages.push(message.type);
+        if (message.type === 'session.update') socket.send(JSON.stringify({ type: 'session.updated' }));
+      });
+    });
+    try {
+      await waitFor(() => server.address() !== null);
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing local test address');
+      provider = new RealtimeAsrWebSocketProvider({
+        accessTokenProvider: async () => 'test-token',
+        realtimeUrl: `ws://127.0.0.1:${address.port}/v1/realtime`,
+        model: 'qwen3-asr-flash-realtime', pcmSampleRate: 16_000,
+        protocolProfile: 'qwen-asr-server-vad', providerKind: 'litellm-qwen3-asr-flash-realtime',
+      });
+      let settled = false;
+      result = transcribeRecordedPcm(new ArrayBuffer(6400), provider, () => true);
+      void result.then(() => { settled = true; }, () => { settled = true; });
+      await waitFor(() => messages.includes('session.finish'));
+      const send = (event: object) => sockets[0].send(JSON.stringify(event));
+      send({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'one', transcript: '第一句。' });
+      await sleep(20);
+      expect(settled).toBe(false);
+      if (lateBufferError) {
+        send({ type: 'error', error: { message: 'input_audio_buffer commit buffer empty' } });
+        await sleep(20);
+        expect(settled).toBe(false);
+      }
+      send({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'two', transcript: '第二句。' });
+      await sleep(20);
+      expect(settled).toBe(false);
+      send({ type: 'session.finished' });
+      await expect(result).resolves.toBe('第一句。第二句。');
+      expect(messages).not.toContain('input_audio_buffer.commit');
+    } finally {
+      await provider?.stop();
+      for (const socket of sockets) socket.terminate();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await result?.catch(() => {});
+    }
+  });
+});
 
 describe('RealtimeAsrWebSocketProvider helpers', () => {
   it('resamples 16 kHz PCM16 audio to OpenAI realtime 24 kHz PCM16', () => {

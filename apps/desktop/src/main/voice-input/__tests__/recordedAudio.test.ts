@@ -17,6 +17,21 @@ function provider() {
 
 describe('finished audio through the selected ASR provider', () => {
   afterEach(() => vi.useRealTimers());
+  it('paces recorded PCM like a microphone and flushes after the last chunk duration', async () => {
+    vi.useFakeTimers();
+    const { asr } = provider();
+    const started = Date.now();
+    const sentAt: number[] = [];
+    let flushedAt = -1;
+    asr.appendAudio.mockImplementation(() => { sentAt.push(Date.now() - started); });
+    const flush = asr.flushAudio.getMockImplementation()!;
+    asr.flushAudio.mockImplementation(async () => { flushedAt = Date.now() - started; await flush(); });
+    const result = transcribeRecordedPcm(new ArrayBuffer(7000), asr, () => true);
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toBe('继续这个任务');
+    expect(sentAt).toEqual([0, 100, 200]);
+    expect(flushedAt).toBeGreaterThanOrEqual(218);
+  });
   it('waits for a final result arriving after flush returns', async () => {
     vi.useFakeTimers();
     const { asr, emit } = provider();
@@ -24,8 +39,22 @@ describe('finished audio through the selected ASR provider', () => {
       setTimeout(() => emit({ type: 'stable', text: '延迟的完整结果', at: 1 }), 20);
     });
     const result = transcribeRecordedPcm(new ArrayBuffer(3200), asr, () => true);
-    await vi.advanceTimersByTimeAsync(20);
+    await vi.advanceTimersByTimeAsync(120);
     await expect(result).resolves.toBe('延迟的完整结果');
+    expect(asr.dispose).toHaveBeenCalledOnce();
+  });
+  it('stops sending when configuration changes during paced replay', async () => {
+    vi.useFakeTimers();
+    const { asr } = provider();
+    let current = true;
+    const result = expect(transcribeRecordedPcm(new ArrayBuffer(9600), asr, () => current))
+      .rejects.toThrow('configuration changed');
+    await vi.advanceTimersByTimeAsync(50);
+    current = false;
+    await vi.advanceTimersByTimeAsync(50);
+    await result;
+    expect(asr.appendAudio).toHaveBeenCalledOnce();
+    expect(asr.flushAudio).not.toHaveBeenCalled();
     expect(asr.dispose).toHaveBeenCalledOnce();
   });
   it('decodes a one-second mono Opus recording to 16 kHz PCM', async () => {
@@ -73,7 +102,7 @@ describe('finished audio through the selected ASR provider', () => {
     const { asr } = provider();
     asr.flushAudio.mockResolvedValue(undefined);
     const empty = expect(transcribeRecordedPcm(new ArrayBuffer(3200), asr, () => true)).rejects.toThrow('Empty dictation');
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(5100);
     await empty;
     await expect(transcribeRecordedPcm(new ArrayBuffer(1), asr, () => true)).rejects.toThrow('Invalid PCM');
   });
