@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   publishedRows: null as MockTaskRow[] | null, boundaryPending: false,
   asr: vi.fn(), open: vi.fn(), spawn: vi.fn(), guard: vi.fn(),
   reply: vi.fn(),
-  helperLockHeld: false,
+  helperLockHeld: false, menuLocale: 'en',
   createHelperLock: vi.fn(() => ({
     tryAcquire: () => {
       if (mocks.helperLockHeld) return false;
@@ -45,6 +45,7 @@ vi.mock('../../device-link/ownership.js', async () => {
   return { ...actual, createSqliteExclusiveFileLock: mocks.createHelperLock };
 });
 vi.mock('../../logger.js', () => ({ createLogger: () => ({ warn: vi.fn(), info: vi.fn() }) }));
+vi.mock('../../i18n.js', () => ({ getResolvedMainLocale: () => mocks.menuLocale }));
 vi.mock('../../deepLink.js', () => ({ openMainWindowSession: mocks.open }));
 vi.mock('../../worklouder-codex/taskSlots.js', () => ({
   buildWorkLouderCodexTaskCatalog: mocks.buildCatalog,
@@ -223,6 +224,21 @@ describe('Passport host transcription boundary', () => {
     await resume;
 
     expect(mocks.spawn).toHaveBeenCalledTimes(2);
+  });
+  it('labels the native status menu with the app language and follows a change', async () => {
+    const { setPassportMenuLocale } = await import('../index.js');
+    expect(mocks.spawn.mock.calls[0][1]).toEqual([expect.any(String), 'en']);
+
+    const first = mocks.spawn.mock.results[0].value;
+    setPassportMenuLocale('ja');
+    expect(first.stdin.write).toHaveBeenCalledWith('{"kind":"locale","locale":"ja"}\n');
+
+    host.suspendTaskSlots();
+    const resume = host.resumeTaskSlots();
+    await flush();
+    first.emit('exit', 0, null);
+    await resume;
+    expect(mocks.spawn.mock.calls[1][1]).toEqual([expect.any(String), 'ja']);
   });
   it('clears the prior owner snapshot before a resumed helper is ready', async () => {
     const oldChild = mocks.spawn.mock.results[0].value;

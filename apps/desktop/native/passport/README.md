@@ -12,7 +12,7 @@
 
 ## Connect to Cindy
 
-The matching ESP32-C3 firmware connects to Cindy on macOS. Enable it in Settings → Shortcuts → Accessories → Cindy Passport. Select a discovered device and enter its displayed pairing code if macOS asks. The menu-bar control remains available. Bluetooth access is required; the default is off. The owner-scoped `passport-settings.json` stores only explicit overrides. Reset removes the override; `CINDY_PASSPORT_BLE=1` sets the development default. Other platforms show an unsupported state.
+The matching ESP32-C3 firmware connects to Cindy on macOS. Enable it in Settings → Shortcuts → Accessories → Cindy Passport. Select a discovered device and enter its displayed pairing code if macOS asks. The menu-bar control remains available and follows Cindy's UI language. Bluetooth access is required; the default is off. The owner-scoped `passport-settings.json` stores only explicit overrides. Reset removes the override; `CINDY_PASSPORT_BLE=1` sets the development default. Other platforms show an unsupported state.
 
 Development uses the normal isolated wrapper:
 
