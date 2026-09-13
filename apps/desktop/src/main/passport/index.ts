@@ -225,7 +225,11 @@ export function registerPassportInputDevice(): void {
       const catalog = await catalogReader.readForRefresh();
       if (pending && pending.owner !== owner) { pending = null; voiceState = 'idle'; voiceRevision++; }
       if (pending?.confirmed && pending.claimed && Date.now() - pending.claimedAt > 15_000) {
-        pending.claimed = false; pending.claimedAt = 0; pending.confirmedAt = Date.now();
+        // Never silently re-deliver a claim: the renderer may have already
+        // queued the message before losing its acknowledgement. Require an
+        // explicit hardware confirmation before allowing a retry.
+        pending.claimed = false; pending.claimedAt = 0; pending.confirmed = false;
+        pending.sendFailed = true; voiceState = 'draft';
       }
       if (pending?.confirmed && !pending.claimed && Date.now() - pending.confirmedAt > 15_000) {
         pending.confirmed = false; pending.sendFailed = true; voiceState = 'draft';
