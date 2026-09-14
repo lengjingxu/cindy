@@ -57,7 +57,7 @@ import * as storage from './storage.js';
 import { parseIncoming } from './incomingContent.js';
 import { downloadAttachments } from './attachmentDownloader.js';
 import { parseCardAction } from './cardActionParser.js';
-import { decodeLaneUserId, encodeLaneUserId } from './codec.js';
+import { encodeLaneUserId } from './codec.js';
 import {
   coordinateDualDelivery,
   resetDualDeliveryForTest,
@@ -65,7 +65,7 @@ import {
 import { getLog } from './moduleScope.js';
 import { messages as transportMessages } from './messages.js';
 import type { BotCredentials, FeishuConnectionStatus } from './internal-types.js';
-import type { IMFinalReplyMirror, IMMessageEvent } from '../types.js';
+import type { IMMessageEvent } from '../types.js';
 
 // ── module state ──────────────────────────────────────────────────────────────
 
@@ -277,30 +277,10 @@ interface UnconfirmedOpenRetry {
   commitUnpairedFlat?: () => boolean;
   isUnpairedFlatTakenOver?: () => boolean;
   abandonUnpairedFlat?: () => void;
-  /** 双投镜像身份与入站账号代次必须跨延迟恢复链保留。 */
-  mirrorKey?: string;
-  mirrorAccountEpoch?: number;
-  mirrorConfirmed?: boolean;
 }
 
 const unconfirmedOpenRetries = new Map<string, UnconfirmedOpenRetry>();
 const suspendedUnconfirmedOpens: UnconfirmedOpenRetry[] = [];
-
-function parentChatMirror(
-  chatId: string,
-  key: string | undefined,
-  accountEpoch: number | undefined,
-  confirmed?: boolean,
-): IMFinalReplyMirror | undefined {
-  if (!key || accountEpoch === undefined) return undefined;
-  return {
-    kind: 'parent-chat',
-    chatId,
-    idempotencyKey: key,
-    accountEpoch,
-    ...(confirmed ? { confirmed: true } : {}),
-  };
-}
 
 function clearUnconfirmedOpenRetries(): void {
   for (const retry of unconfirmedOpenRetries.values()) {
@@ -490,12 +470,6 @@ async function retryUnconfirmedOpen(
   log.info(
     `[feishu/wsClient] unconfirmed openThread recovered as ${opener.kind} — emitting deferred turn`,
   );
-  const recoveredMirror = parentChatMirror(
-    entry.chatId,
-    entry.mirrorKey,
-    entry.mirrorAccountEpoch,
-    entry.mirrorConfirmed,
-  );
   feishuEvents.emit('message', {
     channelName: 'feishu',
     senderId: laneUserId,
@@ -505,7 +479,6 @@ async function retryUnconfirmedOpen(
     text: entry.text,
     speaker: { id: entry.senderOpenId, name: '', isOwner: entry.isOwner },
     ...(groupContextLane ? { groupContextLane } : {}),
-    ...(recoveredMirror ? { finalReplyMirror: recoveredMirror } : {}),
     ...(entry.replyContext ? { replyContext: entry.replyContext } : {}),
     attachments: entry.attachments,
     unsupported: entry.unsupported,
@@ -1552,8 +1525,6 @@ async function processClaimedMessage(
   // 提取分支后 data.message 的窄化不跨函数传递。
   const msgType = data.message?.message_type ?? '';
   const rawContent = data.message?.content ?? '';
-  let finalReplyMirrorKey: string | undefined;
-  let finalReplyMirrorConfirmed = false;
   let commitUnpairedFlat: (() => boolean) | undefined;
   let isUnpairedFlatTakenOver: (() => boolean) | undefined;
   let abandonUnpairedFlat: (() => void) | undefined;
@@ -1598,8 +1569,6 @@ async function processClaimedMessage(
         log.info('[feishu/wsClient] native thread main-feed copy suppressed');
         return;
       }
-      finalReplyMirrorKey = paired.mirrorKey;
-      finalReplyMirrorConfirmed = Boolean(paired.alreadyConfirmed);
       commitUnpairedFlat = paired.commitUnpairedFlat;
       isUnpairedFlatTakenOver = paired.isUnpairedFlatTakenOver;
       abandonUnpairedFlat = paired.abandonUnpairedFlat;
@@ -1821,13 +1790,6 @@ async function processClaimedMessage(
           commitUnpairedFlat,
           isUnpairedFlatTakenOver,
           abandonUnpairedFlat,
-          ...(finalReplyMirrorKey
-            ? {
-                mirrorKey: finalReplyMirrorKey,
-                mirrorAccountEpoch: outbound.getAccountEpoch(),
-                ...(finalReplyMirrorConfirmed ? { mirrorConfirmed: true } : {}),
-              }
-            : {}),
         });
         return;
       }
@@ -1880,14 +1842,10 @@ async function processClaimedMessage(
 
   // Emit raw fields — orchestrator decides how to render unsupported (it owns
   // the user-facing wording and the "skip agent for pure-unsupported" rule).
-  const inboundMirror = parentChatMirror(
-    chatId,
-    finalReplyMirrorKey && decodeLaneUserId(laneUserId ?? '')?.threadId
-      ? finalReplyMirrorKey
-      : undefined,
-    outbound.getAccountEpoch(),
-    finalReplyMirrorConfirmed,
-  );
+  // 群轮次必带 speaker — 共享层以它识别群轮(强确认策略/命令主人门); 触发人恒为
+  // owner 的旧假设随访客开关放开, 这里按真实身份给 isOwner, name 留空(飞书事件
+  // 不带显示名)。开关放行的非 owner 私聊同样带 speaker, 共享层据此挂访客策略;
+  // 主人私聊保持无 speaker, 与老行为一致。
   const speaker =
     laneUserId || !ownerGuard.check(senderOpenId)
       ? { id: senderOpenId, name: '', isOwner: ownerGuard.check(senderOpenId) }
@@ -1901,7 +1859,6 @@ async function processClaimedMessage(
     text,
     ...(speaker ? { speaker } : {}),
     ...(groupContextLane ? { groupContextLane } : {}),
-    ...(inboundMirror ? { finalReplyMirror: inboundMirror } : {}),
     ...(resolvedReply ? { replyContext: resolvedReply.replyContext } : {}),
     attachments,
     unsupported,

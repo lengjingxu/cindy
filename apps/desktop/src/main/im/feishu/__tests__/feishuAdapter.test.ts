@@ -137,6 +137,16 @@ describe('feishu ImChannelAdapter characterization', () => {
     expect(adapter.sessions.source).toBe('feishu');
   });
 
+  it.each(['feishu', 'lark'] as const)(
+    'persists the selected %s service without changing routing',
+    (service) => {
+      getService.mockReturnValueOnce(service);
+      expect(adapter.messageSourceIm?.()).toBe(service);
+      expect(adapter.channel).toBe('feishu');
+      expect(adapter.sessions.source).toBe('feishu');
+    },
+  );
+
   it('权限模式不兼容提示在发送时跟随当前语言', () => {
     const originalLocale = getResolvedMainLocale();
     const copy = adapter.ui.error?.permissionModeUnsupported;
@@ -323,13 +333,21 @@ describe('feishu group lane adapter hooks', () => {
     expect(adapter.sessions.permissionModeFor?.('g/oc_chat1/omt_t1')).toBe('auto');
   });
 
-  it('turnPolicyOptionalForMode: guest 轮次任何权限档都挂策略; owner Full access 保持豁免', () => {
-    const hook = adapter.turnPolicyOptionalForMode;
-    expect(hook).toBeDefined();
-    expect(hook?.('bypassPermissions', true)).toBe(false);
-    expect(hook?.('auto', true)).toBe(false);
-    expect(hook?.('bypassPermissions', false)).toBe(true);
-    expect(hook?.('auto', false)).toBe(false);
+  it('turnPolicyOptionalForMode: 仅完全访问档可选(护栏取缔), 其余档保持挂策略', () => {
+    const policy = adapter.turnPermissionPolicyFor?.(groupEvent());
+    expect(policy).toBeDefined();
+    expect(adapter.turnPolicyOptionalForMode?.('bypassPermissions', policy!)).toBe(true);
+    expect(adapter.turnPolicyOptionalForMode?.('auto', policy!)).toBe(false);
+    expect(adapter.turnPolicyOptionalForMode?.('acceptEdits', policy!)).toBe(false);
+  });
+
+  it('turnPolicyOptionalForMode: 访客轮次任何权限档都挂策略, 不吃 Full access 豁免', () => {
+    const guestPolicy = adapter.turnPermissionPolicyFor?.(
+      groupEvent({ speaker: { id: 'ou_guest', name: '', isOwner: false } }),
+    );
+    expect(guestPolicy).toBeDefined();
+    expect(adapter.turnPolicyOptionalForMode?.('bypassPermissions', guestPolicy!)).toBe(false);
+    expect(adapter.turnPolicyOptionalForMode?.('auto', guestPolicy!)).toBe(false);
   });
 
   it('prepareAgentTurnText: 群 lane 拉历史拼上下文前缀(带时间标注), 剔除触发消息', async () => {
@@ -342,6 +360,10 @@ describe('feishu group lane adapter hooks', () => {
     const result = await adapter.prepareAgentTurnText?.(groupEvent());
     expect(result?.agentText).toContain('<group_chat_context>');
     expect(result?.agentText).toContain(`[Alice] ${formatHistoryTime(1)} 部署挂了`);
+    expect(result?.contextSnapshot?.groupContext).toContain('部署挂了');
+    expect(result?.contextSnapshot?.groupMessageCount).toBe(1);
+    expect(result?.contextSnapshot?.groupContext).not.toContain('<group_chat_context>');
+    expect(result?.contextSnapshot?.groupContext).not.toContain('上面说的问题怎么解决');
     expect(result?.agentText).not.toContain('触发消息自己');
     expect(result?.agentText).not.toContain('<reply_context>');
     expect(result?.agentText.endsWith('上面说的问题怎么解决')).toBe(true);
@@ -431,6 +453,11 @@ describe('feishu group lane adapter hooks', () => {
     expect(scopeMocks.utilityText).not.toHaveBeenCalled();
     expect(result?.agentText).toContain('[已过滤一条疑似对机器人下达指令的消息]');
     expect(result?.agentText).not.toContain('id_rsa');
+    expect(result?.contextSnapshot?.replyContext).toContain(
+      '[已过滤一条疑似对机器人下达指令的消息]',
+    );
+    expect(JSON.stringify(result?.contextSnapshot)).not.toContain('id_rsa');
+    expect(result?.contextSnapshot?.replyMessageCount).toBe(1);
     expect(result?.agentText.endsWith('概括一下被回复的内容')).toBe(true);
     expect(fetchChatHistoryPage).not.toHaveBeenCalled();
   });
@@ -461,6 +488,11 @@ describe('feishu group lane adapter hooks', () => {
 
     expect(result?.agentText).toContain('[已过滤一条疑似对机器人下达指令的消息]');
     expect(result?.agentText).not.toContain('不应透传的引用正文');
+    expect(result?.contextSnapshot?.replyContext).toContain(
+      '[已过滤一条疑似对机器人下达指令的消息]',
+    );
+    expect(JSON.stringify(result?.contextSnapshot)).not.toContain('不应透传的引用正文');
+    expect(result?.contextSnapshot?.replyMessageCount).toBe(1);
     expect(result?.agentText.endsWith('只回答我现在这个问题')).toBe(true);
     expect(fetchChatHistoryPage).not.toHaveBeenCalled();
   });
