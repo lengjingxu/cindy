@@ -7,7 +7,11 @@ import { useFeishuBot, type FeishuBotService, type FeishuBotStatus } from '@/hoo
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { Spinner } from '@/components/ui/spinner';
 import { Tip } from '@/components/ui/tooltip';
-import { savedCredentialsNoteKey, shouldShowSavedCredentialsCard } from './feishuBotPresentation';
+import {
+  FEISHU_OPEN_PLATFORM_URLS,
+  savedCredentialsNoteKey,
+  shouldShowSavedCredentialsCard,
+} from './feishuBotPresentation';
 import { ImChannelSettingsCard, useImChannelSettingsSummary } from './ImChannelSettingsCard';
 import { ImDefaultSettingsSection } from './ImDefaultSettingsSection';
 import { FeishuBotNotificationSection } from './FeishuBotNotificationSection';
@@ -67,6 +71,7 @@ export function FeishuBotSection({
     errorMessage,
     hasSavedCreds,
     ownerOpenId,
+    allowStrangerChats,
     isClearing,
     isReconnecting,
     reconnect,
@@ -141,6 +146,7 @@ export function FeishuBotSection({
           appId={appId}
           service={service}
           ownerOpenId={ownerOpenId}
+          allowStrangerChats={allowStrangerChats}
           status={status}
           isClearing={isClearing}
           isReconnecting={isReconnecting}
@@ -166,10 +172,39 @@ export function FeishuBotSection({
   );
 }
 
+/**
+ * 扫码建出来的 App 默认只订 `im.message.receive_v1`; 卡片按钮回传要用的
+ * `card.action.trigger` 只能在开放平台后台手工补(程序订不了, 见
+ * packages/lizi-im/src/feishu/appRegistration.ts)。这条提示不给出来, 用户
+ * 第一次遇到交互卡就会卡在那里 —— 所以 QR 流程和已连接卡片都要露出它,
+ * 并且带一个能直接过去后台的入口。
+ */
+function CardActionHint({ service, className }: { service: FeishuBotService; className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={cn(
+        'mt-2 flex flex-col gap-1 text-11 leading-[1.6] text-[var(--settings-section-desc)]',
+        className,
+      )}
+    >
+      <span>{t('settings.feishuBot.cardActionHint')}</span>
+      <button
+        type="button"
+        onClick={() => window.electronAPI.openExternal?.(FEISHU_OPEN_PLATFORM_URLS[service])}
+        className="w-fit bg-transparent p-0 font-medium text-[var(--settings-source-link)] underline underline-offset-2"
+      >
+        {t('settings.feishuBot.cardActionHintAction')}
+      </button>
+    </div>
+  );
+}
+
 function SavedCredentialsCard(props: {
   appId: string;
   service: FeishuBotService;
   ownerOpenId: string | null;
+  allowStrangerChats: boolean;
   status: FeishuBotStatus;
   isClearing: boolean;
   isReconnecting: boolean;
@@ -241,8 +276,9 @@ function SavedCredentialsCard(props: {
             </Tip>
           </div>
           <div className="mt-1 text-12 leading-[1.6] text-[var(--settings-section-desc)]">
-            {t(savedCredentialsNoteKey(props.status))}
+            {t(savedCredentialsNoteKey(props.status, props.allowStrangerChats))}
           </div>
+          <CardActionHint service={props.service} />
         </div>
       </div>
       <div className="grid gap-2 text-12 text-[var(--settings-section-desc)]">
@@ -411,6 +447,7 @@ function FeishuBotQrConfig(props: {
             {visibleError}
           </p>
         ) : null}
+        <CardActionHint service={props.service} className="items-center text-center" />
       </div>
 
       {phase === 'qr' ? (

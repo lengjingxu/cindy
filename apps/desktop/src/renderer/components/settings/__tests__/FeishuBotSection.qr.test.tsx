@@ -7,23 +7,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const beginRegistration = vi.fn(async () => undefined);
 const useFeishuBotRegistration = vi.fn();
 
+const defaultFeishuBotState = {
+  service: 'feishu',
+  setService: () => undefined,
+  appId: 'cli_1234abcd',
+  status: 'idle',
+  errorMessage: null,
+  hasSavedCreds: false,
+  ownerOpenId: null,
+  allowStrangerChats: false,
+  isClearing: false,
+  isReconnecting: false,
+  reconnect: async () => false,
+  clear: async () => undefined,
+};
+
+const feishuBotState = vi.hoisted(() => ({
+  value: {} as Record<string, unknown>,
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 vi.mock('@/hooks/useFeishuBot', () => ({
-  useFeishuBot: () => ({
-    service: 'feishu',
-    setService: vi.fn(),
-    appId: '',
-    status: 'idle',
-    errorMessage: null,
-    hasSavedCreds: false,
-    ownerOpenId: null,
-    isClearing: false,
-    isReconnecting: false,
-    reconnect: vi.fn(),
-    clear: vi.fn(),
-  }),
+  useFeishuBot: () => feishuBotState.value,
 }));
 vi.mock('@/components/ui/confirm-dialog-provider', () => ({
   useConfirmDialog: () => ({ confirm: vi.fn() }),
@@ -67,6 +74,7 @@ describe('FeishuBotSection QR setup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     beginRegistration.mockClear();
+    feishuBotState.value = { ...defaultFeishuBotState };
   });
 
   it('uses QR authorization instead of a manual key form', () => {
@@ -102,5 +110,47 @@ describe('FeishuBotSection QR setup', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'settings.feishuBot.qr.cancel' })).toBeTruthy();
+    // 扫码建的 App 没有 card.action.trigger 订阅, 卡片按钮就不会回传 ——
+    // 这条提示必须在扫码界面上, 不能只躺在 locale 文件里。
+    expect(screen.getByText('settings.feishuBot.cardActionHint')).toBeTruthy();
+  });
+
+  it('links the card-subscription hint to the open-platform console', () => {
+    const openExternal = vi.fn(async () => ({ ok: true }));
+    (window as unknown as { electronAPI?: unknown }).electronAPI = { openExternal };
+    mockRegistration({});
+    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'settings.feishuBot.cardActionHintAction' }),
+    );
+    expect(openExternal).toHaveBeenCalledWith('https://open.feishu.cn/app?lang=zh-CN');
+  });
+
+  it('drops the fixed ignore note once strangers are allowed', () => {
+    feishuBotState.value = {
+      ...defaultFeishuBotState,
+      hasSavedCreds: true,
+      status: 'connected',
+      allowStrangerChats: true,
+    };
+    mockRegistration({});
+    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+
+    expect(screen.getByText('settings.feishuBot.connected.noteStrangersAllowed')).toBeTruthy();
+    expect(screen.queryByText('settings.feishuBot.connected.note')).toBeNull();
+  });
+
+  it('keeps the ignore note while strangers are still blocked', () => {
+    feishuBotState.value = {
+      ...defaultFeishuBotState,
+      hasSavedCreds: true,
+      status: 'connected',
+    };
+    mockRegistration({});
+    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+
+    expect(screen.getByText('settings.feishuBot.connected.note')).toBeTruthy();
+    expect(screen.queryByText('settings.feishuBot.connected.noteStrangersAllowed')).toBeNull();
   });
 });

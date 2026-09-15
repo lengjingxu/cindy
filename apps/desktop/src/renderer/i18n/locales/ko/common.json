@@ -2385,6 +2385,8 @@
     "feishuBot": {
       "title": "Feishu / Lark 봇",
       "description": "Feishu 또는 Lark 봇을 통해 언제 어디서나 {{appName}}에 연결하여 작업하세요.",
+      "cardActionHint": "QR 코드로 생성한 봇은 Feishu 개방 플랫폼에서 card.action.trigger 이벤트 구독을 수동으로 추가해야 합니다",
+      "cardActionHintAction": "개방 플랫폼 열기 ↗",
       "statusAria": "Feishu / Lark 봇 상태: {{status}}",
       "serviceLabel": "서비스",
       "serviceAria": "IM 서비스 선택",
@@ -2408,7 +2410,8 @@
         "ownerLabel": "소유자",
         "ownerWaiting": "첫 개인 메시지 바인딩 대기 중",
         "reconnect": "{{service}} 봇 다시 연결",
-        "clear": "연동 해제"
+        "clear": "연동 해제",
+        "noteStrangersAllowed": "현재 QR 스캔 사용자에 바인딩되어 있으며, 다른 사람도 DM으로 일반 대화를 시작할 수 있습니다. 제어 명령은 소유자만 사용할 수 있습니다."
       },
       "saved": {
         "heading": "{{service}} 봇이 연동됨",
@@ -11657,8 +11660,7 @@
       "dingtalkBotNetworkFailed": "DingTalk 오픈 플랫폼에 연결할 수 없습니다. 네트워크 또는 프록시를 확인한 후 다시 시도하세요",
       "dingtalkBotStreamFailed": "자격 증명은 유효하지만 Stream 연결이 설정되지 않았습니다. 봇을 활성화하고 Stream 모드를 선택한 뒤 앱 버전을 게시하세요",
       "dingtalkBotDisconnected": "DingTalk 봇 연동이 해제됨",
-      "dingtalkBotDisconnectFailed": "DingTalk 봇 연동 해제 실패",
-      "feishuQrCardActionHint": "QR 코드로 생성한 봇은 Feishu 개방 플랫폼에서 card.action.trigger 이벤트 구독을 수동으로 추가해야 합니다"
+      "dingtalkBotDisconnectFailed": "DingTalk 봇 연동 해제 실패"
     },
     "errors": {
       "openFileFailed": "시스템에서 파일을 열 수 없습니다",

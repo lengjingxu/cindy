@@ -2385,6 +2385,8 @@
     "feishuBot": {
       "title": "Feishu / Lark ボット",
       "description": "Feishu または Lark ボット経由で {{appName}} に接続し、いつでもどこでも作業できます。",
+      "cardActionHint": "QRコードで作成したボットは、Feishuオープンプラットフォームで card.action.trigger イベント購読を手動で追加する必要があります",
+      "cardActionHintAction": "オープンプラットフォームを開く ↗",
       "statusAria": "Feishu / Lark ボットの状態: {{status}}",
       "serviceLabel": "サービス",
       "serviceAria": "IM サービスを選択",
@@ -2408,7 +2410,8 @@
         "ownerLabel": "オーナー",
         "ownerWaiting": "初回プライベートメッセージのバインドを待機中",
         "reconnect": "{{service}} ボットを再接続",
-        "clear": "連携解除"
+        "clear": "連携解除",
+        "noteStrangersAllowed": "現在の QR コードスキャンユーザーにバインドされています。他の人も DM で通常の会話を始められます。制御コマンドはオーナー限定です。"
       },
       "saved": {
         "heading": "{{service}} ボットは連携済み",
@@ -11657,8 +11660,7 @@
       "dingtalkBotNetworkFailed": "DingTalk オープンプラットフォームに接続できません。ネットワークまたはプロキシを確認して再試行してください",
       "dingtalkBotStreamFailed": "認証情報は有効ですが、Stream 接続を確立できません。ボットを有効化し、Stream モードを選択してアプリのバージョンを公開してください",
       "dingtalkBotDisconnected": "DingTalk ボットの連携を解除しました",
-      "dingtalkBotDisconnectFailed": "DingTalk ボットの連携解除に失敗しました",
-      "feishuQrCardActionHint": "QRコードで作成したボットは、Feishuオープンプラットフォームで card.action.trigger イベント購読を手動で追加する必要があります"
+      "dingtalkBotDisconnectFailed": "DingTalk ボットの連携解除に失敗しました"
     },
     "errors": {
       "openFileFailed": "システムでファイルを開けません",

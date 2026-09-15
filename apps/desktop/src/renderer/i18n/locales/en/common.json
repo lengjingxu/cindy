@@ -2386,6 +2386,8 @@
     "feishuBot": {
       "title": "Feishu / Lark Bot",
       "description": "Connect to {{appName}} via a Feishu or Lark bot to work anywhere, anytime.",
+      "cardActionHint": "QR-created bots need card.action.trigger event subscription added manually in the Feishu open platform console for card buttons to work",
+      "cardActionHintAction": "Open the developer console ↗",
       "statusAria": "Feishu / Lark Bot status: {{status}}",
       "serviceLabel": "Service",
       "serviceAria": "Select an IM service",
@@ -2409,7 +2411,8 @@
         "ownerLabel": "Owner",
         "ownerWaiting": "Waiting for first private-message bind",
         "reconnect": "Reconnect {{service}} Bot",
-        "clear": "Unbind"
+        "clear": "Unbind",
+        "noteStrangersAllowed": "Bound to the current scanning user; other people can DM the bot to start normal chats. Control commands stay owner-only."
       },
       "saved": {
         "heading": "{{service}} Bot is bound",
@@ -11673,8 +11676,7 @@
       "dingtalkBotNetworkFailed": "Cannot reach DingTalk Open Platform. Check your network or proxy and try again",
       "dingtalkBotStreamFailed": "Credentials are valid, but the Stream connection was not established. Enable the bot, select Stream mode, and publish the app version",
       "dingtalkBotDisconnected": "DingTalk bot unbound",
-      "dingtalkBotDisconnectFailed": "Failed to unbind DingTalk bot",
-      "feishuQrCardActionHint": "QR-created bots need card.action.trigger event subscription added manually in the Feishu open platform console for card buttons to work"
+      "dingtalkBotDisconnectFailed": "Failed to unbind DingTalk bot"
     },
     "errors": {
       "openFileFailed": "Cannot open file in system",

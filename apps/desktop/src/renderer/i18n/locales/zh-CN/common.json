@@ -2385,6 +2385,8 @@
     "feishuBot": {
       "title": "飞书 / Lark 机器人",
       "description": "通过飞书或 Lark 机器人随时随地连接 {{appName}} 进行工作。",
+      "cardActionHint": "扫码创建的机器人需在飞书开放平台手动添加 card.action.trigger 事件订阅才能使用卡片按钮",
+      "cardActionHintAction": "打开开放平台 ↗",
       "statusAria": "飞书 / Lark 机器人状态：{{status}}",
       "serviceLabel": "服务",
       "serviceAria": "选择 IM 服务",
@@ -2408,7 +2410,8 @@
         "ownerLabel": "主人",
         "ownerWaiting": "等待首次私聊绑定",
         "reconnect": "重新连接 {{service}} 机器人",
-        "clear": "解绑"
+        "clear": "解绑",
+        "noteStrangersAllowed": "已绑定当前扫码用户；其他人可私聊发起普通对话，控制命令仍仅主人可用。"
       },
       "saved": {
         "heading": "{{service}} 机器人已绑定",
@@ -11657,8 +11660,7 @@
       "dingtalkBotNetworkFailed": "无法访问钉钉开放平台，请检查网络或 Proxy 后重试",
       "dingtalkBotStreamFailed": "凭证有效，但 Stream 连接未建立；请确认已启用机器人、选择 Stream 模式并发布应用版本",
       "dingtalkBotDisconnected": "已解绑钉钉机器人",
-      "dingtalkBotDisconnectFailed": "钉钉机器人解绑失败",
-      "feishuQrCardActionHint": "扫码创建的机器人需在飞书开放平台手动添加 card.action.trigger 事件订阅才能使用卡片按钮"
+      "dingtalkBotDisconnectFailed": "钉钉机器人解绑失败"
     },
     "errors": {
       "openFileFailed": "无法在系统中打开文件",
