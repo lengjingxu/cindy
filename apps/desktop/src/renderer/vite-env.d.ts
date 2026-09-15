@@ -2229,7 +2229,7 @@ interface ElectronAPI {
     }>;
     clear: () => Promise<{ ok: true }>;
     setLifecycleAnnouncement: (enabled: boolean) => Promise<{ ok: true }>;
-    setAllowStrangerChats: (enabled: boolean) => Promise<{ ok: true }>;
+    setAllowStrangerChats: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
     registrationBegin: (service: 'feishu' | 'lark') => Promise<FeishuBotRegistrationBeginResult>;
     registrationCancel: () => Promise<{ ok: true }>;
     onStatusChange: (

@@ -123,10 +123,18 @@ export function readAllowStrangerChats(): boolean {
   return raw === 'true';
 }
 
-export function writeAllowStrangerChats(enabled: boolean): void {
+/**
+ * 落盘访客私聊开关; 返回值决定调用方要不要动运行时策略。写失败时必须保持旧值:
+ * 只在内存里生效的「关闭」会在重启后被 init() 读回的旧 true 静默重开。
+ */
+export function writeAllowStrangerChats(enabled: boolean): boolean {
+  const log = getLog();
   const secrets = getHost().secrets;
-  if (!secrets.isAvailable()) return;
-  secrets.write(KEY_ALLOW_STRANGER_CHATS, String(enabled));
+  if (!secrets.isAvailable()) {
+    log.warn('[feishu/storage] secrets unavailable; refuse to write allowStrangerChats');
+    return false;
+  }
+  return secrets.write(KEY_ALLOW_STRANGER_CHATS, String(enabled));
 }
 
 function normalizeService(value: string | null): FeishuService {

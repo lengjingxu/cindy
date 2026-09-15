@@ -110,7 +110,12 @@ export function registerFeishuIpc(): void {
   host.ipc.handle('feishuBot:set-allow-stranger-chats', async (payload) => {
     const p = payload as { enabled?: unknown } | undefined;
     const enabled = typeof p?.enabled === 'boolean' ? p.enabled : false;
-    storage.writeAllowStrangerChats(enabled);
+    // 先落盘再改运行时: 写不进去就什么都不改 —— 只在内存里生效的「关闭」会在
+    // 重启后被 init() 读回旧的 true, 安全开关静默回到打开。
+    if (!storage.writeAllowStrangerChats(enabled)) {
+      log.warn(`[feishu/ipc] allowStrangerChats=${enabled} not persisted; runtime unchanged`);
+      return { ok: false, error: '[PERSIST_FAILED] secure storage unavailable' };
+    }
     wsClient.setAllowStrangerChats(enabled);
     return { ok: true };
   });

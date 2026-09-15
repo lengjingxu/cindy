@@ -392,14 +392,29 @@ export function useFeishuBot(): UseFeishuBotReturn {
     });
   }, []);
 
-  const setAllowStrangerChats = useCallback((enabled: boolean) => {
-    setAllowStrangerChatsState(enabled);
-    if (cachedState) cachedState = { ...cachedState, allowStrangerChats: enabled };
-    window.electronAPI.feishuBot.setAllowStrangerChats(enabled).catch((err) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.error('setAllowStrangerChats failed:', msg);
-    });
-  }, []);
+  const setAllowStrangerChats = useCallback(
+    (enabled: boolean) => {
+      // 先乐观切换, main 侧没能落盘再拨回来(见 ipc.ts): 这是安全开关, 界面
+      // 不能停在策略其实没生效的档位上。
+      const revert = (message: string) => {
+        log.error('setAllowStrangerChats failed:', message);
+        setAllowStrangerChatsState(!enabled);
+        if (cachedState) cachedState = { ...cachedState, allowStrangerChats: !enabled };
+        toast.error(t('logic.toasts.feishuBotSaveFailed', { message }));
+      };
+      setAllowStrangerChatsState(enabled);
+      if (cachedState) cachedState = { ...cachedState, allowStrangerChats: enabled };
+      window.electronAPI.feishuBot
+        .setAllowStrangerChats(enabled)
+        .then((res) => {
+          if (!res.ok) revert(res.error ?? '');
+        })
+        .catch((err) => {
+          revert(err instanceof Error ? err.message : String(err));
+        });
+    },
+    [t],
+  );
 
   const setService = useCallback(
     (nextService: FeishuBotService) => {

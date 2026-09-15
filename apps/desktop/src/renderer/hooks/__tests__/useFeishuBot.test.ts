@@ -66,7 +66,7 @@ function installFeishuApi() {
     reconnect: vi.fn(),
     clear: vi.fn(),
     setLifecycleAnnouncement: vi.fn(),
-    setAllowStrangerChats: vi.fn(async () => ({ ok: true as const })),
+    setAllowStrangerChats: vi.fn(async (): Promise<{ ok: boolean; error?: string }> => ({ ok: true })),
     registrationBegin: vi.fn(),
     registrationCancel: vi.fn(),
     onStatusChange: vi.fn((listener: StatusListener) => {
@@ -286,5 +286,22 @@ describe('useFeishuBot', () => {
 
     expect(hook.result.current.allowStrangerChats).toBe(true);
     expect(api.setAllowStrangerChats).toHaveBeenCalledWith(true);
+  });
+
+  it('rolls the stranger-chat switch back when main could not persist it', async () => {
+    const { api } = installFeishuApi();
+    api.setAllowStrangerChats.mockResolvedValueOnce({
+      ok: false,
+      error: '[PERSIST_FAILED] secure storage unavailable',
+    });
+    const hook = renderHook(() => useFeishuBot());
+    await waitFor(() => expect(hook.result.current.allowStrangerChats).toBe(false));
+
+    await act(async () => {
+      hook.result.current.setAllowStrangerChats(true);
+    });
+
+    // 落盘没成功 = 策略没变, 界面不能停在用户以为已经打开的档位上。
+    await waitFor(() => expect(hook.result.current.allowStrangerChats).toBe(false));
   });
 });

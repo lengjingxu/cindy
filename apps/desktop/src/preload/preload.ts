@@ -2132,7 +2132,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: (): Promise<{ ok: true }> => ipcRenderer.invoke('feishuBot:clear'),
     setLifecycleAnnouncement: (enabled: boolean): Promise<{ ok: true }> =>
       ipcRenderer.invoke('feishuBot:set-lifecycle-announcement', { enabled }),
-    setAllowStrangerChats: (enabled: boolean): Promise<{ ok: true }> =>
+    setAllowStrangerChats: (enabled: boolean): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('feishuBot:set-allow-stranger-chats', { enabled }),
     registrationBegin: (
       service: 'feishu' | 'lark',
