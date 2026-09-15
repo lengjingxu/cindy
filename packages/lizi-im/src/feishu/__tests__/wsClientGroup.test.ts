@@ -270,6 +270,35 @@ describe('feishu group inbound gate', () => {
     expect(events[0]!.speaker).toEqual({ id: STRANGER, name: '', isOwner: false });
   });
 
+  it('drops a non-owner group command before opening a topic', async () => {
+    wsClient.setAllowStrangerChats(true);
+    await connect();
+    const events = collectEvents();
+    await mocks.eventHandlers['im.message.receive_v1']!(
+      groupMessage({ sender: STRANGER, text: '@_user_1 /new' }),
+    );
+    await mocks.eventHandlers['im.message.receive_v1']!(
+      groupMessage({ sender: STRANGER, text: '@_user_1 !STOP', messageId: 'om_msg2' }),
+    );
+
+    // 命令在开话题之前就丢: 开场白卡发出去之后没人消费也没人撤回, 群里会留一条
+    // 「思考中」。大小写变体同样要走这条路(判据与 messageHandler 的 !stop 一致)。
+    expect(mocks.openThread).not.toHaveBeenCalled();
+    expect(events).toHaveLength(0);
+  });
+
+  it('still routes an owner group command into a new topic', async () => {
+    await connect();
+    const events = collectEvents();
+    await mocks.eventHandlers['im.message.receive_v1']!(
+      groupMessage({ text: '@_user_1 /new' }),
+    );
+
+    expect(mocks.openThread).toHaveBeenCalledWith('om_msg1');
+    expect(events).toHaveLength(1);
+    expect(events[0]!.text).toBe('/new');
+  });
+
   it('allows a non-owner private message when stranger chats are enabled, but drops commands', async () => {
     wsClient.setAllowStrangerChats(true);
     await connect();

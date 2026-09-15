@@ -1632,11 +1632,22 @@ async function processClaimedMessage(
       ? resolveMentionPlaceholders(parsed.text, data.message.mentions, botOpenId)
       : parsed.text;
 
-  // 私聊普通消息可按开关放行, 但控制命令永远不交给非 owner。
-  if (!isGroup && !ownerGuard.check(senderOpenId)) {
+  // 控制命令永远不交给非 owner: 私聊普通消息可按开关放行, 命令不行; 群消息同理。
+  // 群消息必须在开话题之前拦 —— 群主流 @ 会先 openThread(「思考中」开场白卡),
+  // 而 messageHandler 对非 owner 命令是静默丢弃, 收不回那张卡, 群里就留一条
+  // 没人接的开场白; telegram 的群路径也是触发时就丢(index.ts 的 isCommand 分支)。
+  // 判据与 messageHandler 的 commandLike 逐字一致(纯文本 + 同样的两种命令形态):
+  // 门比它窄一点, 被它丢掉的命令就会穿过这里开出一张没人接的开场白。
+  const pureTextCommandInput =
+    text.length > 0 && attachments.length === 0 && unsupported.length === 0;
+  if (pureTextCommandInput && !ownerGuard.check(senderOpenId)) {
     const plain = text.trim();
-    if (plain.startsWith('/') || plain === '!stop' || plain === '！stop') {
+    const lower = plain.toLowerCase();
+    if (plain.startsWith('/') || lower === '!stop' || lower === '！stop') {
       log.info(`[feishu/wsClient] drop non-owner command ...${senderOpenId.slice(-8)}`);
+      // 这条不派 turn: 双投账本上的两条路都不会起 turn, 一并释放, 别留 pending。
+      abandonUnpairedFlat?.();
+      abandonTopic?.();
       return;
     }
   }
