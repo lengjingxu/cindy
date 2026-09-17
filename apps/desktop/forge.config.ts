@@ -961,6 +961,7 @@ const MACOS_COMPUTER_PERMISSION_GUIDE_HELPER_DEPLOYMENT_TARGET = 'macos13.0';
 const MACOS_SESSION_DRAG_RELEASE_HELPER_DEPLOYMENT_TARGET = 'macos10.15';
 const MACOS_XBOX_GAMEPAD_HELPER_DEPLOYMENT_TARGET = 'macos11.0';
 const MACOS_REMOTE_DESKTOP_INPUT_DEPLOYMENT_TARGET = 'macos10.15';
+const MACOS_PASSPORT_HELPER_DEPLOYMENT_TARGET = 'macos12.0';
 
 function swiftArchLabel(arch: ForgeArch, deploymentTarget: string): string {
   return swiftTargetTriplesForForgeArch(arch, deploymentTarget)
@@ -1171,7 +1172,7 @@ function buildMacPassportHelper(platform: ForgePlatform, arch: ForgeArch): void 
   const dir = path.join(__dirname, 'resources', 'tools', 'passport');
   fs.mkdirSync(dir, { recursive: true });
   const dest = path.join(dir, 'cindy-passport');
-  buildSwiftHelperForForgeArch(src, dest, arch, '12.0',
+  buildSwiftHelperForForgeArch(src, dest, arch, MACOS_PASSPORT_HELPER_DEPLOYMENT_TARGET,
     ['-framework', 'AppKit', '-framework', 'CoreBluetooth',
       '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__info_plist',
       '-Xlinker', path.join(path.dirname(src), 'Info.plist')], 'Passport BLE helper');
