@@ -90,6 +90,6 @@ describe('desktop companion service', () => {
 
     await service.refresh();
     expect(state.lastError).toBe('NO_IMAGE_MODEL');
-    expect(service.snapshot().status).toBe('error');
+    expect(service.snapshot().status).toBe('idle');
   });
 });

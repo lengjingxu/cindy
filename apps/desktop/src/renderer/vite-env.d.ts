@@ -2080,6 +2080,7 @@ interface ElectronAPI {
 
   desktopCompanion: {
     getState: () => Promise<DesktopCompanionSnapshot>;
+    getPreview: (filePath: string) => Promise<string>;
     setEnabled: (enabled: boolean) => Promise<DesktopCompanionSnapshot>;
     setLocationEnabled: (enabled: boolean) => Promise<DesktopCompanionSnapshot>;
     refresh: () => Promise<DesktopCompanionSnapshot>;

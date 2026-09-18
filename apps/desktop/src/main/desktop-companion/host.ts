@@ -1,7 +1,9 @@
 import { BrowserWindow, ipcMain, systemPreferences } from 'electron';
+import fs from 'node:fs';
 
 import {
   DESKTOP_COMPANION_GET_STATE_CHANNEL,
+  DESKTOP_COMPANION_GET_PREVIEW_CHANNEL,
   DESKTOP_COMPANION_REFRESH_CHANNEL,
   DESKTOP_COMPANION_SET_ENABLED_CHANNEL,
   DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL,
@@ -38,11 +40,6 @@ function shouldReduceMotion(): boolean {
   } catch {
     return false;
   }
-}
-
-function fileUrl(filePath: string | null): string | null {
-  if (!filePath) return null;
-  return 'file://' + filePath;
 }
 
 export function getDesktopCompanionService(): DesktopCompanionService {
@@ -86,7 +83,7 @@ export function getDesktopCompanionService(): DesktopCompanionService {
     stopVideo: async () => {
       await nativeHost?.stopVideo();
     },
-    toPreviewSrc: fileUrl,
+    toPreviewSrc: (filePath) => filePath,
   });
   return service;
 }
@@ -130,6 +127,20 @@ function registerDesktopCompanionIpc(): void {
     return companion.setLocationEnabled(enabled);
   });
   ipcMain.handle(DESKTOP_COMPANION_REFRESH_CHANNEL, async () => companion.refresh());
+  ipcMain.handle(DESKTOP_COMPANION_GET_PREVIEW_CHANNEL, async (_event, filePath: unknown) => {
+    if (typeof filePath !== 'string') throwIpcError('INVALID_PARAMS', 'filePath required');
+    const state = readPersistedState(statePath());
+    if (state.lastStillPath !== filePath) {
+      throwIpcError('INVALID_PARAMS', 'preview path does not match the current wallpaper');
+    }
+    const stat = await fs.promises.stat(filePath).catch(() => null);
+    if (!stat || !stat.isFile() || stat.size > 12 * 1024 * 1024) {
+      throwIpcError('INVALID_PARAMS', 'preview file unavailable');
+    }
+    const buffer = await fs.promises.readFile(filePath);
+    const mime = filePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
+    return 'data:' + mime + ';base64,' + buffer.toString('base64');
+  });
 }
 
 export function ensureDesktopCompanionRuntime(): void {
