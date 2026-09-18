@@ -51,6 +51,7 @@ export interface DesktopCompanionServiceDeps {
 
 export class DesktopCompanionService {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private inflight: Promise<void> | null = null;
   private status: DesktopCompanionStatus = 'idle';
   private listeners = new Set<(snapshot: DesktopCompanionSnapshot) => void>();
@@ -92,6 +93,8 @@ export class DesktopCompanionService {
 
   stop(): void {
     this.stopTimer();
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     void this.deps.stopVideo();
   }
 
@@ -127,6 +130,14 @@ export class DesktopCompanionService {
     this.timer = null;
   }
 
+  private scheduleRetry(delayMs: number): void {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      if (this.deps.readState().settings.enabled) void this.tick();
+    }, delayMs);
+  }
+
   private emit(): void {
     const snapshot = this.snapshot();
     for (const listener of this.listeners) listener(snapshot);
@@ -146,10 +157,11 @@ export class DesktopCompanionService {
     if (!state.settings.enabled) return;
     const media = this.deps.peekMedia();
     if (!media.image) {
-      this.status = 'error';
+      this.status = 'idle';
       state.lastError = 'NO_IMAGE_MODEL';
       this.deps.writeState(state);
       this.emit();
+      this.scheduleRetry(30_000);
       return;
     }
 

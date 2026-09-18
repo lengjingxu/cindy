@@ -1,83 +1,62 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 
-import { decodeImageResponse } from '../cindy-brain/imageChannelRegistry.js';
-import { getCindyProxyMediaService } from '../mcp-integrations/cindyProxyMedia.js';
-import { GATEWAY_IMAGE_MODELS, GATEWAY_VIDEO_MODELS } from '../cindy-proxy-media/types.js';
-import { submitAndAwaitVideo } from '../cindy-proxy-media/video/run.js';
+import {
+  peekHostMediaModel,
+  runHostImageEdit,
+  runHostImageGenerate,
+  runHostImageToVideo,
+} from '../cindy-brain/index.js';
 
-const IMAGE_MIME: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-};
-
-export function peekDesktopCompanionMedia(): { image: boolean; video: boolean } {
-  try {
-    const backend = getCindyProxyMediaService().backend;
-    return {
-      image: Boolean(backend.generateImage),
-      video: Boolean(backend.videoRegistry?.hasAny()),
-    };
-  } catch {
-    return { image: false, video: false };
+function debugPeekDetail(): Record<string, string | null> {
+  const detail: Record<string, string | null> = {};
+  const capabilities = ['image.generate', 'image.edit', 'video.edit'] as const;
+  for (const capability of capabilities) {
+    try {
+      detail[capability] = peekHostMediaModel(capability)?.label ?? null;
+    } catch (error) {
+      detail[capability] = 'ERR:' + String(error).slice(0, 300);
+    }
   }
+  try {
+    fs.writeFileSync(os.tmpdir() + '/dc-peek-debug.json', JSON.stringify(detail, null, 2));
+  } catch {
+    // diagnostics only
+  }
+  return detail;
 }
 
-export async function generateDesktopCompanionStill(params: {
+export function peekDesktopCompanionMedia(): { image: boolean; video: boolean } {
+  const detail = debugPeekDetail();
+  return {
+    image: detail['image.generate'] !== null || detail['image.edit'] !== null,
+    video: detail['video.edit'] !== null,
+  };
+}
+
+export function generateDesktopCompanionStill(params: {
   prompt: string;
   refPath: string | null;
 }): Promise<{ buffer: Buffer; mimeType: string }> {
-  const backend = getCindyProxyMediaService().backend;
-  const model = GATEWAY_IMAGE_MODELS[0].id;
   if (params.refPath) {
-    try {
-      const edited = await backend.editImage({
-        model,
-        prompt: params.prompt,
-        imagePaths: [params.refPath],
-        size: '1536x1024',
-      });
-      return decodeImageResponse(edited);
-    } catch {
-      // 当前出图通道不接受参考图时，改走文生图，身份锁仍写在 prompt 里。
-    }
+    return runHostImageEdit({
+      prompt: params.prompt,
+      imagePaths: [params.refPath],
+      aspectRatio: '3:2',
+    }).catch(() => runHostImageGenerate({ prompt: params.prompt, aspectRatio: '3:2' }));
   }
-  const generated = await backend.generateImage({
-    model,
-    prompt: params.prompt,
-    size: '1536x1024',
-  });
-  return decodeImageResponse(generated);
+  return runHostImageGenerate({ prompt: params.prompt, aspectRatio: '3:2' });
 }
 
-export async function generateDesktopCompanionVideo(params: {
+export function generateDesktopCompanionVideo(params: {
   prompt: string;
   stillPath: string;
 }): Promise<{ buffer: Buffer; mimeType: string }> {
-  const registry = getCindyProxyMediaService().backend.videoRegistry;
-  if (!registry?.hasAny()) throw new Error('NO_VIDEO_MODEL');
-  const alias =
-    GATEWAY_VIDEO_MODELS.map((model) => model.id).find((id) => registry.hasAlias(id)) ??
-    registry.collectAllAliases()[0]?.alias;
-  if (!alias) throw new Error('NO_VIDEO_MODEL');
-  const imageDataUris = [await readImageDataUri(params.stillPath)];
-  const generated = await submitAndAwaitVideo(registry, {
-    alias,
+  return runHostImageToVideo({
     prompt: params.prompt,
-    imageDataUris,
-    refMode: 'first_and_last_frame',
+    imagePaths: [params.stillPath],
     ratio: '16:9',
     duration: 6,
+    audio: false,
   });
-  return { buffer: generated.buffer, mimeType: generated.mimeType };
-}
-
-async function readImageDataUri(filePath: string): Promise<string> {
-  const mime = IMAGE_MIME[path.extname(filePath).toLowerCase()];
-  if (!mime) throw new Error('unsupported still image type');
-  const bytes = await fs.readFile(filePath);
-  return 'data:' + mime + ';base64,' + bytes.toString('base64');
 }

@@ -44,6 +44,7 @@ import {
 import type { DesktopCompanionSnapshot } from '../shared/desktopCompanion';
 import {
   DESKTOP_COMPANION_GET_STATE_CHANNEL,
+  DESKTOP_COMPANION_GET_PREVIEW_CHANNEL,
   DESKTOP_COMPANION_REFRESH_CHANNEL,
   DESKTOP_COMPANION_SET_ENABLED_CHANNEL,
   DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL,
@@ -1937,6 +1938,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   desktopCompanion: {
     getState: (): Promise<DesktopCompanionSnapshot> =>
       ipcRenderer.invoke(DESKTOP_COMPANION_GET_STATE_CHANNEL),
+    getPreview: (filePath: string): Promise<string> =>
+      ipcRenderer.invoke(DESKTOP_COMPANION_GET_PREVIEW_CHANNEL, filePath),
     setEnabled: (enabled: boolean): Promise<DesktopCompanionSnapshot> =>
       ipcRenderer.invoke(DESKTOP_COMPANION_SET_ENABLED_CHANNEL, enabled),
     setLocationEnabled: (enabled: boolean): Promise<DesktopCompanionSnapshot> =>

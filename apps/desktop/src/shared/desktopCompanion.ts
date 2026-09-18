@@ -3,6 +3,7 @@ export const DESKTOP_COMPANION_SET_ENABLED_CHANNEL = 'desktop-companion:set-enab
 export const DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL = 'desktop-companion:set-location-enabled';
 export const DESKTOP_COMPANION_REFRESH_CHANNEL = 'desktop-companion:refresh';
 export const DESKTOP_COMPANION_STATE_EVENT_CHANNEL = 'desktop-companion:state';
+export const DESKTOP_COMPANION_GET_PREVIEW_CHANNEL = 'desktop-companion:get-preview';
 
 export const DESKTOP_COMPANION_REUSE_MS = 6 * 60 * 60 * 1000;
 export const DESKTOP_COMPANION_TICK_MS = 60 * 60 * 1000;

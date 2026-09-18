@@ -9,7 +9,8 @@ import { useDesktopCompanionSettings } from '@/hooks/useDesktopCompanionSettings
 
 export function DesktopCompanionSection() {
   const { t } = useTranslation();
-  const { snapshot, setEnabled, setLocationEnabled, refresh } = useDesktopCompanionSettings();
+  const { snapshot, previewDataUrl, setEnabled, setLocationEnabled, refresh } =
+    useDesktopCompanionSettings();
 
   if (!snapshot.supported) return null;
 
@@ -56,9 +57,9 @@ export function DesktopCompanionSection() {
           </SettingsCard>
 
           <SettingsCard className="flex flex-col gap-3">
-            {snapshot.previewSrc ? (
+            {previewDataUrl ? (
               <img
-                src={snapshot.previewSrc}
+                src={previewDataUrl}
                 alt={t('settings.agentIsland.desktopCompanion.previewAlt')}
                 className="h-24 w-full rounded-lg object-cover"
               />
