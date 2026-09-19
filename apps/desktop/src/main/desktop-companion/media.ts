@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import os from 'node:os';
-
 import {
   peekHostMediaModel,
   runHostImageEdit,
@@ -8,30 +5,15 @@ import {
   runHostImageToVideo,
 } from '../cindy-brain/index.js';
 
-function debugPeekDetail(): Record<string, string | null> {
-  const detail: Record<string, string | null> = {};
-  const capabilities = ['image.generate', 'image.edit', 'video.edit'] as const;
-  for (const capability of capabilities) {
-    try {
-      detail[capability] = peekHostMediaModel(capability)?.label ?? null;
-    } catch (error) {
-      detail[capability] = 'ERR:' + String(error).slice(0, 300);
-    }
-  }
-  try {
-    fs.writeFileSync(os.tmpdir() + '/dc-peek-debug.json', JSON.stringify(detail, null, 2));
-  } catch {
-    // diagnostics only
-  }
-  return detail;
-}
-
 export function peekDesktopCompanionMedia(): { image: boolean; video: boolean } {
-  const detail = debugPeekDetail();
-  return {
-    image: detail['image.generate'] !== null || detail['image.edit'] !== null,
-    video: detail['video.edit'] !== null,
-  };
+  try {
+    return {
+      image: Boolean(peekHostMediaModel('image.generate') || peekHostMediaModel('image.edit')),
+      video: Boolean(peekHostMediaModel('video.edit')),
+    };
+  } catch {
+    return { image: false, video: false };
+  }
 }
 
 export function generateDesktopCompanionStill(params: {

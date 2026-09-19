@@ -38,6 +38,9 @@ export interface DesktopCompanionServiceDeps {
   writeState: (state: DesktopCompanionPersistedState) => void;
   applyDir: () => string;
   characterRefPath: () => string | null;
+  ownerKey: () => string;
+  removeFile: (filePath: string) => void;
+  sweepOrphans: (keep: ReadonlySet<string>) => void;
   collectContext: (locationEnabled: boolean) => Promise<DesktopCompanionCollectedContext>;
   peekMedia: () => { image: boolean; video: boolean };
   generateStill: (prompt: string, refPath: string | null) => Promise<GeneratedMedia>;
@@ -83,8 +86,9 @@ export class DesktopCompanionService {
   start(): void {
     this.stopTimer();
     if (!this.deps.isMac()) return;
-    const settings = this.deps.readState().settings;
-    if (!settings.enabled) return;
+    const state = this.deps.readState();
+    if (!state.settings.enabled) return;
+    this.sweepOrphans(state);
     void this.tick();
     this.timer = setInterval(() => {
       void this.tick();
@@ -155,6 +159,11 @@ export class DesktopCompanionService {
     if (!this.deps.isMac()) return;
     const state = this.deps.readState();
     if (!state.settings.enabled) return;
+    const owner = this.deps.ownerKey();
+    // 生成跨越多次 await：owner 或开关任一变化都视作本次作废，
+    // 不得再写状态、设壁纸或播视频（review #4706 Issue 1/2）。
+    const abort = (): boolean =>
+      this.deps.ownerKey() !== owner || !this.deps.readState().settings.enabled;
     const media = this.deps.peekMedia();
     if (!media.image) {
       this.status = 'idle';
@@ -169,6 +178,7 @@ export class DesktopCompanionService {
       this.status = 'generating';
       this.emit();
       const collected = await this.deps.collectContext(state.settings.locationEnabled);
+      if (abort()) return;
       const now = this.deps.now();
       const timeSlot = timeSlotAt(new Date(now));
       const hasTask = Boolean(collected.taskTitle);
@@ -182,10 +192,13 @@ export class DesktopCompanionService {
         memoryKey,
       });
 
+      const previousPool = state.reusePool;
       state.reusePool = pruneReusePool(state.reusePool, now, (filePath) => fs.existsSync(filePath));
+      this.removeDroppedPoolFiles(previousPool, state.reusePool);
 
       if (state.lastFingerprint === fingerprint && state.lastStillPath && fs.existsSync(state.lastStillPath)) {
         await this.deps.setWallpaper(state.lastStillPath);
+        if (abort()) return;
         if (state.lastVideoPath && fs.existsSync(state.lastVideoPath) && !this.deps.shouldReduceMotion()) {
           await this.deps.playVideo(state.lastVideoPath);
         }
@@ -196,10 +209,11 @@ export class DesktopCompanionService {
         return;
       }
 
+      // 只复用与当前上下文指纹一致的条目（review #4706 Issue 3）。
       if (!hasTask) {
-        const reuse = state.reusePool[0];
+        const reuse = state.reusePool.find((entry) => entry.fingerprint === fingerprint);
         if (reuse) {
-          await this.applyExisting(state, reuse, now);
+          await this.applyExisting(state, reuse, now, abort);
           return;
         }
       }
@@ -212,14 +226,20 @@ export class DesktopCompanionService {
         mode,
       });
       const still = await this.deps.generateStill(prompt, this.deps.characterRefPath());
+      if (abort()) return;
       const stillPath = this.deps.materialize(still, 'still');
       await this.deps.setWallpaper(stillPath);
+      if (abort()) return;
 
       let videoPath: string | null = null;
       let lastError: string | null = null;
       if (media.video && !this.deps.shouldReduceMotion()) {
         try {
           const video = await this.deps.generateVideo(buildDesktopCompanionVideoPrompt(topic), stillPath);
+          if (abort()) {
+            await this.deps.stopVideo();
+            return;
+          }
           videoPath = this.deps.materialize(video, 'video');
           await this.deps.playVideo(videoPath);
         } catch (error) {
@@ -229,6 +249,7 @@ export class DesktopCompanionService {
       } else {
         await this.deps.stopVideo();
       }
+      if (abort()) return;
 
       const item: DesktopCompanionReuseItem = {
         fingerprint,
@@ -248,6 +269,7 @@ export class DesktopCompanionService {
       this.deps.writeState(state);
       this.emit();
     } catch (error) {
+      if (this.deps.ownerKey() !== owner) return;
       const stateAfter = this.deps.readState();
       this.status = 'error';
       stateAfter.lastError = error instanceof Error ? error.message : String(error);
@@ -256,12 +278,37 @@ export class DesktopCompanionService {
     }
   }
 
+  private removeDroppedPoolFiles(
+    previousPool: DesktopCompanionReuseItem[],
+    nextPool: DesktopCompanionReuseItem[],
+  ): void {
+    const kept = new Set(nextPool.map((entry) => entry.stillPath));
+    for (const entry of previousPool) {
+      if (kept.has(entry.stillPath)) continue;
+      this.deps.removeFile(entry.stillPath);
+      if (entry.videoPath) this.deps.removeFile(entry.videoPath);
+    }
+  }
+
+  private sweepOrphans(state: DesktopCompanionPersistedState): void {
+    const keep = new Set<string>();
+    for (const entry of state.reusePool) {
+      keep.add(entry.stillPath);
+      if (entry.videoPath) keep.add(entry.videoPath);
+    }
+    if (state.lastStillPath) keep.add(state.lastStillPath);
+    if (state.lastVideoPath) keep.add(state.lastVideoPath);
+    this.deps.sweepOrphans(keep);
+  }
+
   private async applyExisting(
     state: DesktopCompanionPersistedState,
     reuse: DesktopCompanionReuseItem,
     now: number,
+    abort: () => boolean,
   ): Promise<void> {
     await this.deps.setWallpaper(reuse.stillPath);
+    if (abort()) return;
     if (reuse.videoPath && fs.existsSync(reuse.videoPath) && !this.deps.shouldReduceMotion()) {
       await this.deps.playVideo(reuse.videoPath);
     } else {

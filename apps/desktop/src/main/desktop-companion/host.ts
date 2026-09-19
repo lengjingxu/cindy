@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, systemPreferences } from 'electron';
 import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   DESKTOP_COMPANION_GET_STATE_CHANNEL,
@@ -42,6 +43,31 @@ function shouldReduceMotion(): boolean {
   }
 }
 
+function ownerKey(): string {
+  return ownerScopedUserDataPath('desktop-companion');
+}
+
+function removeFile(filePath: string): void {
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch {
+    // best-effort cache cleanup
+  }
+}
+
+function sweepOrphans(keep: ReadonlySet<string>): void {
+  try {
+    for (const entry of fs.readdirSync(applyDir())) {
+      const fullPath = path.join(applyDir(), entry);
+      if (!keep.has(fullPath) && fs.statSync(fullPath).isFile()) {
+        removeFile(fullPath);
+      }
+    }
+  } catch {
+    // apply dir may not exist yet
+  }
+}
+
 export function getDesktopCompanionService(): DesktopCompanionService {
   if (service) return service;
   nativeHost = new MacDesktopCompanionNativeHost();
@@ -53,6 +79,9 @@ export function getDesktopCompanionService(): DesktopCompanionService {
     writeState: (next) => writePersistedState(statePath(), next),
     applyDir,
     characterRefPath: characterReferencePath,
+    ownerKey,
+    removeFile,
+    sweepOrphans,
     collectContext: async (locationEnabled) => {
       const task = await readRecentCompanionTask().catch((error) => {
         log.warn('read task failed', { error: String(error) });
