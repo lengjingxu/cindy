@@ -119,7 +119,8 @@ describe('desktop companion service', () => {
 
     await harness.service.refresh();
     expect(harness.generated).toHaveLength(1);
-    expect(harness.wallpapers).toEqual(harness.generated);
+    expect(harness.wallpapers).toHaveLength(1);
+    expect(harness.state.lastStillPath).toBe(harness.wallpapers[0]);
   });
 
   it('drops side effects when the user disables during generation', async () => {
