@@ -77,7 +77,11 @@ import {
 import { Text } from "@/components/AppText";
 import { useScreenEdgePadding } from "@/components/screenEdgeInsets";
 import { goBackGuarded } from "@/utils/backGuard";
-import { mobileDebugLog } from "@/debug/mobileDebugLog";
+import { mobileDebugEnabled, mobileDebugLog } from "@/debug/mobileDebugLog";
+import {
+  RTC_DIAGNOSTIC_REVISION,
+  rtcDiagnosticSummary,
+} from "./rtcDiagnostics";
 import {
   fontWeight,
   iconSize,
@@ -106,6 +110,7 @@ import { useVideoSettingsPreference } from "./useVideoSettingsPreference";
 import { usePictureInPicturePreference } from "./usePictureInPicturePreference";
 import { PermissionGuide } from "./PermissionGuide";
 import { RemoteDesktopBackButton } from "./RemoteDesktopBackButton";
+import { RemoteDesktopWindows } from "./RemoteDesktopWindows";
 import { RemoteDesktopNetworkStatus } from "./RemoteDesktopNetworkStatus";
 import type { DesktopNetworkStats } from "./networkStats";
 import {
@@ -308,6 +313,10 @@ export function RemoteDesktopSession({
   const unlockFrame = useRef<((presented: boolean) => void) | null>(null);
   const inputBusy = useRef<string | null>(null);
   const [lease, setLease] = useState<RemoteDesktopLease | null>(null);
+  const [windowsOpen, setWindowsOpen] = useState(false);
+  useEffect(() => {
+    setWindowsOpen(false);
+  }, [lease?.lease, lease?.controlling, focused]);
   const [fittedDisplay, setFittedDisplay] = useState<{
     width: number;
     height: number;
@@ -437,8 +446,21 @@ export function RemoteDesktopSession({
           epoch: command.epoch ?? owner?.lease,
           ...(command.type === "init"
             ? {
-                net: REMOTE_DESKTOP_NETWORK,
+                net:
+                  owner?.display.id === "wayland-portal"
+                    ? {
+                        ...REMOTE_DESKTOP_NETWORK,
+                        // Shipped native receivers do not understand capturePending.
+                        // Their existing bounded retry timer must cover local consent
+                        // before using the normal network recovery attempts.
+                        retryMs: [
+                          ...Array<number>(15).fill(8000),
+                          ...REMOTE_DESKTOP_NETWORK.retryMs,
+                        ],
+                      }
+                    : REMOTE_DESKTOP_NETWORK,
                 iceServers: REMOTE_DESKTOP_ICE_SERVERS,
+                diagnostics: mobileDebugEnabled(),
               }
             : {}),
         })
@@ -503,13 +525,25 @@ export function RemoteDesktopSession({
       new RemoteDesktopViewerMedia({
         request,
         send,
-        loadIce: () =>
-          resolveDesktopIceServers(() =>
-            authRef.current.apiFetch(REMOTE_DESKTOP_ICE_CONFIG_PATH, {
-              baseUrl: DEVICE_LINK_API_BASE_URL,
-              timeoutMs: REMOTE_DESKTOP_ICE_CONFIG_TIMEOUT_MS,
-              cache: "no-store",
-            }),
+        loadIce: (attemptId) =>
+          resolveDesktopIceServers(
+            () =>
+              authRef.current.apiFetch(REMOTE_DESKTOP_ICE_CONFIG_PATH, {
+                baseUrl: DEVICE_LINK_API_BASE_URL,
+                timeoutMs: REMOTE_DESKTOP_ICE_CONFIG_TIMEOUT_MS,
+                cache: "no-store",
+              }),
+            (result) =>
+              mobileDebugLog(
+                "info",
+                "device-link",
+                "remote desktop ICE config",
+                {
+                  revision: RTC_DIAGNOSTIC_REVISION,
+                  attempt: attemptId.slice(0, 8),
+                  ...result,
+                },
+              ),
           ),
         current: () => {
           const lease = active.current,
@@ -931,6 +965,17 @@ export function RemoteDesktopSession({
               capsRef.current = { deviceId, value: result };
               setHostCaps({ deviceId, value: result });
               if (supportsAutoUnlock(result.platform)) {
+                // Linux capture may be unavailable until its locker releases the session.
+                if (result.platform === "linux") {
+                  return securityRef.current.maybeUnlock(async () => {
+                    if (
+                      current !== generation.current ||
+                      !focusedRef.current ||
+                      !recovery.current.enabled
+                    )
+                      throw new Error("CREDENTIAL_CANCELLED");
+                  });
+                }
                 const firstFrame = new Promise<boolean>((resolve) => {
                   unlockFrame.current = resolve;
                 });
@@ -1027,20 +1072,26 @@ export function RemoteDesktopSession({
   );
   const connectRef = useRef(connect);
   connectRef.current = connect;
+  const portalAuthorization =
+    caps?.displays.some((display) => display.id === "wayland-portal") === true;
   useEffect(() => {
     if (!focused || appState !== "active" || !showConnectionStatus) return;
     // One deadline spans link setup, automatic retries and first presentation.
     // Background/navigation pauses it; a manual retry starts a fresh budget.
-    const timer = setTimeout(() => {
-      if (
-        alive.current &&
-        focusedRef.current &&
-        AppState.currentState === "active"
-      )
-        fail(new Error("DESKTOP_CONNECTION_TIMEOUT"));
-    }, REMOTE_DESKTOP_CONNECTION_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => {
+        if (
+          alive.current &&
+          focusedRef.current &&
+          AppState.currentState === "active"
+        )
+          fail(new Error("DESKTOP_CONNECTION_TIMEOUT"));
+      },
+      REMOTE_DESKTOP_CONNECTION_TIMEOUT_MS +
+        (portalAuthorization ? 120_000 : 0),
+    );
     return () => clearTimeout(timer);
-  }, [focused, appState, showConnectionStatus, fail]);
+  }, [focused, appState, showConnectionStatus, fail, portalAuthorization]);
   useEffect(() => {
     // Authentication preparation is already running; only the native prompt
     // waits for a frame from this lease. stop() releases cancelled waiters.
@@ -1245,6 +1296,7 @@ export function RemoteDesktopSession({
             applyConfirmedControl(current, true);
         })
         .catch((cause) => {
+          if (active.current !== current) return;
           // A missing reply does not prove renewal failed; the next interval
           // retries within the lease. Explicit host revocation still stops us.
           if (
@@ -1453,14 +1505,17 @@ export function RemoteDesktopSession({
   ]);
   useEffect(() => {
     if (link.status !== "online") {
-      // A native stream with an acknowledged background lease outlives signaling.
-      // Restoring fullscreen must not tear it down while that socket reconnects.
+      // Only a prepared background presentation can survive host signaling loss.
+      // The host stops foreground leases, so discard ours before reconnecting.
       if (
-        !presentation.current &&
-        !(NativeRemoteDesktopView && pipPrepared.current)
+        presentation.current ||
+        (NativeRemoteDesktopView && pipPrepared.current)
       )
-        pause();
-    } else if (!active.current) void connectRef.current();
+        return;
+      pause();
+      return;
+    }
+    if (!active.current) void connectRef.current();
     else restoreInlinePresentationRef.current();
   }, [link.status, pause]);
 
@@ -1506,6 +1561,17 @@ export function RemoteDesktopSession({
     )
       return;
     switch (message.type) {
+      case "rtcDiagnostic": {
+        const summary = rtcDiagnosticSummary(message);
+        if (summary)
+          mobileDebugLog(
+            "info",
+            "device-link",
+            "remote desktop RTC diagnostic",
+            summary,
+          );
+        break;
+      }
       case "nativeViewport":
         if (NativeRemoteDesktopView)
           void nativeViewer.current?.receive(message).catch(() => {});
@@ -2379,6 +2445,21 @@ export function RemoteDesktopSession({
           .map((code) => ({ kind: "key", code, down: false })),
       ],
     });
+  const workspaceAction = (
+    action: "workspaceLeft" | "workspaceRight" | "omarchyMenu",
+  ) => {
+    if (!lease?.controlling) return;
+    const current = active.current;
+    void request({ op: "windowAction", action, lease: lease.lease }).catch(
+      () => {
+        if (active.current === current)
+          Alert.alert(
+            t(`remoteDesktop.${action}`),
+            t("remoteDesktop.settingFailed"),
+          );
+      },
+    );
+  };
   const button = (
     label: string,
     onPress: () => void,
@@ -2710,6 +2791,20 @@ export function RemoteDesktopSession({
               top={edgePadding.paddingTop + spacing.sm}
             />
           )}
+          {windowsOpen &&
+            focused &&
+            lease?.controlling &&
+            caps?.windowActions && (
+              <RemoteDesktopWindows
+                key={lease.lease}
+                lease={lease.lease}
+                request={request}
+                caption={deviceName}
+                landscape={landscape}
+                topInset={edgePadding.paddingTop}
+                onClose={() => setWindowsOpen(false)}
+              />
+            )}
           {(operations || Platform.OS === "ios") && (
             <View
               pointerEvents="box-none"
@@ -2729,6 +2824,7 @@ export function RemoteDesktopSession({
             >
               <RemoteDesktopPanel
                 toolbarOnLeft={toolbarOnLeft}
+                toolbarActionCount={caps?.omarchyMenu ? 5 : 4}
                 visible={operations && focused}
                 landscape={landscape}
                 topInset={edgePadding.paddingTop}
@@ -2883,20 +2979,55 @@ export function RemoteDesktopSession({
           >
             <RemoteDesktopToolbar
               landscape={landscape}
+              onWorkspaceLeft={
+                caps?.workspaceNavigation
+                  ? () => workspaceAction("workspaceLeft")
+                  : undefined
+              }
+              onWorkspaceRight={
+                caps?.workspaceNavigation
+                  ? () => workspaceAction("workspaceRight")
+                  : undefined
+              }
+              onOmarchyMenu={
+                caps?.omarchyMenu
+                  ? () => workspaceAction("omarchyMenu")
+                  : undefined
+              }
               canControl={Boolean(lease?.controlling)}
               keyboard={keyboard}
               operations={operations}
-              onWindows={() =>
+              onWindows={() => {
+                if (caps?.windowActions) {
+                  setOperations(false);
+                  Keyboard.dismiss();
+                  setKeyboard(false);
+                  setWindowsOpen(true);
+                  return;
+                }
                 shortcut(
                   caps?.platform === "darwin"
                     ? ["ControlLeft", "ArrowUp"]
                     : ["MetaLeft", "Tab"],
-                )
-              }
+                );
+              }}
               onDesktop={() =>
-                shortcut(
-                  caps?.platform === "darwin" ? ["F11"] : ["MetaLeft", "KeyD"],
-                )
+                caps?.windowActions && lease?.controlling
+                  ? void request({
+                      op: "windowAction",
+                      action: "desktop",
+                      lease: lease.lease,
+                    }).catch(() =>
+                      Alert.alert(
+                        t("remoteDesktop.showDesktop"),
+                        t("remoteDesktop.settingFailed"),
+                      ),
+                    )
+                  : shortcut(
+                      caps?.platform === "darwin"
+                        ? ["F11"]
+                        : ["MetaLeft", "KeyD"],
+                    )
               }
               onKeyboard={() => {
                 setOperations(false);

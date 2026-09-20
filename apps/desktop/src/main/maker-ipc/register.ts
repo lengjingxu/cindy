@@ -239,8 +239,9 @@ import {
 } from '../localDb/client/current.js';
 import { createBotRuntimeRestoreCoordinator } from './botRuntimeRestore.js';
 import { createWorkingDirectoryRecovery, isUnavailableFilesystemError } from './workingDirectoryRecovery.js';
+import { createWorkingDirectoryPreflight } from './workingDirectoryPreflight.js';
 import { allocateDialogueRecoveryWorkspace, findDialogueRecoveryWorkspace, requiredDialogueRecoveryRoot } from './dialogueRecoveryWorkspace.js';
-import { workdirDiagnosticContext, workdirDiagnosticErrorCode, workdirDiagnosticId } from '../workdirDiagnostics.js';
+import { workdirDiagnosticContext, workdirDiagnosticErrorCode } from '../workdirDiagnostics.js';
 import { statWorkingDirectory, mkdirWorkingDirectory, realpathWorkingDirectory, findSimilarWorkingDirectory } from '../workdir-probe-host/index.js';
 import { getMessagesForHistory } from '../localDb/chatHistoryReader.js';
 import {
@@ -393,6 +394,15 @@ import {
   readClaudeApiKey,
 } from '../maker-host/auth-adapters.js';
 import { prepareSharedProjectSkillLinks } from '../maker-host/shared-global-skills.js';
+import {
+  activeCindyBuiltInAgentSkills,
+  builtInSkillDescriptors,
+} from '../maker-host/built-in-skills.js';
+import { isCindySkillEnabled } from '../skillhub/activationPreferences.js';
+import {
+  parseDirectLearnInvocation,
+  type CindyLearnInvocationGrant,
+} from '../learn-host/invocationGrant.js';
 import { ensurePiManagerInstalled } from '../maker-host/pi-manager-client.js';
 import {
   setRemoteCodexLiveTurnChecker,
@@ -5883,8 +5893,16 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   // Desktop / agent-builtin / agent-skill 各一条 list 接口 + desktop 自家的
   // execute 接口。renderer 通过 mergeCommands 把三路 list 合并展示, dispatch
   // 时按 kind 分流: desktop → executeDesktopCommand IPC; agent-* → 当 prompt 前缀 send。
-  ipcMain.handle(MAKER_INVOKE.LIST_DESKTOP_COMMANDS, () => {
-    return { success: true, commands: getDesktopCommandRegistry().list() };
+  ipcMain.handle(MAKER_INVOKE.LIST_DESKTOP_COMMANDS, (_event, ctx?: unknown) => {
+    const deviceId = ctx && typeof ctx === 'object' && !Array.isArray(ctx)
+      && typeof (ctx as { deviceId?: unknown }).deviceId === 'string'
+      && (ctx as { deviceId: string }).deviceId.length > 0
+      ? (ctx as { deviceId: string }).deviceId
+      : undefined;
+    return {
+      success: true,
+      commands: getDesktopCommandRegistry().list(deviceId ? { deviceId } : undefined),
+    };
   });
 
   ipcMain.handle(MAKER_INVOKE.EXECUTE_DESKTOP_COMMAND, async (e, name: unknown, ctx: unknown) => {
@@ -6012,7 +6030,15 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           await desktopClaudeAuthAdapter.ensureSharedGlobalSkills();
         }
         const result = await maker.listAgentSkills(kind, skillParams);
-        return { success: true, ...result };
+        return {
+          success: true,
+          ...result,
+          skills: activeCindyBuiltInAgentSkills(
+            result.skills,
+            builtInSkillDescriptors(app.getPath('userData'), app.getPath('appData')),
+            isCindySkillEnabled,
+          ),
+        };
       } catch (err) {
         return toAgentSkillListFailure(err, {
           reportError: (error) => {
@@ -12240,6 +12266,64 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     prepareSendUserMessage: (sessionId, message) =>
       prepareUserMessageForAgent(sessionId, message, 'send'),
     materializeDirectSendOssAttachments,
+    captureCindyLearnInvocation: async (session, persistedContent, dispatchedText) => {
+      const invocationText = visibleMessageTextForConversationSearch(
+        'user',
+        typeof persistedContent === 'string' ? persistedContent : JSON.stringify(persistedContent),
+      );
+      const persistedInvocation = parseDirectLearnInvocation(invocationText);
+      const dispatchedInvocation = parseDirectLearnInvocation(dispatchedText);
+      if (
+        !persistedInvocation
+        || !dispatchedInvocation
+        || JSON.stringify(persistedInvocation) !== JSON.stringify(dispatchedInvocation)
+      ) return null;
+      if (
+        session.remoteHostId
+        || maker.getSession(session.id) !== session
+        || (session.getStatus && session.getStatus() !== 'active')
+      ) return null;
+
+      const descriptors = builtInSkillDescriptors(
+        app.getPath('userData'),
+        app.getPath('appData'),
+      );
+      const learnDescriptor = descriptors.find((descriptor) => descriptor.name === 'learn');
+      if (!learnDescriptor || !isCindySkillEnabled(learnDescriptor.absolutePath)) return null;
+
+      const result = session.agentKind === 'claude-code'
+        ? await maker.listAgentRuntimeSkills(session.agentKind, {
+          workingDir: session.workDir,
+          sessionId: session.id,
+          runtimeConfigDir: process.env.CLAUDE_CONFIG_DIR?.trim() || (
+            process.env.XDT_USER_DATA_DIR && !app.isPackaged
+              ? path.join(app.getPath('userData'), 'claude-home')
+              : path.join(os.homedir(), '.claude')
+          ),
+        })
+        : await maker.listAgentSkills(session.agentKind, {
+          workingDir: session.workDir,
+          sessionId: session.id,
+        });
+      if (result.errors?.length || maker.getSession(session.id) !== session) return null;
+      const learnCandidates = activeCindyBuiltInAgentSkills(
+        result.skills,
+        descriptors,
+        isCindySkillEnabled,
+      ).filter((skill) => skill.name.toLowerCase() === 'learn');
+      if (
+        learnCandidates.length !== 1
+        || learnCandidates.some((skill) => skill.builtIn !== true || !skill.path)
+      ) return null;
+
+      const resolvedSkillPath = await fsp.realpath(learnCandidates[0]!.path!);
+      if (maker.getSession(session.id) !== session) return null;
+      return {
+        version: 1,
+        sessionInstanceId: session.instanceId,
+        resolvedSkillPath,
+      } satisfies CindyLearnInvocationGrant;
+    },
     createDbMessage: createUserMessageDurably,
     rewindPersistedUserMessageAfterClear: (sessionId, clientId) =>
       enqueueDurableWrite(`user-rewind:${sessionId}:${clientId}`, () =>
@@ -12409,111 +12493,17 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         .limit(1);
       return row ?? null;
     },
-    tryStripOversizedCodexHistory: async ({
-      sessionId,
-      threadId,
-      model,
-      providerId,
-      workingDir,
-    }) => {
+    classifyCodexHistory: async (threadId) => {
       const ownerScope = captureDataOwnerBroadcastScope();
       const dbSnapshot = getCurrentDbClientSnapshot();
-      let committed = false;
-      try {
-        const classified = await classifyCodexHistoryOversized(threadId);
-        if (
-          !isDataOwnerBroadcastScopeCurrent(ownerScope) ||
-          !dbSnapshot ||
-          getCurrentDbClientSnapshot()?.clientEpoch !== dbSnapshot.clientEpoch
-        ) {
-          return 'stale';
-        }
-        if (classified === 'healthy') return 'not-needed';
-        if (classified !== 'oversized') return 'failed';
-        const live = getMaker().getSession(sessionId);
-        // busy ≠ failed：外层已守卫 turn-running；这里若仍撞上，中止而不是升级成 rebuild。
-        if (live?.isTurnRunning()) return 'busy';
-        if (live) await getMaker().closeSession(sessionId, 'runtime-refresh');
-        const forked = await getMaker().forkSdkSession('codex', {
-          sourceSdkSessionId: threadId,
-          model: model ?? undefined,
-          providerId,
-          upToMessageId: undefined,
-          workingDir: workingDir ?? undefined,
-          stripEncryptedReasoning: true,
-          remoteHostId: null,
-        });
-        if (!isDataOwnerBroadcastScopeCurrent(ownerScope)) return 'stale';
-        const currentDb = getCurrentDbClientSnapshot();
-        if (!dbSnapshot || !currentDb || currentDb.clientEpoch !== dbSnapshot.clientEpoch) {
-          return 'stale';
-        }
-        const now = Date.now();
-        const write = await dbSnapshot.client.drizzle
-          .update(sessions)
-          .set({ sdkSessionId: forked.newSdkSessionId, updatedAt: now })
-          .where(and(eq(sessions.id, sessionId), eq(sessions.sdkSessionId, threadId)))
-          .run();
-        if (write.changes === 0) return 'failed';
-        committed = true;
-        try {
-          broadcastSessionPatched(
-            sessionId,
-            {
-              sdkSessionId: forked.newSdkSessionId,
-              updatedAt: new Date(now).toISOString(),
-            },
-            ownerScope,
-          );
-          const cardOwnerCurrent =
-            isDataOwnerBroadcastScopeCurrent(ownerScope) &&
-            getCurrentDbClientSnapshot()?.clientEpoch === dbSnapshot.clientEpoch;
-          if (!cardOwnerCurrent) {
-            log.warn('codex oversized history card skipped: owner changed after relink', {
-              sessionId,
-              threadId,
-              toThreadId: forked.newSdkSessionId,
-            });
-          } else {
-            await createDbMessage(
-              sessionId,
-              {
-                clientId: `context-rebuild-card:${createId()}`,
-                role: 'assistant',
-                content: '',
-                agentKind: 'codex',
-                agentMeta: { contextRebuild: { reason: 'codex-history-strip' } } as AgentMeta,
-              },
-              {
-                broadcastOwnerScope: ownerScope,
-                shouldBroadcast: () =>
-                  isDataOwnerBroadcastScopeCurrent(ownerScope) &&
-                  getCurrentDbClientSnapshot()?.clientEpoch === dbSnapshot.clientEpoch,
-              },
-            );
-          }
-        } catch (postError) {
-          log.warn('codex oversized history relink post-commit failed', {
-            sessionId,
-            threadId,
-            toThreadId: forked.newSdkSessionId,
-            error: postError instanceof Error ? postError.message : String(postError),
-          });
-        }
-        log.info('codex oversized history relinked in place', {
-          sessionId,
-          fromThreadId: threadId,
-          toThreadId: forked.newSdkSessionId,
-        });
-        return 'recovered';
-      } catch (error) {
-        log.warn('codex oversized history relink failed', {
-          sessionId,
-          threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return committed ? 'recovered' : 'failed';
+      const result = await classifyCodexHistoryOversized(threadId);
+      if (
+        !dbSnapshot || !isDataOwnerBroadcastScopeCurrent(ownerScope) ||
+        getCurrentDbClientSnapshot()?.clientEpoch !== dbSnapshot.clientEpoch
+      ) {
+        throw new Error('Codex history owner changed during inspection');
       }
+      return result;
     },
     getAutoCompactThresholdPct: () => readCompactionPct(),
     resolveVerifiedWindow: (agentKind, modelId, providerId) => {
@@ -12652,7 +12642,6 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         planMode: !!row.planModeEnabled,
         title: row.title ?? undefined,
         remoteHostId: row.remoteHostId ?? undefined,
-        ...(recovery?.resumeRetainedHistory ? { resumeSessionId: row.sdkSessionId ?? undefined } : {}),
       });
       if (createOpts.extraDirs === undefined) {
         try {
@@ -12669,13 +12658,13 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         const writableDirs = await readSessionWritableDirsFromDb(sessionId).catch(() => []);
         if (writableDirs.length > 0) createOpts.writableDirs = writableDirs;
       }
-      const recoveryIntent = recovery?.resumeRetainedHistory
+      const recoveryIntent = recovery?.continueFromHistory
         ? restoreAutoReviewUserIntent(await readAutoReviewHistory(sessionId), {
             clientId: recovery.sourceUserClientId,
             content: recovery.sourceUserContent,
           })
         : undefined;
-      if (recovery?.resumeRetainedHistory &&
+      if (recovery?.continueFromHistory &&
         (row.source !== 'desktop' || isHeadlessGhostSetupTurn(sessionId) || bindingStore.findByTarget(sessionId))) {
         return { accepted: false };
       }
@@ -12683,7 +12672,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         sessionId,
         persistedUserContentToWireMessage(agentFacingWireContent ?? content),
         createOpts,
-        recovery?.resumeRetainedHistory
+        recovery?.continueFromHistory
           ? {
               signal: recovery.signal,
               [INHERITED_CAPABILITY_SELECTION]: recovery.sourceCapabilitySelectionText,
@@ -18115,162 +18104,25 @@ async function materializeCodexImage(
  * agentSource 为了让 reducer / 事件类型对齐，老 session 没法准确知道 source 时
  * 走 'claude-code' 兜底；banner 不在乎 source，只显示 message。
  */
-async function checkWorkDirExists(
-  sessionId: string,
-  requestedWorkingDir: string | undefined | null,
-  agentKind: AgentKind | undefined,
-  remoteHostId?: string | null,
-  opts?: { suppressMissingBroadcast?: boolean },
-): Promise<boolean> {
-  // 远端 session: workdir 在远端机器上, 本地 fs.stat 必然 ENOENT 但完全没意义。
-  // 这条 guard 当初是为本地 session 兜底 "用户在 Finder 把目录删了 / 改名了" 的
-  // 场景, 远端走自己的 probe (StartRemoteSessionPanel 创建前 stat-remote-path,
-  // 或者 agent 真跑起来时由远端 codex 自己报 ENOENT)。这里直接放行。
-  if (remoteHostId) return true;
-  if (!requestedWorkingDir?.trim()) return true;
-  const cindyMakeWorkspace = isCindyMakeManagedWorktreePath(app.getPath('userData'), requestedWorkingDir);
-  if (cindyMakeWorkspace) workingDirectoryRecovery.discard(sessionId);
-  let workingDir = workingDirectoryRecovery.resolve(sessionId, requestedWorkingDir);
-  const source: AgentKind = agentKind === 'codex' || agentKind === 'pi' ? agentKind : 'claude-code';
-  // suppressMissingBroadcast: 调用方(SEND 事务)手里还有 DB 权威值可兜底时,
-  // 首检失败只记日志不广播错误横幅——兜底成功的话用户不该看到假错误。
-  const suppress = opts?.suppressMissingBroadcast === true;
-  const startedAt = Date.now();
-  const diagnosticContext = {
-    ...workdirDiagnosticContext(sessionId, workingDir),
-    suppressMissingBroadcast: suppress,
-    usingFallback: workingDirectoryRecovery.isFallback(sessionId, workingDir),
-  };
-  try {
-    if (cindyMakeWorkspace) await assertCindyMakeWorkspace(app.getPath('userData'), workingDir);
-    // Resume the previously selected ordinary workspace before probing a path
-    // that may now be inaccessible or a file. Do not allocate a new fallback here.
-    if (!cindyMakeWorkspace &&
-      !workingDirectoryRecovery.isFallback(sessionId, workingDir) &&
-      getManagedWorktreeBasePath(path.resolve(workingDir).replace(/\\/g, '/')) === null) {
-      if (!await workingDirectoryRecovery.recover(sessionId, workingDir, undefined, [], 'ordinary', { existingFallbackOnly: true })) {
-        workdirLog.warn('workdir preflight rejected', { ...diagnosticContext, reason: 'saved-recovery-lookup-failed' });
-        return false;
-      }
-      workingDir = workingDirectoryRecovery.resolve(sessionId, workingDir);
-    }
-    const stat = await statWorkingDirectory(workingDir);
-    if (!stat.isDirectory()) {
-      workdirLog.warn('workdir preflight rejected', { ...diagnosticContext, reason: 'not-directory' });
-      if (suppress) {
-        log.warn('send: workdir not a directory (broadcast suppressed, caller has fallback)', {
-          sessionId,
-          workingDir,
-        });
-      } else {
-        emitWorkDirMissingError(sessionId, workingDir, source, 'not-dir');
-      }
-      return false;
-    }
-    // Managed worktrees need a stronger readiness check than directory existence: another send
-    // may observe `git worktree add` before snapshot apply finishes, and a previous apply conflict
-    // deliberately leaves the directory present while keeping the session blocked.
-    const normalizedWorkingDir = path.resolve(workingDir).replace(/\\/g, '/');
-    if (getManagedWorktreeBasePath(normalizedWorkingDir) !== null) {
-      const ready = await getManagedWorktreeReadinessForSession(sessionId, workingDir);
-      if (ready !== 'ready') {
-        if (ready === 'gone' && !suppress && await workingDirectoryRecovery.recover(sessionId, workingDir, undefined, [], 'unrestored-worktree')) return true;
-        workdirLog.warn('workdir preflight rejected', { ...diagnosticContext, reason: 'managed-worktree-not-ready' });
-        if (suppress) {
-          log.warn('send: managed worktree not ready (broadcast suppressed, caller has fallback)', {
-            sessionId,
-            workingDir,
-          });
-        } else {
-          emitWorkDirMissingError(sessionId, workingDir, source, 'not-exist');
-        }
-        return false;
-      }
-    }
-    if (!cindyMakeWorkspace && getManagedWorktreeBasePath(normalizedWorkingDir) === null) {
-      if (!await workingDirectoryRecovery.recover(sessionId, workingDir)) {
-        workdirLog.warn('workdir preflight rejected', { ...diagnosticContext, reason: 'recovery-failed-after-stat' });
-        return false;
-      }
-      await workingDirectoryRecovery.observe(sessionId, workingDir);
-    }
-    workdirLog.info('workdir preflight ready', {
-      ...diagnosticContext,
-      usingFallback: workingDirectoryRecovery.isFallback(sessionId, workingDir),
-      resolvedDirectoryRef: workdirDiagnosticId(workingDirectoryRecovery.resolve(sessionId, workingDir)),
-      elapsedMs: Date.now() - startedAt,
-    });
-    return true;
-  } catch (error) {
-    workdirLog.warn('workdir preflight failed', {
-      ...diagnosticContext, code: workdirDiagnosticErrorCode(error), elapsedMs: Date.now() - startedAt,
-    });
-    if (cindyMakeWorkspace) {
-      if (!suppress) emitWorkDirMissingError(sessionId, workingDir, source, 'not-exist');
-      return false;
-    }
-    // Cindy 托管 worktree 被外部 PR cleanup / 手动 git 命令移除时，先按 DB 中
-    // 的精确 worktree_path 从本地或 origin tracking 分支重建，保留原代码与快照。
-    const restored = await getManagedWorktreeReadinessForSession(sessionId, workingDir);
-    if (restored === 'ready') {
-      workdirLog.info('workdir preflight recovered', { ...diagnosticContext, action: 'managed-worktree-restored' });
-      log.info('send: restored missing managed worktree', { sessionId, workingDir });
-      return true;
-    }
-    // Preserve the existing sibling-path diagnostic before mkdir makes the probe pass.
-    // A fuzzy match is a lead for the agent, not authority to switch project identity.
-    const unavailable = isUnavailableFilesystemError(error);
-    let similar: string | null = null;
-    if (
-      restored === 'gone' && !suppress &&
-      ((error as NodeJS.ErrnoException).code === 'ENOENT' || unavailable) &&
-      getManagedWorktreeBasePath(path.resolve(workingDir).replace(/\\/g, '/')) !== null &&
-      await workingDirectoryRecovery.recover(sessionId, workingDir, undefined, [], 'unrestored-worktree')
-    ) return true;
-    // A missing ordinary/dialogue cwd must not stop the conversation. Prefer a repaired
-    // DB path when the caller has one; never turn a managed Git recovery into
-    // an empty project, or treat permission/non-directory failures as ENOENT.
-    if (
-      !suppress &&
-      ((error as NodeJS.ErrnoException).code === 'ENOENT' || unavailable) &&
-      getManagedWorktreeBasePath(path.resolve(workingDir).replace(/\\/g, '/')) === null &&
-      await workingDirectoryRecovery.recover(sessionId, workingDir, async () => {
-        similar = await findSimilarDirOnDisk(workingDir);
-        return similar;
-      },
-        getMaker().listActiveSessions()
-          .filter((session) => !session.remoteHostId)
-          .map((session) => ({ id: session.id, workingDir: session.workDir })))
-    ) {
-      const resolvedDir = workingDirectoryRecovery.resolve(sessionId, workingDir);
-      workdirLog.info('workdir preflight recovered', {
-        ...diagnosticContext, code: workdirDiagnosticErrorCode(error),
-        resolvedDirectoryRef: workdirDiagnosticId(resolvedDir),
-        usingFallback: workingDirectoryRecovery.isFallback(sessionId, workingDir),
-        sameDirectory: path.resolve(workingDir) === path.resolve(resolvedDir),
-        elapsedMs: Date.now() - startedAt,
-      });
-      log.info('send: working directory recovery completed', { sessionId, workingDir });
-      return true;
-    }
-    if (suppress) {
-      log.warn('send: workdir missing (broadcast suppressed, caller has fallback)', {
-        sessionId,
-        workingDir,
-      });
-      return false;
-    }
-    workdirLog.warn('workdir preflight blocked', {
-      ...diagnosticContext, code: workdirDiagnosticErrorCode(error), reportedReason: 'not-exist',
-      recoveryEligible: (error as NodeJS.ErrnoException).code === 'ENOENT' || unavailable,
-      managedWorktree: getManagedWorktreeBasePath(path.resolve(workingDir).replace(/\\/g, '/')) !== null,
-      similarPathFound: !!similar, elapsedMs: Date.now() - startedAt,
-    });
-    emitWorkDirMissingError(sessionId, workingDir, source, 'not-exist', similar);
-    return false;
-  }
-}
-
+const checkWorkDirExists = createWorkingDirectoryPreflight({
+  workingDirectoryRecovery,
+  statWorkingDirectory,
+  readBoundWorkingDir: async (sessionId) => {
+    const liveWorkingDir = getMakerIfReady()?.getSession(sessionId)?.workDir || null;
+    const persistedWorkingDir = await readSessionWorkingDirFromDb(sessionId).catch(() => null);
+    return [liveWorkingDir, persistedWorkingDir];
+  },
+  getUserDataPath: () => app.getPath('userData'),
+  isCindyMakeWorktreePath: isCindyMakeManagedWorktreePath,
+  assertCindyMakeWorkspace,
+  getManagedWorktreeBasePath,
+  getManagedWorktreeReadinessForSession,
+  findSimilarDirOnDisk,
+  listActiveSessions: () => getMaker().listActiveSessions(),
+  emitWorkDirMissingError,
+  workdirLog,
+  log,
+});
 /**
  * ENOENT 兜底:扫一下 parent 目录,找一个 trim/大小写 后等于目标 basename 的真实条目。
  * 命中的最典型场景是 macOS Finder 里目录名末尾带了不可见空格,而 sessions.ts 写库时

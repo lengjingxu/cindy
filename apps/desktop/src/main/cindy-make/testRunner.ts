@@ -12,7 +12,7 @@ import {
   makeTaskWorktreePath,
   makeWorktreesRoot,
 } from './sourcePaths.js';
-import type { CindyMakeTestState } from '../../shared/cindyMakeSession.js';
+import type { CindyMakeTestState, CindyMakeTestStep } from '../../shared/cindyMakeSession.js';
 
 export type MakeTestError = NonNullable<CindyMakeTestState['error']>;
 export function makeTestError(code: MakeTestError): Error & { code: MakeTestError } {
@@ -43,6 +43,17 @@ const OS_ENV_KEYS = new Set([
   'lang',
   'lc_all',
   'lc_ctype',
+  // The child must reconnect to the user's desktop session on X11 and Wayland.
+  // Keep this explicit: XDT overrides, credentials and loader hooks stay excluded.
+  'display',
+  'wayland_display',
+  'xauthority',
+  'xdg_runtime_dir',
+  'xdg_session_type',
+  'xdg_current_desktop',
+  'xdg_session_desktop',
+  'desktop_session',
+  'dbus_session_bus_address',
   'pnpm_home',
   'corepack_home',
   'node_extra_ca_certs',
@@ -168,16 +179,47 @@ export interface MakeTestProcess {
   stop(): void;
 }
 
+// Only fixed protocol codes enter diagnostics. Raw compiler output, paths,
+// environment values and the wrapper's free-form message are never logged.
+const WRAPPER_FAILURE_CODES = new Set([
+  'DEV_PROCESS_EXITED',
+  'STARTUP_TIMEOUT',
+  'STARTUP_FAILED',
+  'WHOAMI_MISMATCH',
+  'MIGRATION_POLICY',
+  'MIGRATE_FAILED',
+  'AUTH_INIT_FAILED',
+  'HOSTED_RESTART_REFUSED',
+  'HOSTED_SHARED_REFUSED',
+  'PRESERVE_RUNNING_INCOMPATIBLE',
+  'USERDATA_IN_USE',
+  'ISOLATED_OFFICIAL_PROFILE',
+  'INVALID_ISOLATED_NAME',
+]);
+export interface MakeTestDiagnostic {
+  event: 'spawn' | 'step' | 'ready' | 'failed' | 'exit';
+  step?: CindyMakeTestStep;
+  reason?: 'wrapperFailed' | 'earlyExit' | 'identityMismatch' | 'timeout';
+  wrapperCode?: string;
+  exitCode?: number;
+  elapsedMs: number;
+}
+
 /** The existing restart pipeline keeps its TTY runner without opening a terminal window. */
 export function launchMakeTest(
   task: MakeTestWorkspace,
-  node: string,
+  tools: { node: string; pnpm: string },
   environment: NodeJS.ProcessEnv,
   region: 'cn' | 'global',
   signal: AbortSignal,
   spawn: PtySpawnFn = defaultPtySpawn,
+  onStep?: (step: CindyMakeTestStep) => void,
+  onDiagnostic?: (diagnostic: MakeTestDiagnostic) => void,
 ): MakeTestProcess {
   signal.throwIfAborted();
+  const startedAt = Date.now();
+  const diagnostic = (value: Omit<MakeTestDiagnostic, 'elapsedMs'>) =>
+    onDiagnostic?.({ ...value, elapsedMs: Date.now() - startedAt });
   const sandbox =
     'make-' +
     createHash('sha256')
@@ -185,7 +227,7 @@ export function launchMakeTest(
       .digest('hex')
       .slice(0, 20);
   const child = spawn(
-    node,
+    tools.node,
     [
       path.join(task.workingDir, 'scripts', 'desktop-restart-runner.mjs'),
       '--wait-ready',
@@ -195,7 +237,13 @@ export function launchMakeTest(
     ],
     {
       cwd: task.workingDir,
-      env: makeTestEnvironment(environment),
+      env: {
+        ...makeTestEnvironment(environment),
+        // Use the probed entry, not the host's npm_execpath. On Windows, the
+        // restart runner's bare pnpm fallback can give .cmd shims the task cwd
+        // as %~dp0, so they look for pnpm.cjs outside their installation.
+        npm_execpath: tools.pnpm,
+      },
       // Keep the machine-readable identity lines intact even with long profile paths.
       cols: 4096,
       rows: 30,
@@ -217,11 +265,15 @@ export function launchMakeTest(
   let stopping = false;
   let pending = '';
   let verdict: Record<string, string> | undefined;
-  const timeout = setTimeout(() => fail('timeout'), 25 * 60_000);
+  let lastStep: CindyMakeTestStep | undefined;
+  let failedVerdict = false;
+  let failureTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = setTimeout(() => fail('timeout', 'timeout'), 25 * 60_000);
   const finish = () => {
     if (stopped) return;
     stopped = true;
     clearTimeout(timeout);
+    clearTimeout(failureTimer);
     signal.removeEventListener('abort', abort);
     if (!settled) {
       settled = true;
@@ -233,6 +285,7 @@ export function launchMakeTest(
     if (stopped || stopping) return;
     stopping = true;
     clearTimeout(timeout);
+    clearTimeout(failureTimer);
     if (!settled) {
       settled = true;
       rejectReady(makeTestError('interrupted'));
@@ -243,8 +296,13 @@ export function launchMakeTest(
       finish();
     }
   };
-  const fail = (code: MakeTestError) => {
+  const fail = (
+    code: MakeTestError,
+    reason: MakeTestDiagnostic['reason'],
+    wrapperCode?: string,
+  ) => {
     if (!settled) {
+      diagnostic({ event: 'failed', reason, step: lastStep, wrapperCode });
       settled = true;
       rejectReady(makeTestError(code));
     }
@@ -252,8 +310,14 @@ export function launchMakeTest(
   };
   const abort = () => stop();
   signal.addEventListener('abort', abort, { once: true });
-  child.onExit(() => {
+  child.onExit(({ exitCode }) => {
+    diagnostic({ event: 'exit', exitCode, step: lastStep });
     if (!settled) {
+      diagnostic({
+        event: 'failed',
+        reason: failedVerdict ? 'wrapperFailed' : 'earlyExit',
+        step: lastStep,
+      });
       settled = true;
       rejectReady(makeTestError('launchFailed'));
     }
@@ -266,9 +330,42 @@ export function launchMakeTest(
     pending = lines.pop() ?? '';
     for (const raw of lines) {
       const line = raw.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').trim();
-      if (line === 'DESKTOP_DEV_VERDICT=failed') {
-        fail('launchFailed');
-        return;
+      if (!settled && !stopping && !failedVerdict) {
+        // Older checkouts have no step protocol. Read only fixed stage prefixes;
+        // arbitrary terminal output is never forwarded or persisted.
+        const step = /^DESKTOP_DEV_STEP=(stopping|dependencies|assets|launching)$/.exec(
+          line,
+        )?.[1] as CindyMakeTestStep | undefined;
+        const next =
+          step ??
+          (line.startsWith('[ensure-deps]')
+            ? 'dependencies'
+            : line.startsWith('[ensure-dev-runtime-assets]')
+              ? 'assets'
+              : line === '==> Starting desktop remote dev...' ||
+                  line === '==> Starting desktop local dev...'
+                ? 'launching'
+                : undefined);
+        if (next && next !== lastStep) {
+          lastStep = next;
+          diagnostic({ event: 'step', step: next });
+          onStep?.(next);
+        }
+      }
+      if (line === 'DESKTOP_DEV_VERDICT=failed' && !settled && !failedVerdict) {
+        failedVerdict = true;
+        // The code follows the marker and can arrive in a later PTY chunk.
+        // Bound this wait so malformed/older wrappers cannot hang the launch.
+        failureTimer = setTimeout(() => fail('launchFailed', 'wrapperFailed'), 250);
+        continue;
+      }
+      if (failedVerdict) {
+        if (line.startsWith('code=')) {
+          const code = line.slice(5);
+          fail('launchFailed', 'wrapperFailed', WRAPPER_FAILURE_CODES.has(code) ? code : 'UNKNOWN');
+          return;
+        }
+        continue;
       }
       if (line === 'DESKTOP_DEV_VERDICT=ready') {
         verdict = {};
@@ -292,14 +389,16 @@ export function launchMakeTest(
         verdict.region !== region ||
         !/^[1-9][0-9]*$/.test(verdict.pid)
       ) {
-        fail('launchFailed');
+        fail('launchFailed', 'identityMismatch');
         return;
       }
       settled = true;
       clearTimeout(timeout);
+      diagnostic({ event: 'ready' });
       resolveReady();
     }
   });
+  diagnostic({ event: 'spawn' });
   if (signal.aborted) stop();
   return { ready, closed, stop };
 }
