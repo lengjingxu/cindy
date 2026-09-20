@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Trash2, Check, RefreshCw } from 'lucide-react';
 
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { cn } from '@/lib/utils';
 import { useFeishuBot, type FeishuBotService, type FeishuBotStatus } from '@/hooks/useFeishuBot';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
@@ -192,7 +193,11 @@ function CardActionHint({ service, className }: { service: FeishuBotService; cla
       <button
         type="button"
         onClick={() => window.electronAPI.openExternal?.(FEISHU_OPEN_PLATFORM_URLS[service])}
-        className="w-fit bg-transparent p-0 font-medium text-[var(--settings-source-link)] underline underline-offset-2"
+        className={cn(
+          '-mx-1 inline-flex min-h-[24px] items-center rounded-[4px] px-1 py-0.5',
+          'font-medium text-[var(--settings-source-link)] underline underline-offset-2',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
+        )}
       >
         {t('settings.feishuBot.cardActionHintAction')}
       </button>
@@ -335,40 +340,21 @@ function ServiceSelector(props: {
       >
         {t('settings.feishuBot.serviceLabel')}
       </legend>
-      <div
-        className={cn(
-          'grid gap-1 rounded-full border border-[var(--settings-input-border)] bg-[var(--settings-input-bg)] p-1',
-          props.showLark ? 'grid-cols-2' : 'grid-cols-1',
-        )}
-        role="radiogroup"
+      <SegmentedControl
         aria-label={t('settings.feishuBot.serviceAria')}
-      >
-        {(props.showLark ? FEISHU_SERVICES : FEISHU_ONLY).map((service) => {
-          const selected = props.service === service;
-          return (
-            <button
-              key={service}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              onClick={() => props.setService(service)}
-              className={cn(
-                'h-[34px] rounded-full text-12 font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]',
-                selected
-                  ? 'bg-[var(--surface-chip)] text-[var(--settings-section-title)]'
-                  : 'text-[var(--settings-section-desc)] hover:text-[var(--settings-section-title)]',
-              )}
-            >
-              {t(`settings.feishuBot.services.${service}`)}
-            </button>
-          );
-        })}
-      </div>
+        value={props.service}
+        onValueChange={props.setService}
+        options={(props.showLark ? FEISHU_SERVICES : FEISHU_ONLY).map((service) => ({
+          value: service,
+          label: t(`settings.feishuBot.services.${service}`),
+        }))}
+        fullWidth
+        height={44}
+        optionHeight={34}
+      />
     </fieldset>
   );
 }
-
 function FeishuBotQrConfig(props: {
   service: FeishuBotService;
   setService: (service: FeishuBotService) => void;
