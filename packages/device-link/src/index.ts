@@ -32,3 +32,8 @@ export * from "./fileAccess.js";
 export * from "./filePeerRuntime.js";
 
 export { FILE_PEER_RUNTIME_SOURCE } from "./filePeerRuntimeSource.js";
+export * from "./modelFavorites.js";
+
+export * from "./clipboardSync.js";
+export * from "./clipboardSyncFailure.js";
+export * from "./clipboardTransfer.js";
