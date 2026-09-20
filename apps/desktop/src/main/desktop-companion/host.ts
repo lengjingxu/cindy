@@ -10,7 +10,7 @@ import {
   DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL,
   DESKTOP_COMPANION_STATE_EVENT_CHANNEL,
 } from '../../shared/desktopCompanion.js';
-import { ownerScopedUserDataPath } from '../appSessionState.js';
+import { activeOwnerScopeKey, ownerScopedUserDataPath } from '../appSessionState.js';
 import { throwIpcError } from '../utils/ipcValidate.js';
 import { createLogger } from '../logger.js';
 
@@ -44,7 +44,9 @@ function shouldReduceMotion(): boolean {
 }
 
 function ownerKey(): string {
-  return ownerScopedUserDataPath('desktop-companion');
+  // 含 owner scope key（含账号代次）：同 owner 的 generation bump 也会使
+  // 在途生成失效，避免切号/重登后旧代次越过隐私边界（review #4706 复审）。
+  return ownerScopedUserDataPath('desktop-companion') + ':' + activeOwnerScopeKey();
 }
 
 function removeFile(filePath: string): void {

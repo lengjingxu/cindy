@@ -136,6 +136,46 @@ describe('desktop companion service', () => {
     expect(harness.state.lastError).toBeNull();
   });
 
+  it('invalidates the in-flight run when stop() is called mid-generation', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'cindy-dc-'));
+    const wallpapers: string[] = [];
+    let state = normalizePersistedState({
+      settings: { ...DEFAULT_DESKTOP_COMPANION_SETTINGS, enabled: true },
+    });
+    const service = new DesktopCompanionService({
+      now: () => Date.now(),
+      isMac: () => true,
+      shouldReduceMotion: () => true,
+      readState: () => state,
+      writeState: (next) => {
+        state = next;
+      },
+      applyDir: () => dir,
+      characterRefPath: () => null,
+      ownerKey: () => 'owner-a',
+      removeFile: () => undefined,
+      sweepOrphans: () => undefined,
+      collectContext: async () => ({ taskTitle: 'x', memoryTopics: [], city: null }),
+      peekMedia: () => ({ image: true, video: false }),
+      generateStill: async () => {
+        service.stop();
+        return { buffer: Buffer.from('x'), mimeType: 'image/png' };
+      },
+      generateVideo: async () => ({ buffer: Buffer.from('v'), mimeType: 'video/mp4' }),
+      materialize: (media, kind) => materializeToApplyDir(dir, media, kind),
+      setWallpaper: async (filePath) => {
+        wallpapers.push(filePath);
+      },
+      playVideo: async () => undefined,
+      stopVideo: async () => undefined,
+      toPreviewSrc: () => null,
+    });
+
+    await service.refresh();
+    expect(wallpapers).toHaveLength(0);
+    expect(state.lastStillPath).toBeNull();
+  });
+
   it('stops applying and writing when the owner switches mid-run', async () => {
     const harness = makeHarness({
       ownerKey: () => 'owner-a',

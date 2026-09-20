@@ -55,7 +55,9 @@ export interface DesktopCompanionServiceDeps {
 export class DesktopCompanionService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private inflight: Promise<void> | null = null;
+  private chain: Promise<void> = Promise.resolve();
+  /** 代际计数：stop()/start() 各自自增，使在途旧代次在下一个检查点失效。 */
+  private generation = 0;
   private status: DesktopCompanionStatus = 'idle';
   private listeners = new Set<(snapshot: DesktopCompanionSnapshot) => void>();
 
@@ -84,6 +86,7 @@ export class DesktopCompanionService {
   }
 
   start(): void {
+    this.generation += 1;
     this.stopTimer();
     if (!this.deps.isMac()) return;
     const state = this.deps.readState();
@@ -96,6 +99,7 @@ export class DesktopCompanionService {
   }
 
   stop(): void {
+    this.generation += 1;
     this.stopTimer();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
@@ -136,9 +140,10 @@ export class DesktopCompanionService {
 
   private scheduleRetry(delayMs: number): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    const gen = this.generation;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (this.deps.readState().settings.enabled) void this.tick();
+      if (gen === this.generation && this.deps.readState().settings.enabled) void this.tick();
     }, delayMs);
   }
 
@@ -148,24 +153,29 @@ export class DesktopCompanionService {
   }
 
   private async tick(): Promise<void> {
-    if (this.inflight) return this.inflight;
-    this.inflight = this.runTick().finally(() => {
-      this.inflight = null;
-    });
-    return this.inflight;
+    const gen = this.generation;
+    // 串行化：同代次排队；代次已 bump 的旧 run 会在首个检查点快速失效返回，
+    // 让新代次的 run 顺位执行。禁止在 run 结束时自动补跑，避免与外部
+    // stop/start 的代次自增互相放大形成死循环（review #4706 复审）。
+    const run = this.chain.then(() => this.runTick(gen));
+    this.chain = run.catch(() => undefined);
+    return run;
   }
 
-  private async runTick(): Promise<void> {
+  private async runTick(gen: number): Promise<void> {
     if (!this.deps.isMac()) return;
     const state = this.deps.readState();
     if (!state.settings.enabled) return;
     const owner = this.deps.ownerKey();
-    // 生成跨越多次 await：owner 或开关任一变化都视作本次作废，
-    // 不得再写状态、设壁纸或播视频（review #4706 Issue 1/2）。
+    // 生成跨越多次 await：代次、owner 或开关任一变化都视作本次作废，
+    // 不得再写状态、设壁纸或播视频（review #4706 Issue 1/2 + 复审补充）。
     const abort = (): boolean =>
-      this.deps.ownerKey() !== owner || !this.deps.readState().settings.enabled;
+      gen !== this.generation ||
+      this.deps.ownerKey() !== owner ||
+      !this.deps.readState().settings.enabled;
     const media = this.deps.peekMedia();
     if (!media.image) {
+      if (gen !== this.generation) return;
       this.status = 'idle';
       state.lastError = 'NO_IMAGE_MODEL';
       this.deps.writeState(state);
@@ -175,6 +185,7 @@ export class DesktopCompanionService {
     }
 
     try {
+      if (gen !== this.generation) return;
       this.status = 'generating';
       this.emit();
       const collected = await this.deps.collectContext(state.settings.locationEnabled);
@@ -202,6 +213,7 @@ export class DesktopCompanionService {
         if (state.lastVideoPath && fs.existsSync(state.lastVideoPath) && !this.deps.shouldReduceMotion()) {
           await this.deps.playVideo(state.lastVideoPath);
         }
+        if (abort()) return;
         this.status = 'ready';
         state.lastError = null;
         this.deps.writeState(state);
@@ -269,7 +281,7 @@ export class DesktopCompanionService {
       this.deps.writeState(state);
       this.emit();
     } catch (error) {
-      if (this.deps.ownerKey() !== owner) return;
+      if (gen !== this.generation || this.deps.ownerKey() !== owner) return;
       const stateAfter = this.deps.readState();
       this.status = 'error';
       stateAfter.lastError = error instanceof Error ? error.message : String(error);
@@ -314,6 +326,7 @@ export class DesktopCompanionService {
     } else {
       await this.deps.stopVideo();
     }
+    if (abort()) return;
     state.lastFingerprint = reuse.fingerprint;
     state.lastStillPath = reuse.stillPath;
     state.lastVideoPath = reuse.videoPath;
