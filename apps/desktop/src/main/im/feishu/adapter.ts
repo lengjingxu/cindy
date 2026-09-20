@@ -350,7 +350,12 @@ export function buildFeishuAdapter(
     // 开关放行的非 owner 私聊带 speaker, 挂访客策略(每个工具调用等 owner 拍板)。
     turnPermissionPolicyFor: (event) => {
       if (!event.speaker) return undefined;
-      if (event.speaker.isOwner === false) return createFeishuGuestTurnPermissionPolicy(event.messageId);
+    if (event.speaker.isOwner === false) {
+      return createFeishuGuestTurnPermissionPolicy(
+        event.messageId,
+        event.senderId?.startsWith('g/') ? 'group' : 'direct',
+      );
+    }
       const policy = createFeishuGroupTurnPermissionPolicy(event.messageId, true);
       ownerGroupTurnPolicies.add(policy);
       return policy;

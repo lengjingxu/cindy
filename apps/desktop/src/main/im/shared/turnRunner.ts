@@ -3394,11 +3394,10 @@ export function createTurnRunner(
         sessionStates.get(localSessionId)?.queue[0]?.userMessageId ?? undefined;
       await finalizeActiveStream(localSessionId);
 
-      // 访客私聊 lane: 卡片留在原地没人能点(回调白名单只认 owner), 该轮会永远
-      // 挂着 —— 三种卡都改投 owner 私聊。群 lane 里 owner 点得到问答 / 计划审阅卡,
-      // 保持不转(群里看得见是合理的), 只有授权卡转。
-      const guestDmRedirect = guestTurn === true && !userId.startsWith('g/');
-      const redirectToOwnerDm = req.kind === 'permission' || guestDmRedirect;
+      // 访客 lane(私聊与群): 卡片回调白名单只认 owner, 卡片留在原地没人能点,
+      // 该轮会永远挂在 await 上(群还可能根本没有 owner 在场, 且挂起无超时) ——
+      // 三种卡都改投 owner 私聊, 由 owner 拍板。
+      const redirectToOwnerDm = req.kind === 'permission' || guestTurn === true;
       let messageId: string;
       try {
         const result = await output.im.sendInteractiveCard(userId, spec, {

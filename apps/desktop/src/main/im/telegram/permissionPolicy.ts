@@ -31,9 +31,13 @@ export function createTelegramGuestTurnPermissionPolicy(taskId: string, isOwner?
  * directory with the owner; even read/glob/grep can expose
  * owner-created files from earlier turns.
  */
-export function createTelegramGuestOnlyPolicy(taskId: string): TurnPermissionPolicy {
+export function createTelegramGuestOnlyPolicy(
+  taskId: string,
+  source: 'group' | 'direct' = 'direct',
+): TurnPermissionPolicy {
   return {
     origin: { kind: 'im', channel: 'telegram', taskId },
+    autoReviewContext: { requesterAuthority: 'guest', source },
     confirmationSurface: 'channel',
     confirmationTimeoutMs: 30 * 60 * 1_000,
     forceConfirmToolCall: () => true,

@@ -84,7 +84,7 @@ describe('personal Telegram behavior settings', () => {
     render(<TelegramBehaviorSettings source="personal" />);
 
     fireEvent.click(
-      await screen.findByRole('button', {
+      await screen.findByRole('radio', {
         name: 'settings.telegramBot.behavior.accessOption.on',
       }),
     );
@@ -94,8 +94,8 @@ describe('personal Telegram behavior settings', () => {
     );
     expect(
       screen
-        .getByRole('button', { name: 'settings.telegramBot.behavior.accessOption.on' })
-        .getAttribute('aria-pressed'),
+        .getByRole('radio', { name: 'settings.telegramBot.behavior.accessOption.on' })
+        .getAttribute('aria-checked'),
     ).toBe('true');
   });
 });

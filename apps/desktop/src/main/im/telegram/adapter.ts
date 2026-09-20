@@ -107,7 +107,12 @@ export function buildTelegramAdapter(
     // speaker, 挂访客策略(每个工具调用等 owner 拍板)。
     turnPermissionPolicyFor: (event) => {
       if (!event.speaker) return undefined;
-      if (event.speaker.isOwner === false) return createTelegramGuestOnlyPolicy(event.messageId);
+      if (event.speaker.isOwner === false) {
+        return createTelegramGuestOnlyPolicy(
+          event.messageId,
+          event.senderId?.startsWith('g/') ? 'group' : 'direct',
+        );
+      }
       const policy = createTelegramGuestTurnPermissionPolicy(event.messageId, true);
       ownerGroupTurnPolicies.add(policy);
       return policy;

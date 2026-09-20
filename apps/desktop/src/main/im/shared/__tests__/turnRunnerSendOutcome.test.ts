@@ -1632,7 +1632,7 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
     );
   });
 
-  it('keeps a guest group-lane plan card in the lane', async () => {
+  it('redirects a guest group-lane plan card to the owner DM', async () => {
     const h = setupSession(async () => ({ accepted: true }));
     mocks.feishuIm.sendInteractiveCard.mockResolvedValue({ messageId: 'm-group-plan' });
     mocks.buildPlanReviewCard.mockReturnValue({ title: 'plan', body: 'plan body', buttons: [] });
@@ -1645,7 +1645,8 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
       guestTurn: true,
     });
 
-    // 群里 owner 点得到问答 / 计划卡, 转走反而让提问的人看不到后续。
+    // 群里可能出现没有 owner 在场的情况, 而卡片回调只认 owner 点击 —— 访客
+    // 发起的问答 / 计划卡同样改投 owner 私聊, 否则该轮永远挂在 await 上。
     void h.dispatchInteraction({
       kind: 'plan_review',
       requestId: 'interaction-guest-group-plan',
@@ -1655,11 +1656,12 @@ describe('turnRunner send outcome policy (feishu adapter characterization)', () 
       expect(mocks.feishuIm.sendInteractiveCard).toHaveBeenCalledWith(
         'g/oc_group1/omt_t1',
         expect.objectContaining({ title: 'plan' }),
-        expect.anything(),
+        expect.objectContaining({
+          deliverToOwnerDm: true,
+          ownerDmNote: expect.stringContaining('其他人私聊'),
+        }),
       ),
     );
-    const options = mocks.feishuIm.sendInteractiveCard.mock.calls[0]?.[2] as Record<string, unknown>;
-    expect('deliverToOwnerDm' in options).toBe(false);
   });
 
   it('does not suppress a requested close during no-op switch acquisition', async () => {

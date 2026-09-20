@@ -32,9 +32,13 @@ export function createFeishuGroupTurnPermissionPolicy(taskId: string, isOwner?: 
  * with the owner; even read/glob/grep can expose owner-created files from
  * earlier turns. Confirmation cards go to the owner's DM.
  */
-export function createFeishuGuestTurnPermissionPolicy(taskId: string): TurnPermissionPolicy {
+export function createFeishuGuestTurnPermissionPolicy(
+  taskId: string,
+  source: 'group' | 'direct' = 'direct',
+): TurnPermissionPolicy {
   return {
     origin: { kind: 'im', channel: 'feishu', taskId },
+    autoReviewContext: { requesterAuthority: 'guest', source },
     confirmationSurface: 'channel',
     confirmationTimeoutMs: 30 * 60 * 1_000,
     forceConfirmToolCall: () => true,
