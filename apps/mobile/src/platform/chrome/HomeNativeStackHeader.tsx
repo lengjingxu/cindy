@@ -1,5 +1,7 @@
 import { Stack } from "expo-router";
-import { ChevronDown, Ellipsis, Menu } from "lucide-react-native";
+import { BlurBackdrop } from "@/session/BlurBackdrop";
+import { QuietSyncIndicator } from '@/components/QuietSyncIndicator';
+import { ChevronDown, Ellipsis, Menu, Monitor } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/AppText";
 import {
@@ -17,11 +19,11 @@ import {
   useThemedStyles,
   type ThemeColors,
 } from "@/theme";
-import { lineHeight, spacing } from "@/theme/tokens";
+import { lineHeight, radius, spacing } from "@/theme/tokens";
 
 /**
  * 首页 iOS 顶栏走系统 UINavigationBar。
- * 实底 surface,和列表同色;不要透明磨砂。Android 不渲染。
+ * 透明导航栏;设备标题使用与任务标题相同的轻磨砂胶囊。Android 不渲染。
  */
 export function HomeNativeStackHeader({
   displayA11y,
@@ -31,9 +33,12 @@ export function HomeNativeStackHeader({
   onOpenDeviceMenu,
   onOpenDisplaySettings,
   onOpenMenu,
+  onOpenRemoteDesktop,
+  remoteDesktopA11y,
   onSelectScope,
   scopeActions,
   showRemoteGuide,
+  syncing = false,
   title,
   titleA11y,
 }: {
@@ -44,9 +49,12 @@ export function HomeNativeStackHeader({
   onOpenDeviceMenu(): void;
   onOpenDisplaySettings(): void;
   onOpenMenu(): void;
+  onOpenRemoteDesktop?: () => void;
+  remoteDesktopA11y: string;
   onSelectScope(id: string): void;
   scopeActions: readonly NativePullDownAction[];
   showRemoteGuide: boolean;
+  syncing?: boolean;
   title: string;
   titleA11y: string;
 }) {
@@ -72,6 +80,7 @@ export function HomeNativeStackHeader({
         style={({ pressed }) => [styles.titleHit, pressed && styles.pressed]}
         testID="devices.title"
       >
+        <BlurBackdrop intensity={20} overlayColor={colors.surfaceTranslucent} />
         <View style={styles.titleCluster}>
           <Text numberOfLines={1} style={styles.title}>
             {title}
@@ -81,6 +90,7 @@ export function HomeNativeStackHeader({
             size={iconSize.xs}
             strokeWidth={iconStroke.medium}
           />
+          <QuietSyncIndicator active={syncing} />
         </View>
       </Pressable>
     </NativePullDownMenu>
@@ -93,14 +103,14 @@ export function HomeNativeStackHeader({
           headerBackVisible: false,
           headerShadowVisible: false,
           headerShown: true,
-          headerStyle: { backgroundColor: colors.surface },
+          headerStyle: { backgroundColor: "transparent" },
           headerTintColor: colors.textPrimary,
-          headerTransparent: false,
+          headerTransparent: true,
         }}
       />
       <Stack.Header
         style={{
-          backgroundColor: colors.surface,
+          backgroundColor: "transparent",
           color: colors.textPrimary,
           shadowColor: "transparent",
         }}
@@ -109,10 +119,10 @@ export function HomeNativeStackHeader({
       <Stack.Toolbar placement="left">
         <Stack.Toolbar.View>
           <Pressable
-            accessibilityLabel={menuA11y}
             accessibilityRole="button"
-            onPress={onOpenMenu}
             style={({ pressed }) => [styles.iconHit, pressed && styles.pressed]}
+            accessibilityLabel={menuA11y}
+            onPress={onOpenMenu}
             testID="home.chromeMenu"
           >
             <Menu
@@ -126,27 +136,49 @@ export function HomeNativeStackHeader({
       {showRemoteGuide ? null : (
         <Stack.Toolbar placement="right">
           <Stack.Toolbar.View>
-            <NativePullDownMenu
-              actions={displayActions}
-              onAction={onDisplayAction}
-            >
-              <Pressable
-                accessibilityLabel={displayA11y}
-                accessibilityRole="button"
-                onPress={nativeMenus ? () => undefined : onOpenDisplaySettings}
-                style={({ pressed }) => [
-                  styles.iconHit,
-                  pressed && styles.pressed,
-                ]}
-                testID="home.displaySettingsButton"
+            <View style={styles.trailingActions}>
+              {onOpenRemoteDesktop ? (
+                <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.iconHit,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityLabel={remoteDesktopA11y}
+                  onPress={onOpenRemoteDesktop}
+                  testID="home.remoteDesktopButton"
+                >
+                  <Monitor
+                    color={colors.textPrimary}
+                    size={iconSize.xl}
+                    strokeWidth={iconStroke.regular}
+                  />
+                </Pressable>
+              ) : null}
+              <NativePullDownMenu
+                actions={displayActions}
+                onAction={onDisplayAction}
               >
-                <Ellipsis
-                  color={colors.textPrimary}
-                  size={iconSize.xl}
-                  strokeWidth={iconStroke.regular}
-                />
-              </Pressable>
-            </NativePullDownMenu>
+                <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.iconHit,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityLabel={displayA11y}
+                  onPress={
+                    nativeMenus ? () => undefined : onOpenDisplaySettings
+                  }
+                  testID="home.displaySettingsButton"
+                >
+                  <Ellipsis
+                    color={colors.textPrimary}
+                    size={iconSize.xl}
+                    strokeWidth={iconStroke.regular}
+                  />
+                </Pressable>
+              </NativePullDownMenu>
+            </View>
           </Stack.Toolbar.View>
         </Stack.Toolbar>
       )}
@@ -156,11 +188,16 @@ export function HomeNativeStackHeader({
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
+    trailingActions: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
     iconHit: {
       alignItems: "center",
-      height: 44,
       justifyContent: "center",
+      height: 44,
       width: 44,
+      borderRadius: radius.pill,
     },
     pressed: { opacity: 0.72 },
     title: {
@@ -179,6 +216,9 @@ const makeStyles = (colors: ThemeColors) =>
       minWidth: 0,
     },
     titleHit: {
+      borderRadius: radius.pill,
+      overflow: "hidden",
+      paddingHorizontal: spacing.md,
       alignItems: "center",
       justifyContent: "center",
       minHeight: 44,

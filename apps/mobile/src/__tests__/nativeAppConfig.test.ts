@@ -24,6 +24,8 @@ const managedEnvKeys = [
   'EXPO_PUBLIC_CINDY_GOOGLE_IOS_URL_SCHEME',
   'CINDY_USE_LOCAL_REGION_CONFIG',
   'CINDY_SELF_HOST_REGIONS_FILE',
+  'CINDY_MOBILE_OTA_NATIVE',
+  'CINDY_MOBILE_UPDATES_URL',
 ];
 let previousEnv: Record<string, string | undefined>;
 const temporaryDirs: string[] = [];
@@ -183,6 +185,7 @@ describe('mobile native app config', () => {
     const regular = buildConfig({ config: appJson.expo });
     // 账号绑定改为 env 注入后,app.json 不再带 updates;env 未设 → 无 OTA 配置。
     expect(regular.updates).toBeUndefined();
+    expect(regular.android.permissions).not.toContain('android.permission.REQUEST_INSTALL_PACKAGES');
 
     const configDir = mkdtempSync(join(tmpdir(), 'cindy-selfhost-regions-'));
     temporaryDirs.push(configDir);
@@ -217,10 +220,13 @@ describe('mobile native app config', () => {
       checkAutomatically: 'NEVER',
       disableAntiBrickingMeasures: true,
     });
+    // 共享 EAS-Client-ID 只能由 JS 事务式覆盖；写入原生 requestHeaders 会改变 fingerprint。
+    expect(selfHosted.updates).not.toHaveProperty('requestHeaders');
     expect(JSON.stringify(selfHosted)).not.toContain('must-not-be-baked.example.com');
     // 自建 app 身份按 region 从 self-host-regions.json(.example 回落)取,而非写死。
     expect(selfHosted.ios.bundleIdentifier).toBe('com.xd.cindycn');
     expect(selfHosted.android.package).toBe('com.xd.cindycn');
+    expect(selfHosted.android.permissions).toContain('android.permission.REQUEST_INSTALL_PACKAGES');
     expect(selfHosted.extra.cindy.tapdb).toEqual({
       clientId: 'json-id',
       clientToken: 'json-token',
@@ -235,6 +241,7 @@ describe('mobile native app config', () => {
     const selfHostedGlobal = buildConfig({ config: appJson.expo });
     expect(selfHostedGlobal.ios.bundleIdentifier).toBe('com.xd.cindy');
     expect(selfHostedGlobal.android.package).toBe('com.xd.cindy');
+    expect(selfHostedGlobal.android.permissions).toContain('android.permission.REQUEST_INSTALL_PACKAGES');
     expect(selfHostedGlobal.extra.cindy.tapdb.region).toBe('global');
     expect(selfHostedGlobal.extra.cindy.google).toEqual({
       webClientId: 'web.apps.googleusercontent.com',
@@ -245,6 +252,37 @@ describe('mobile native app config', () => {
       '@react-native-google-signin/google-signin',
       { iosUrlScheme: 'com.googleusercontent.apps.ios' },
     ]);
+  });
+
+  it('enables the native contract only for an explicitly opted-in self-host cold build', () => {
+    const buildConfig = require(resolve(process.cwd(), 'app.config.js'));
+    const config = JSON.parse(readFileSync(resolve(process.cwd(), 'app.json'), 'utf8')).expo;
+    const regular = buildConfig({ config });
+    const directory = mkdtempSync(join(tmpdir(), 'cindy-native-ota-regions-'));
+    temporaryDirs.push(directory);
+    process.env.CINDY_SELF_HOST_REGIONS_FILE = join(directory, 'regions.json');
+    writeFileSync(process.env.CINDY_SELF_HOST_REGIONS_FILE, JSON.stringify({ cn: {
+      iosBundleId: 'com.xd.cindycn', androidPackage: 'com.xd.cindycn',
+      tapdb: { clientId: 'test-id', clientToken: 'test-token' },
+    } }));
+    process.env.CINDY_MOBILE_OTA_NATIVE = '1';
+    // A stale self-host build variable cannot install a module into EAS.
+    expect(buildConfig({ config })).toEqual(regular);
+    process.env.EXPO_PUBLIC_XDT_OTA_SELFHOST = '1';
+    expect(() => buildConfig({ config })).toThrow('CINDY_MOBILE_UPDATES_URL');
+    process.env.CINDY_MOBILE_UPDATES_URL = 'https://updates.example.invalid/root';
+    const native = buildConfig({ config });
+    expect(native.updates).toMatchObject({
+      url: 'https://updates.example.invalid/root/manifest', checkAutomatically: 'NEVER',
+      disableAntiBrickingMeasures: false,
+      requestHeaders: { 'EAS-Client-ID': '00000000-0000-4000-8000-000000000000', 'x-cindy-update-channel': '' },
+    });
+    expect(native.plugins).toContainEqual(['./plugins/with-selfhost-ota', { sourceHash: expect.stringMatching(/^[a-f0-9]{64}$/) }]);
+    process.env.CINDY_MOBILE_OTA_NATIVE = '0';
+    const legacy = buildConfig({ config });
+    expect(legacy.updates.url).toBe('https://selfhost.invalid/manifest');
+    expect(legacy.updates).not.toHaveProperty('requestHeaders');
+    expect(legacy.plugins).not.toContainEqual(expect.arrayContaining(['./plugins/with-selfhost-ota']));
   });
 
   it('keeps the existing EAS Google environment path outside self-host builds', () => {
@@ -481,6 +519,17 @@ describe('mobile native app config', () => {
     // app.config.js 不得剥离该键:以 resolved config 为准再断言一次。
     const cn = buildConfig({ config: appJson.expo });
     expect(cn.ios.infoPlist.UIViewControllerBasedStatusBarAppearance).toBe(true);
+  });
+
+  it('enables the scene lifecycle required to launch iOS 27 SDK builds', () => {
+    const appJson = JSON.parse(readFileSync(resolve(process.cwd(), 'app.json'), 'utf8'));
+    const buildConfig = require(resolve(process.cwd(), 'app.config.js'));
+    for (const config of [appJson.expo, buildConfig({ config: appJson.expo })]) {
+      const properties = config.plugins.find(
+        (plugin: unknown) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties',
+      );
+      expect(properties?.[1]?.ios?.enableSceneSupport).toBe(true);
+    }
   });
 
   it('keeps audio capture foreground-only in native builds', () => {

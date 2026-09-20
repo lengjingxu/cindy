@@ -1,7 +1,10 @@
+import { GlassView } from "expo-glass-effect";
 import { Share as ShareIcon, X } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { Text } from "@/components/AppText";
+import { ShareImageNativeButton } from "@/session/ShareImageNativeButton";
+import { useLiquidGlassAvailable } from "@/session/useLiquidGlassAvailable";
 import { useTheme, useThemedStyles, type ThemeColors } from "@/theme";
 import {
   fontWeight,
@@ -13,7 +16,7 @@ import {
   typeScale,
 } from "@/theme/tokens";
 
-/** 分享选择模式底部只保留关闭、已选数量和分享主按钮。 */
+/** 分享选择模式底部：关闭、标题 + 已选数量（对齐桌面 title/subtitle）、分享主按钮。 */
 export function ShareSelectionBar({
   busy,
   count,
@@ -28,9 +31,17 @@ export function ShareSelectionBar({
   onShare(): void;
 }) {
   const { t } = useTranslation();
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const styles = useThemedStyles(makeStyles);
+  const liquidGlass = useLiquidGlassAvailable();
 
+  const cancelIcon = (
+    <X
+      color={colors.textSecondary}
+      size={iconSize.md}
+      strokeWidth={iconStroke.regular}
+    />
+  );
   const cancelButton = (
     <Pressable
       accessibilityLabel={t("session.shareImage.cancel")}
@@ -40,19 +51,32 @@ export function ShareSelectionBar({
       style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
       testID="session.shareImage.cancel"
     >
-      <X
-        color={colors.textSecondary}
-        size={iconSize.md}
-        strokeWidth={iconStroke.regular}
-      />
+      {liquidGlass ? (
+        <GlassView
+          colorScheme={mode}
+          glassEffectStyle="regular"
+          isInteractive
+          style={styles.cancelGlass}
+          tintColor={colors.surface}
+        >
+          <View pointerEvents="none" style={styles.iconButton}>
+            {cancelIcon}
+          </View>
+        </GlassView>
+      ) : (
+        cancelIcon
+      )}
     </Pressable>
   );
   const countLabel = (
     <View
       style={[styles.count, screenshotTriggered && styles.screenshotSafeCount]}
     >
+      <Text ellipsizeMode="tail" numberOfLines={1} style={styles.titleText}>
+        {t("session.shareImage.title")}
+      </Text>
       <Text ellipsizeMode="tail" numberOfLines={1} style={styles.countText}>
-        {t("session.shareImage.selectedCount", { count })}
+        {t("session.shareImage.subtitle", { count })}
       </Text>
     </View>
   );
@@ -87,7 +111,17 @@ export function ShareSelectionBar({
     <View style={styles.container} testID="session.shareImage.bar">
       {cancelButton}
       {countLabel}
-      {shareButton}
+      <ShareImageNativeButton
+        label={
+          busy
+            ? t("session.shareImage.generating")
+            : t("session.shareImage.share")
+        }
+        disabled={busy === true || count === 0}
+        onPress={onShare}
+      >
+        {shareButton}
+      </ShareImageNativeButton>
     </View>
   );
 }
@@ -107,16 +141,27 @@ const makeStyles = (colors: ThemeColors) =>
     },
     iconButton: {
       alignItems: "center",
+      flexShrink: 0,
       height: 44,
       justifyContent: "center",
       width: 44,
     },
+    cancelGlass: {
+      borderRadius: radius.pill,
+      overflow: "hidden",
+    },
     count: { flex: 1, minWidth: 0 },
-    countText: {
+    titleText: {
       color: colors.textPrimary,
       fontSize: typeScale.body,
       fontWeight: fontWeight.medium,
       lineHeight: lineHeight.body,
+    },
+    countText: {
+      color: colors.textSecondary,
+      fontSize: typeScale.caption,
+      lineHeight: lineHeight.caption,
+      marginTop: spacing.xs,
     },
     screenshotSafeCount: {
       paddingLeft: spacing.xl,

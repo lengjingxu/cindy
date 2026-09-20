@@ -9,23 +9,34 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 
-import { GhostLibrarySlot, libraryAvailableRef, type GhostLibrarySlotDeps } from '../librarySlot.js';
+import {
+  GhostLibrarySlot,
+  LIBRARY_CLIPBOARD_WRITE_MAX_BYTES,
+  libraryAvailableRef,
+  mintLibraryEpochIdentity,
+  parseLibraryAssetRef,
+  resolveLibraryAssetPath,
+  type GhostLibrarySlotDeps,
+} from '../librarySlot.js';
 import { createHash } from 'node:crypto';
 import { LibraryBindingStore } from '../libraryBinding.js';
 import { LibraryVault } from '../libraryVault.js';
 import { createLibraryDbCore, type SqliteDatabaseConstructor } from '../libraryDbCore.js';
 import { LibrarySqlService } from '../librarySqlService.js';
-import type { InstalledGhost } from '../../../shared/ghost.js';
+import {
+  classifyGhostLibraryOperationSupport,
+  type InstalledGhost,
+} from '../../../shared/ghost.js';
 
 const Ctor = Database as unknown as SqliteDatabaseConstructor;
 const GHOST_ID = 'mivo-canvas';
 
-function makeGhost(library: boolean, enabled = true): InstalledGhost {
+function makeGhost(library: boolean, enabled = true, id = GHOST_ID): InstalledGhost {
   return {
     manifest: {
       schemaVersion: 3,
       minCindyVersion: '0.1.61',
-      id: GHOST_ID,
+      id,
       name: '测试意识',
       version: '1.0.0',
       kind: 'chip',
@@ -44,12 +55,18 @@ describe('GhostLibrarySlot', () => {
   let bindingFile: string;
   let candidate: string;
   let scopeKey: string | null = 'local:owner-a:1';
+  let ghosts: Map<string, InstalledGhost>;
   let ghost: InstalledGhost;
   let slot: GhostLibrarySlot;
   let bindingStore: LibraryBindingStore;
   let showItemInFolder: ReturnType<typeof vi.fn>;
   let showSaveDialog: ReturnType<typeof vi.fn>;
+  let writeClipboardPng: ReturnType<typeof vi.fn>;
   let syncAgentReadonlyExtraDir: ReturnType<typeof vi.fn>;
+  let captureOwnerScope: ReturnType<typeof vi.fn>;
+  let resolveLibraryRoot: ReturnType<typeof vi.fn>;
+  let createVault: ReturnType<typeof vi.fn>;
+  let createSqlService: ReturnType<typeof vi.fn>;
   let clock: number;
 
   beforeEach(async () => {
@@ -57,36 +74,47 @@ describe('GhostLibrarySlot', () => {
     defaultRootBase = path.join(tmp, 'owners', 'a', 'libraries');
     bindingFile = path.join(tmp, 'owners', 'a', 'libraries-binding.json');
     candidate = path.join(tmp, 'picked');
+    scopeKey = 'local:owner-a:1';
     clock = 0;
     await fs.promises.mkdir(candidate, { recursive: true });
     ghost = makeGhost(true);
+    ghosts = new Map([[GHOST_ID, ghost]]);
     bindingStore = new LibraryBindingStore({
       getFile: () => bindingFile,
       getManagedRoots: () => [path.join(tmp, 'managed')],
       getDefaultRoot: (id) => path.join(defaultRootBase, id),
     });
+    captureOwnerScope = vi.fn(() => scopeKey);
+    const originalResolve = bindingStore.resolveLibraryRoot.bind(bindingStore);
+    resolveLibraryRoot = vi.fn((ghostId: string) => originalResolve(ghostId));
+    bindingStore.resolveLibraryRoot = ((ghostId: string) => resolveLibraryRoot(ghostId)) as LibraryBindingStore['resolveLibraryRoot'];
+    createVault = vi.fn((d) => new LibraryVault(d));
+    createSqlService = vi.fn((d) =>
+      new LibrarySqlService({
+        ...d,
+        createCore: (ctor) => createLibraryDbCore({ DatabaseCtor: ctor }),
+        inProcessCtor: Ctor,
+      }),
+    );
     const deps: GhostLibrarySlotDeps = {
-      getGhost: (id) => (id === GHOST_ID ? ghost : null),
+      getGhost: (id) => ghosts.get(id) ?? null,
       bindingStore,
       getDefaultRoot: (id) => path.join(defaultRootBase, id),
-      captureOwnerScope: () => scopeKey,
-      createVault: (d) => new LibraryVault(d),
-      createSqlService: (d) =>
-        new LibrarySqlService({
-          ...d,
-          createCore: (ctor) => createLibraryDbCore({ DatabaseCtor: ctor }),
-          inProcessCtor: Ctor,
-        }),
+      captureOwnerScope: () => captureOwnerScope(),
+      createVault: (d) => createVault(d),
+      createSqlService: (d) => createSqlService(d),
       getDiskFreeBytes: async () => 1024 ** 4,
       workerScriptPath: () => path.join(tmp, 'unused-worker.js'),
       betterSqliteModulePath: () => 'better-sqlite3',
       showItemInFolder: (...args: unknown[]) => showItemInFolder(...args),
       showSaveDialog: (...args: unknown[]) => showSaveDialog(...args),
+      writeClipboardPng: (...args: unknown[]) => writeClipboardPng(...args),
       syncAgentReadonlyExtraDir: (...args: unknown[]) => syncAgentReadonlyExtraDir(...args),
       now: () => clock,
     };
     showItemInFolder = vi.fn();
     showSaveDialog = vi.fn(async () => ({ canceled: true }));
+    writeClipboardPng = vi.fn(async () => {});
     syncAgentReadonlyExtraDir = vi.fn(async () => {});
     slot = new GhostLibrarySlot(deps);
   });
@@ -97,14 +125,112 @@ describe('GhostLibrarySlot', () => {
   });
 
   it('资格审:未声明 library 能力/停用 → NOT_DECLARED', async () => {
-    ghost = makeGhost(false);
+    ghosts.set(GHOST_ID, makeGhost(false));
     const r = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.errorCode).toBe('NOT_DECLARED');
-    ghost = makeGhost(true, false);
+    if (!r.ok) {
+      expect(r.errorCode).toBe('NOT_DECLARED');
+      expect(r.reason).toBe('PERMISSION_DENIED');
+    }
+    ghosts.set(GHOST_ID, makeGhost(true, false));
     const r2 = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
     expect(r2.ok).toBe(false);
-    ghost = makeGhost(true);
+    if (!r2.ok) {
+      expect(r2.errorCode).toBe('NOT_DECLARED');
+      expect(r2.reason).toBe('PERMISSION_DENIED');
+    }
+    const deniedCaps = await slot.handleLibraryRequest(GHOST_ID, { op: 'capabilities' });
+    expect(deniedCaps).toMatchObject({
+      ok: false,
+      errorCode: 'NOT_DECLARED',
+      reason: 'PERMISSION_DENIED',
+    });
+    expect(JSON.stringify(deniedCaps)).not.toContain(defaultRootBase);
+    expect(JSON.stringify(deniedCaps)).not.toContain('local:owner');
+    expect(captureOwnerScope).not.toHaveBeenCalled();
+    expect(resolveLibraryRoot).not.toHaveBeenCalled();
+    ghosts.set(GHOST_ID, makeGhost(true));
+  });
+
+  it('capabilities: 资格审后、会话创建前返回 v1 清单,首请求零副作用', async () => {
+    const sessionCount = () => (slot as unknown as { sessions: Map<string, unknown> }).sessions.size;
+    const vaultOpen = vi.spyOn(LibraryVault.prototype, 'open');
+    const vaultClear = vi.spyOn(LibraryVault.prototype, 'clearOrphaned');
+    const vaultWriteBegin = vi.spyOn(LibraryVault.prototype, 'writeBegin');
+    const vaultWriteAbort = vi.spyOn(LibraryVault.prototype, 'writeAbort');
+    try {
+    expect(sessionCount()).toBe(0);
+    const r = await slot.handleLibraryRequest(GHOST_ID, { op: 'capabilities' });
+    expect(r).toEqual({
+      ok: true,
+      op: 'capabilities',
+      capabilities: { version: 1, operations: ['clipboardWrite', 'saveAs'] },
+    });
+    expect(classifyGhostLibraryOperationSupport(r, 'clipboardWrite')).toBe('supported');
+    expect(classifyGhostLibraryOperationSupport(r, 'saveAs')).toBe('supported');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 1, operations: ['clipboardWrite', 'saveAs', 'futureOp'], extra: true } },
+      'clipboardWrite',
+    )).toBe('supported');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 1, operations: ['saveAs'] } },
+      'clipboardWrite',
+    )).toBe('unsupported');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: false, errorCode: 'PATH_INVALID', message: 'unknown op' },
+      'clipboardWrite',
+    )).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 2, operations: ['clipboardWrite'] } },
+      'clipboardWrite',
+    )).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { operations: ['clipboardWrite'] } },
+      'clipboardWrite',
+    )).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 1, operations: 'clipboardWrite' } },
+      'clipboardWrite',
+    )).toBe('unknown');
+    const mixedTypes = {
+      ok: true,
+      op: 'capabilities',
+      capabilities: { version: 1, operations: ['saveAs', 123] },
+    };
+    expect(classifyGhostLibraryOperationSupport(mixedTypes, 'clipboardWrite')).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(mixedTypes, 'saveAs')).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 1, operations: [123] } },
+      'saveAs',
+    )).toBe('unknown');
+    expect(classifyGhostLibraryOperationSupport(
+      { ok: true, op: 'capabilities', capabilities: { version: 1, operations: ['clipboardWrite', null] } },
+      'clipboardWrite',
+    )).toBe('unknown');
+    expect(sessionCount()).toBe(0);
+    expect(captureOwnerScope).not.toHaveBeenCalled();
+    expect(resolveLibraryRoot).not.toHaveBeenCalled();
+    expect(createVault).not.toHaveBeenCalled();
+    expect(createSqlService).not.toHaveBeenCalled();
+    expect(vaultOpen).not.toHaveBeenCalled();
+    expect(vaultClear).not.toHaveBeenCalled();
+    expect(vaultWriteBegin).not.toHaveBeenCalled();
+    expect(vaultWriteAbort).not.toHaveBeenCalled();
+    expect(syncAgentReadonlyExtraDir).not.toHaveBeenCalled();
+    expect(writeClipboardPng).not.toHaveBeenCalled();
+    expect(showSaveDialog).not.toHaveBeenCalled();
+    expect(showItemInFolder).not.toHaveBeenCalled();
+    expect(JSON.stringify(r)).not.toContain(defaultRootBase);
+    expect(JSON.stringify(r)).not.toContain(tmp);
+    expect(JSON.stringify(r)).not.toContain('local:owner');
+    const libraryRoot = path.join(defaultRootBase, GHOST_ID);
+    expect(fs.existsSync(libraryRoot)).toBe(false);
+    } finally {
+    vaultOpen.mockRestore();
+    vaultClear.mockRestore();
+    vaultWriteBegin.mockRestore();
+    vaultWriteAbort.mockRestore();
+    }
   });
 
   it('管道级全链路:open/status/write/read/rename/delete(默认根)', async () => {
@@ -170,6 +296,41 @@ describe('GhostLibrarySlot', () => {
     expect(backups.some((f) => f.startsWith('pre-migrate-'))).toBe(true);
   });
 
+  it('dbPath 非法/越界 → PATH_INVALID + INVALID_REQUEST', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const missing = await slot.handleLibraryRequest(GHOST_ID, { op: 'db.open' });
+    expect(missing).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const escaped = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'db.open', dbPath: '../escape.sqlite',
+    });
+    expect(escaped).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+  });
+
+  it('open/status vault LIBRARY_UNAVAILABLE 透传稳定 reason', async () => {
+    const openSpy = vi.spyOn(LibraryVault.prototype, 'open').mockResolvedValue({
+      ok: false, errorCode: 'LIBRARY_UNAVAILABLE', message: 'Library 实例已作废',
+    });
+    try {
+      const r = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+      expect(r).toMatchObject({
+        ok: false, errorCode: 'LIBRARY_UNAVAILABLE', reason: 'LIBRARY_UNAVAILABLE',
+      });
+    } finally {
+      openSpy.mockRestore();
+    }
+    const statusSpy = vi.spyOn(LibraryVault.prototype, 'status').mockResolvedValue({
+      ok: false, errorCode: 'LIBRARY_UNAVAILABLE', message: 'Library 根目录不可访问',
+    });
+    try {
+      const st = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+      expect(st).toMatchObject({
+        ok: false, errorCode: 'LIBRARY_UNAVAILABLE', reason: 'LIBRARY_UNAVAILABLE',
+      });
+    } finally {
+      statusSpy.mockRestore();
+    }
+  });
+
   it('binding 漂移:目录删除 → open 报 unavailable(disk-missing),写拒', async () => {
     const store = new LibraryBindingStore({
       getFile: () => bindingFile,
@@ -189,7 +350,16 @@ describe('GhostLibrarySlot', () => {
     expect(open2.reason).toBe('disk-missing');
     const w = await slot.handleLibraryRequest(GHOST_ID, { op: 'write', path: 'a.txt', content: 'x' });
     expect(w.ok).toBe(false);
-    if (!w.ok) expect(w.errorCode).toBe('LIBRARY_UNAVAILABLE');
+    if (!w.ok) {
+      expect(w.errorCode).toBe('LIBRARY_UNAVAILABLE');
+      expect(w.reason).toBe('LIBRARY_UNAVAILABLE');
+    }
+    const capsWhileUnavailable = await slot.handleLibraryRequest(GHOST_ID, { op: 'capabilities' });
+    expect(capsWhileUnavailable).toEqual({
+      ok: true,
+      op: 'capabilities',
+      capabilities: { version: 1, operations: ['clipboardWrite', 'saveAs'] },
+    });
     // 绝不落默认根冒充。
     expect(fs.existsSync(path.join(defaultRootBase, GHOST_ID, 'a.txt'))).toBe(false);
   });
@@ -413,7 +583,7 @@ describe('GhostLibrarySlot', () => {
       await slot.disposeAll();
       release();
       const r = await pending;
-      expect(r).toMatchObject({ ok: false, errorCode: 'LIBRARY_UNAVAILABLE' });
+      expect(r).toMatchObject({ ok: false, errorCode: 'LIBRARY_UNAVAILABLE', reason: 'CANCELLED' });
       expect(fs.readFileSync(dest, 'utf8')).toBe('keep-me');
     } finally {
       spy.mockRestore();
@@ -443,8 +613,198 @@ describe('GhostLibrarySlot', () => {
     await slot.disposeAll();
     release({ canceled: false, filePath: dest });
     const r = await pending;
-    expect(r).toMatchObject({ ok: false, errorCode: 'LIBRARY_UNAVAILABLE' });
+    expect(r).toMatchObject({ ok: false, errorCode: 'LIBRARY_UNAVAILABLE', reason: 'CANCELLED' });
     expect(fs.existsSync(dest)).toBe(false);
+  });
+
+  // 1x1 灰度 PNG:签名 + 完整 IHDR(含 13 字节数据与 CRC) + IDAT + IEND。
+  const MIN_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR42mNgAAAAAgAB5Sfe/AAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const pngB64 = MIN_PNG.toString('base64');
+  const truncatedPng = MIN_PNG.subarray(0, 24);
+
+  it('clipboardWrite: 成功写回 bytes,不调用 Finder/saveAs',
+    async () => {
+      await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+      const r = await slot.handleLibraryRequest(GHOST_ID, {
+        op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+      });
+      expect(r).toEqual({ ok: true, op: 'clipboardWrite', bytes: MIN_PNG.byteLength });
+      expect(writeClipboardPng).toHaveBeenCalledTimes(1);
+      expect(Buffer.from(writeClipboardPng.mock.calls[0]?.[0] as Buffer)).toEqual(MIN_PNG);
+      expect(showItemInFolder).not.toHaveBeenCalled();
+      expect(showSaveDialog).not.toHaveBeenCalled();
+      expect(JSON.stringify(r)).not.toContain(tmp);
+    },
+  );
+
+  it('clipboardWrite: 空字节失败,不调用 writeClipboardPng', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const r = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: '', encoding: 'base64',
+    });
+    expect(r).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    expect(writeClipboardPng).not.toHaveBeenCalled();
+  });
+
+  it('clipboardWrite: 非法 encoding / 非 base64 / 非 PNG 失败,不调用 writeClipboardPng', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const utf8 = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: pngB64, encoding: 'utf8',
+    });
+    expect(utf8).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const badB64 = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: '%%%not-base64%%%', encoding: 'base64',
+    });
+    expect(badB64).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46]).toString('base64');
+    const notPng = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: jpeg, encoding: 'base64',
+    });
+    expect(notPng).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const padded = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: `${pngB64}=AAAA`, encoding: 'base64',
+    });
+    expect(padded).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const truncated = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: truncatedPng.toString('base64'), encoding: 'base64',
+    });
+    expect(truncated).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    // 插进 IDAT 数据区:IHDR 结束于 33,IDAT type 后是 offset 41。
+    const iendInIdat = Buffer.concat([
+      MIN_PNG.subarray(0, 41),
+      Buffer.from('IEND', 'ascii'),
+      MIN_PNG.subarray(41),
+    ]);
+    const embedded = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: iendInIdat.toString('base64'), encoding: 'base64',
+    });
+    expect(embedded).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    const trailing = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: Buffer.concat([MIN_PNG, Buffer.from([0x00])]).toString('base64'), encoding: 'base64',
+    });
+    expect(trailing).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    expect(writeClipboardPng).not.toHaveBeenCalled();
+    expect(showItemInFolder).not.toHaveBeenCalled();
+    expect(showSaveDialog).not.toHaveBeenCalled();
+  });
+
+  it('clipboardWrite: 超限 payload 失败且上限是有限整数', async () => {
+    expect(Number.isFinite(LIBRARY_CLIPBOARD_WRITE_MAX_BYTES)).toBe(true);
+    expect(LIBRARY_CLIPBOARD_WRITE_MAX_BYTES).toBeGreaterThan(0);
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const tooBig = 'A'.repeat(Math.floor((LIBRARY_CLIPBOARD_WRITE_MAX_BYTES * 4) / 3) + 16);
+    const r = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: tooBig, encoding: 'base64',
+    });
+    expect(r).toMatchObject({ ok: false, errorCode: 'TOO_LARGE' });
+    expect(writeClipboardPng).not.toHaveBeenCalled();
+  });
+
+  it('clipboardWrite: 生产注入无主壳窗 → UNSUPPORTED,不伪装 INTERNAL', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    clock += 4_000;
+    writeClipboardPng.mockImplementationOnce(async () => {
+      throw new Error('没有可挂靠的宿主窗口');
+    });
+    const r = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+    });
+    expect(r).toMatchObject({ ok: false, errorCode: 'UNSUPPORTED', reason: 'NO_VISIBLE_WINDOW' });
+    expect(writeClipboardPng).toHaveBeenCalledTimes(1);
+  });
+
+  it('clipboardWrite: 无 handler → UNSUPPORTED + IMPLEMENTATION_UNSUPPORTED,不等于旧宿主', async () => {
+    const noHandler = new GhostLibrarySlot({
+      getGhost: (id) => ghosts.get(id) ?? null,
+      bindingStore,
+      getDefaultRoot: (id) => path.join(defaultRootBase, id),
+      captureOwnerScope: () => captureOwnerScope(),
+      createVault: (d) => createVault(d),
+      createSqlService: (d) => createSqlService(d),
+      getDiskFreeBytes: async () => 1024 ** 4,
+      workerScriptPath: () => path.join(tmp, 'unused-worker.js'),
+      betterSqliteModulePath: () => 'better-sqlite3',
+      showSaveDialog: (...args: unknown[]) => showSaveDialog(...args),
+      now: () => clock,
+    });
+    try {
+      await noHandler.handleLibraryRequest(GHOST_ID, { op: 'open' });
+      const r = await noHandler.handleLibraryRequest(GHOST_ID, {
+        op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+      });
+      expect(r).toMatchObject({
+        ok: false,
+        errorCode: 'UNSUPPORTED',
+        reason: 'IMPLEMENTATION_UNSUPPORTED',
+      });
+      const caps = await noHandler.handleLibraryRequest(GHOST_ID, { op: 'capabilities' });
+      expect(classifyGhostLibraryOperationSupport(caps, 'clipboardWrite')).toBe('supported');
+    } finally {
+      await noHandler.disposeAll();
+    }
+  });
+
+  it('saveAs: 无可见窗口 → INTERNAL + NO_VISIBLE_WINDOW,能力查询仍 supported', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'write', path: 'exports/a.psd', content: 'psd' });
+    clock += 4_000;
+    showSaveDialog.mockImplementationOnce(async () => {
+      throw new Error('没有可挂靠的宿主窗口');
+    });
+    const r = await slot.handleLibraryRequest(GHOST_ID, { op: 'saveAs', path: 'exports/a.psd' });
+    expect(r).toMatchObject({ ok: false, errorCode: 'INTERNAL', reason: 'NO_VISIBLE_WINDOW' });
+    const caps = await slot.handleLibraryRequest(GHOST_ID, { op: 'capabilities' });
+    expect(classifyGhostLibraryOperationSupport(caps, 'saveAs')).toBe('supported');
+  });
+
+  it('clipboardWrite: 未知 op 仍拒,不调用 writeClipboardPng', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const r = await slot.handleLibraryRequest(GHOST_ID, { op: 'clipboardPaste' });
+    expect(r).toMatchObject({ ok: false, errorCode: 'PATH_INVALID', reason: 'INVALID_REQUEST' });
+    expect(writeClipboardPng).not.toHaveBeenCalled();
+  });
+
+  it('clipboardWrite: 同插件两次请求间隔不足 = RATE_LIMITED(按尝试记账)', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const first = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+    });
+    expect(first.ok).toBe(true);
+    clock += 1_000;
+    const second = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+    });
+    expect(second).toMatchObject({ ok: false, errorCode: 'RATE_LIMITED' });
+    expect(writeClipboardPng).toHaveBeenCalledTimes(1);
+  });
+
+  it('clipboardWrite: 账号切换后旧会话不得继续写', async () => {
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    writeClipboardPng.mockImplementationOnce(async () => {
+      started();
+      await gate;
+    });
+    const pending = slot.handleLibraryRequest(GHOST_ID, {
+      op: 'clipboardWrite', content: pngB64, encoding: 'base64',
+    });
+    await opened;
+    scopeKey = 'local:owner-b:1';
+    await slot.disposeAll();
+    release();
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, errorCode: 'LIBRARY_UNAVAILABLE', reason: 'CANCELLED' });
+    expect(showSaveDialog).not.toHaveBeenCalled();
   });
 
   it('open/status 握手含 authorizedReadonly 与 generation/identity,JSON 不含绝对库根', async () => {
@@ -457,7 +817,14 @@ describe('GhostLibrarySlot', () => {
     };
     expect(openHs.authorizedReadonly).toBe(true);
     expect(openHs.libraryGeneration).toBe(0);
-    expect(openHs.libraryIdentity).toBe('default');
+    expect(openHs.libraryIdentity).toMatch(/^[0-9a-f]{64}$/);
+    expect(openHs.libraryIdentity).toBe(mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-a:1',
+      generation: 0,
+      rootDir: path.join(defaultRootBase, GHOST_ID),
+      grantedAt: 0,
+    }));
     const dumped = JSON.stringify(open);
     expect(dumped).not.toContain(defaultRootBase);
     expect(dumped).not.toMatch(/\/Users\//);
@@ -500,7 +867,16 @@ describe('GhostLibrarySlot', () => {
     };
     expect(hs.authorizedReadonly).toBe(true);
     expect(hs.libraryGeneration).toBe(1);
-    expect(hs.libraryIdentity).toBe('g1');
+    expect(hs.libraryIdentity).toMatch(/^[0-9a-f]{64}$/);
+    const boundRecord = await bindingStore.getBinding(GHOST_ID);
+    expect(boundRecord).not.toBeNull();
+    expect(hs.libraryIdentity).toBe(mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-a:1',
+      generation: 1,
+      rootDir: path.join(await fs.promises.realpath(candidate), GHOST_ID),
+      grantedAt: boundRecord!.grantedAt,
+    }));
     const dumped = JSON.stringify(open);
     expect(dumped).not.toContain(candidate);
     expect(dumped).not.toContain(defaultRoot);
@@ -512,18 +888,155 @@ describe('GhostLibrarySlot', () => {
   });
 
   it('extraDirs 同步失败则握手 authorizedReadonly=false,不假装授权', async () => {
-    syncAgentReadonlyExtraDir.mockRejectedValueOnce(new Error('require app-server 0.144.6 or newer'));
+    syncAgentReadonlyExtraDir.mockRejectedValue(new Error('require app-server 0.144.6 or newer'));
     const open = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
     if (!open.ok || open.op !== 'open') throw new Error(JSON.stringify(open));
     expect((open as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
     expect(JSON.stringify(open)).not.toContain(defaultRootBase);
   });
 
-  it('writeCommit ACK 含 64-hex sha256,形状 {ok,op,path,bytes,sha256}', async () => {
+  it('extraDirs 同步 no-op/未实写则握手 authorizedReadonly=false,不假装授权', async () => {
+    syncAgentReadonlyExtraDir.mockResolvedValue('not-granted');
+    const open = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!open.ok || open.op !== 'open') throw new Error(JSON.stringify(open));
+    expect((open as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    expect(JSON.stringify(open)).not.toContain(defaultRootBase);
+    expect(syncAgentReadonlyExtraDir).toHaveBeenCalledWith(
+      GHOST_ID,
+      path.join(defaultRootBase, GHOST_ID),
+    );
+  });
+
+  it('extraDirs 后来实写成功,status 握手改为 authorizedReadonly=true', async () => {
+    syncAgentReadonlyExtraDir.mockResolvedValue('not-granted');
+    const open = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((open as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    syncAgentReadonlyExtraDir.mockResolvedValue('granted');
+    const st = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((st as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('extraDirs 被更新一轮取代时,已授权握手不回退成 false', async () => {
+    const open = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((open as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockResolvedValueOnce('superseded');
+    const st = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((st as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('A 已授权后 B 被 superseded,B 不得把 A 的根当成自己已授权', async () => {
+    const otherId = 'other-library';
+    ghosts.set(otherId, makeGhost(true, true, otherId));
+    const openA = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((openA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockResolvedValue('superseded');
+    const openB = await slot.handleLibraryRequest(otherId, { op: 'open' });
+    expect((openB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    const stA = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((stA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('A granted 后 B granted,A 被 superseded 不得再报已授权', async () => {
+    const otherId = 'other-library';
+    ghosts.set(otherId, makeGhost(true, true, otherId));
+    const openA = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((openA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockResolvedValue('granted');
+    const openB = await slot.handleLibraryRequest(otherId, { op: 'open' });
+    expect((openB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockResolvedValue('superseded');
+    const stA = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((stA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    const stB = await slot.handleLibraryRequest(otherId, { op: 'status' });
+    expect((stB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('B granted 后 A 漂移 open 不得撤掉 B 的槽', async () => {
+    const otherId = 'other-library';
+    ghosts.set(otherId, makeGhost(true, true, otherId));
+    syncAgentReadonlyExtraDir.mockResolvedValue('granted');
+    const openB = await slot.handleLibraryRequest(otherId, { op: 'open' });
+    expect((openB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    const store = new LibraryBindingStore({
+      getFile: () => bindingFile,
+      getManagedRoots: () => [path.join(tmp, 'managed')],
+      getDefaultRoot: (id) => path.join(defaultRootBase, id),
+    });
+    await store.setBinding(GHOST_ID, candidate);
+    await fs.promises.rm(candidate, { recursive: true });
+    syncAgentReadonlyExtraDir.mockClear();
+    const openA = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((openA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    expect(syncAgentReadonlyExtraDir).not.toHaveBeenCalled();
+    const stB = await slot.handleLibraryRequest(otherId, { op: 'status' });
+    expect((stB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('仅 status 不挂 extraDirs;A open 后 B status 不得抢槽', async () => {
+    const first = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((first as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    expect(syncAgentReadonlyExtraDir).not.toHaveBeenCalled();
+
+    const otherId = 'other-library';
+    ghosts.set(otherId, makeGhost(true, true, otherId));
+    const openA = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    expect((openA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockClear();
+    const stB = await slot.handleLibraryRequest(otherId, { op: 'status' });
+    expect((stB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(false);
+    expect(syncAgentReadonlyExtraDir).not.toHaveBeenCalled();
+    const stA = await slot.handleLibraryRequest(GHOST_ID, { op: 'status' });
+    expect((stA as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it('B granted 后 A dispose 不得撤掉 B 的槽', async () => {
+    const otherId = 'other-library';
+    ghosts.set(otherId, makeGhost(true, true, otherId));
+    syncAgentReadonlyExtraDir.mockResolvedValue('granted');
+    const openB = await slot.handleLibraryRequest(otherId, { op: 'open' });
+    expect((openB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+    syncAgentReadonlyExtraDir.mockClear();
+    await slot.disposeGhost(GHOST_ID);
+    expect(syncAgentReadonlyExtraDir).not.toHaveBeenCalled();
+    const stB = await slot.handleLibraryRequest(otherId, { op: 'status' });
+    expect((stB as unknown as { authorizedReadonly: boolean }).authorizedReadonly).toBe(true);
+  });
+
+  it.each(['expiry', 'io', 'abort', 'dispose'] as const)('releases stream epochs on %s without commit', async (reason) => {
+    createVault.mockImplementation((d) => new LibraryVault({ ...d, now: () => clock }));
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const begin = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeBegin', path: 'stream.txt', totalBytes: 1 });
+    if (!begin.ok || begin.op !== 'writeBegin') throw new Error(JSON.stringify(begin));
+    const epochs = (slot as unknown as { writeEpochByStream: Map<string, unknown> }).writeEpochByStream;
+    expect(epochs.has(begin.streamId)).toBe(true);
+    // A retryable protocol error must keep the captured epoch.
+    const invalid = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeChunk', streamId: begin.streamId, seq: 2, content: 'x' });
+    expect(invalid.ok).toBe(false);
+    expect(epochs.has(begin.streamId)).toBe(true);
+    if (reason === 'expiry') {
+      clock += 300_001;
+      const next = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeBegin', path: 'next.txt', totalBytes: 1 });
+      expect(next.ok).toBe(true);
+    } else if (reason === 'io') {
+      const open = vi.spyOn(fs.promises, 'open').mockRejectedValueOnce(new Error('task IO failure'));
+      try {
+        const failed = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeChunk', streamId: begin.streamId, seq: 1, content: 'x' });
+        expect(failed.ok).toBe(false);
+      } finally { open.mockRestore(); }
+    } else if (reason === 'abort') {
+      await slot.handleLibraryRequest(GHOST_ID, { op: 'writeAbort', streamId: begin.streamId });
+    } else {
+      await slot.disposeAll();
+    }
+    expect(epochs.has(begin.streamId)).toBe(false);
+  });
+
+  it('writeCommit ACK 含 64-hex sha256 与捕获的 epoch,旧插件可忽略新字段', async () => {
     const body = 'pixel-bytes';
     const sha = createHash('sha256').update(body).digest('hex');
     const rel = 'assets/ab/abc123def456abc123def456abc123de/blob.png';
-    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const open = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!open.ok || open.op !== 'open') throw new Error(JSON.stringify(open));
     const begin = await slot.handleLibraryRequest(GHOST_ID, {
       op: 'writeBegin', path: rel, totalBytes: Buffer.byteLength(body), sha256: sha,
     });
@@ -533,14 +1046,34 @@ describe('GhostLibrarySlot', () => {
     });
     expect(chunk.ok).toBe(true);
     const commit = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeCommit', streamId: begin.streamId });
+    const expectedIdentity = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-a:1',
+      generation: 0,
+      rootDir: path.join(defaultRootBase, GHOST_ID),
+      grantedAt: 0,
+    });
     expect(commit).toEqual({
       ok: true,
       op: 'writeCommit',
       path: rel,
       bytes: Buffer.byteLength(body),
       sha256: sha,
+      libraryGeneration: 0,
+      libraryIdentity: expectedIdentity,
     });
     expect(commit.ok && 'sha256' in commit && /^[0-9a-f]{64}$/.test(commit.sha256)).toBe(true);
+    const { libraryGeneration, libraryIdentity, ...legacy } = commit as {
+      ok: true; op: 'writeCommit'; path: string; bytes: number; sha256: string;
+      libraryGeneration?: number; libraryIdentity?: string;
+    };
+    expect(legacy).toEqual({
+      ok: true, op: 'writeCommit', path: rel, bytes: Buffer.byteLength(body), sha256: sha,
+    });
+    expect(libraryGeneration).toBe(0);
+    expect(libraryIdentity).toBe(expectedIdentity);
+    expect(JSON.stringify(commit)).not.toContain('local:owner');
+    expect(JSON.stringify(commit)).not.toContain(defaultRootBase);
     expect(fs.existsSync(path.join(tmp, 'libraryConfirmed.ts'))).toBe(false);
     expect(fs.existsSync(path.join(process.cwd(), 'apps/desktop/src/main/cindy-brain/libraryConfirmed.ts'))).toBe(false);
   });
@@ -553,5 +1086,165 @@ describe('GhostLibrarySlot', () => {
       .toBe(`cindy-media://blobs/${hash}.png`);
     expect(libraryAvailableRef({ authorized: false, hash, ext: 'svg', confirmed: true })).toBeNull();
     expect(libraryAvailableRef({ authorized: true, hash, ext: 'png', confirmed: false })).toBeNull();
+  });
+
+  it('write 回执 epoch 来自写入 session,owner 切换后新写入不换绑旧回执', async () => {
+    const first = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'write', path: 'assets/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/blob.png', content: 'a',
+    });
+    if (!first.ok || first.op !== 'write') throw new Error(JSON.stringify(first));
+    const firstIdentity = first.libraryIdentity;
+    expect(first.libraryGeneration).toBe(0);
+    expect(firstIdentity).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(first)).not.toContain('local:owner');
+
+    scopeKey = 'local:owner-b:1';
+    defaultRootBase = path.join(tmp, 'owners', 'b', 'libraries');
+    const second = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'write', path: 'assets/bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/blob.png', content: 'b',
+    });
+    if (!second.ok || second.op !== 'write') throw new Error(JSON.stringify(second));
+    const ownerBRoot = path.join(tmp, 'owners', 'b', 'libraries', GHOST_ID);
+    expect(second.libraryIdentity).not.toBe(firstIdentity);
+    expect(second.libraryIdentity).toBe(mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-b:1',
+      generation: 0,
+      rootDir: ownerBRoot,
+      grantedAt: 0,
+    }));
+    expect(first.libraryIdentity).toBe(firstIdentity);
+    expect(JSON.stringify(second)).not.toContain('local:owner');
+  });
+
+  it('writeCommit epoch 在 writeBegin 捕获,切根后不得拼当前身份', async () => {
+    const body = 'stream-pixel';
+    const sha = createHash('sha256').update(body).digest('hex');
+    const rel = `assets/${sha.slice(0, 2)}/${sha}/blob.png`;
+    await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    const begin = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'writeBegin', path: rel, totalBytes: Buffer.byteLength(body), sha256: sha,
+    });
+    if (!begin.ok || begin.op !== 'writeBegin') throw new Error(JSON.stringify(begin));
+    const beginIdentity = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-a:1',
+      generation: 0,
+      rootDir: path.join(defaultRootBase, GHOST_ID),
+      grantedAt: 0,
+    });
+    await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'writeChunk', streamId: begin.streamId, seq: 1, content: body,
+    });
+    const bound = await bindingStore.setBinding(GHOST_ID, candidate);
+    expect(bound.ok).toBe(true);
+    await slot.disposeGhost(GHOST_ID);
+    const openB = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!openB.ok || openB.op !== 'open') throw new Error(JSON.stringify(openB));
+    expect(openB.libraryIdentity).not.toBe(beginIdentity);
+    const stale = await slot.handleLibraryRequest(GHOST_ID, { op: 'writeCommit', streamId: begin.streamId });
+    expect(stale).toMatchObject({ ok: false, errorCode: 'STREAM_INVALID' });
+    expect(JSON.stringify(stale)).not.toContain(openB.libraryIdentity);
+  });
+
+  it('默认 D→自定义 C→默认 D:两端绑定身份可复用,中间握手不同,旧回执不得当当前激活', async () => {
+    const first = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'write', path: 'assets/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/blob.png', content: 'd1',
+    });
+    if (!first.ok || first.op !== 'write') throw new Error(JSON.stringify(first));
+    const defaultEpoch = {
+      libraryGeneration: first.libraryGeneration,
+      libraryIdentity: first.libraryIdentity,
+    };
+    expect(defaultEpoch.libraryGeneration).toBe(0);
+    expect(defaultEpoch.libraryIdentity).toMatch(/^[0-9a-f]{64}$/);
+
+    const bound = await bindingStore.setBinding(GHOST_ID, candidate);
+    expect(bound.ok).toBe(true);
+    await slot.disposeGhost(GHOST_ID);
+    const customOpen = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!customOpen.ok || customOpen.op !== 'open') throw new Error(JSON.stringify(customOpen));
+    expect(customOpen.libraryIdentity).not.toBe(defaultEpoch.libraryIdentity);
+    expect(customOpen.libraryGeneration).toBe(1);
+
+    await bindingStore.removeBinding(GHOST_ID);
+    await slot.disposeGhost(GHOST_ID);
+    const defaultAgain = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!defaultAgain.ok || defaultAgain.op !== 'open') throw new Error(JSON.stringify(defaultAgain));
+    expect(defaultAgain.libraryIdentity).toBe(defaultEpoch.libraryIdentity);
+    expect(defaultAgain.libraryGeneration).toBe(0);
+    expect(JSON.stringify({ first, customOpen, defaultAgain })).not.toContain('local:owner');
+    expect(JSON.stringify({ first, customOpen, defaultAgain })).not.toContain(defaultRootBase);
+    expect(JSON.stringify({ first, customOpen, defaultAgain })).not.toContain(candidate);
+  });
+
+  it('owner X→Y→X 回到同一默认 binding:X 两端身份相同,Y 介入后旧 X 回执不再是当前激活', async () => {
+    const writeX1 = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'write', path: 'assets/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/blob.png', content: 'x1',
+    });
+    if (!writeX1.ok || writeX1.op !== 'write') throw new Error(JSON.stringify(writeX1));
+    const xEpoch = writeX1.libraryIdentity;
+    const xRoot = path.join(tmp, 'owners', 'a', 'libraries', GHOST_ID);
+
+    scopeKey = 'local:owner-b:1';
+    defaultRootBase = path.join(tmp, 'owners', 'b', 'libraries');
+    const writeY = await slot.handleLibraryRequest(GHOST_ID, {
+      op: 'write', path: 'assets/bb/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/blob.png', content: 'y',
+    });
+    if (!writeY.ok || writeY.op !== 'write') throw new Error(JSON.stringify(writeY));
+    expect(writeY.libraryIdentity).not.toBe(xEpoch);
+
+    scopeKey = 'local:owner-a:1';
+    defaultRootBase = path.join(tmp, 'owners', 'a', 'libraries');
+    const openX2 = await slot.handleLibraryRequest(GHOST_ID, { op: 'open' });
+    if (!openX2.ok || openX2.op !== 'open') throw new Error(JSON.stringify(openX2));
+    expect(openX2.libraryIdentity).toBe(xEpoch);
+    expect(openX2.libraryIdentity).toBe(mintLibraryEpochIdentity({
+      ghostId: GHOST_ID,
+      ownerScopeKey: 'local:owner-a:1',
+      generation: 0,
+      rootDir: xRoot,
+      grantedAt: 0,
+    }));
+    expect(JSON.stringify({ writeX1, writeY, openX2 })).not.toContain('local:owner');
+  });
+
+  it('opaque identity 区分 owner / 迁根 / A→B→A,不暴露 owner 原值', () => {
+    const rootA = '/tmp/lib-a/mivo-canvas';
+    const rootB = '/tmp/lib-b/mivo-canvas';
+    const ownerA = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID, ownerScopeKey: 'local:owner-a:1', generation: 0, rootDir: rootA, grantedAt: 0,
+    });
+    const ownerB = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID, ownerScopeKey: 'local:owner-b:1', generation: 0, rootDir: rootA, grantedAt: 0,
+    });
+    const moved = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID, ownerScopeKey: 'local:owner-a:1', generation: 1, rootDir: rootB, grantedAt: 11,
+    });
+    const aba = mintLibraryEpochIdentity({
+      ghostId: GHOST_ID, ownerScopeKey: 'local:owner-a:1', generation: 3, rootDir: rootA, grantedAt: 33,
+    });
+    expect(new Set([ownerA, ownerB, moved, aba]).size).toBe(4);
+    for (const id of [ownerA, ownerB, moved, aba]) {
+      expect(id).toMatch(/^[0-9a-f]{64}$/);
+      expect(id).not.toContain('local:owner');
+      expect(id).not.toContain(rootA);
+      expect(id).not.toContain(rootB);
+    }
+  });
+
+  it('host-owned 相对键解析用最新根,拒绝 sidecar / cindy-media / 绝对路径', () => {
+    const hash = 'd'.repeat(64);
+    const rel = `assets/${hash.slice(0, 2)}/${hash}/blob.png`;
+    const ref = `library:${rel}`;
+    const rootA = path.join(tmp, 'root-a');
+    const rootB = path.join(tmp, 'root-b');
+    expect(parseLibraryAssetRef(ref)).toBe(rel);
+    expect(resolveLibraryAssetPath(rootA, ref)).toBe(path.join(rootA, ...rel.split('/')));
+    expect(resolveLibraryAssetPath(rootB, ref)).toBe(path.join(rootB, ...rel.split('/')));
+    expect(resolveLibraryAssetPath(rootA, `library:assets/${hash.slice(0, 2)}/${hash}/preview.webp`)).toBeNull();
+    expect(resolveLibraryAssetPath(rootA, `cindy-media://blobs/${hash}.png`)).toBeNull();
+    expect(resolveLibraryAssetPath(rootA, path.join(rootA, rel))).toBeNull();
+    expect(resolveLibraryAssetPath('relative-root', ref)).toBeNull();
   });
 });

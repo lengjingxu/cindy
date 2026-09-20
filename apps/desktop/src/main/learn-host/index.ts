@@ -40,7 +40,11 @@ import { LearnRunStore } from './runStore';
 import { applyProposal, resolveInstalledSkillDir } from './apply';
 import { collectUserProfile } from './profile';
 import { formatSkillsIndexBlock, listInstalledSkills } from './skillsIndex';
-import { CONVERSATION_MESSAGE_LIMIT, formatConversationBlock } from './evidence.pure';
+import {
+  CONVERSATION_MESSAGE_LIMIT,
+  formatConversationBlock,
+  isBareLearnInvocationText,
+} from './evidence.pure';
 import { redactSensitive } from './redaction';
 import {
   cleanupStaging,
@@ -64,7 +68,7 @@ export interface StartLearnHostDeps {
   onUndispatchedUserTurn?: (sessionId: string) => void;
   /** hub 源:拉市场 skill 详情 + 可用已发布文件(bootstrap 注入,/learn hub:<slug>
    *  与 skill hub「学习此技能」共用)。未注入时 hub 源请求报 INVALID_PARAMS(兜底)。 */
-  fetchHubSkill?: (slug: string) => Promise<{
+  fetchHubSkill?: (slug: string, catalogScope?: 'market' | 'team') => Promise<{
     name: string;
     description: string;
     content: string;
@@ -207,9 +211,16 @@ export function startLearnHost(deps: StartLearnHostDeps): LearnController {
         .orderBy(desc(messagesTable.createdAt))
         .limit(CONVERSATION_MESSAGE_LIMIT);
       const items: Array<{ role: string; text: string }> = [];
-      for (const r of rows.reverse()) {
+      const chronologicalRows = rows.reverse();
+      for (const r of chronologicalRows) {
         const text = visibleMessageTextForConversationSearch(r.role, r.content);
         if (!text) continue;
+        // The built-in Learn Skill reaches the host after its invocation has
+        // entered chat history. Keep every bare trigger out of the evidence,
+        // including when an assistant/tool row was persisted after it.
+        if (r.role === 'user' && isBareLearnInvocationText(text)) {
+          continue;
+        }
         items.push({ role: r.role, text: redactSensitive(text).text });
       }
       return formatConversationBlock(items);
@@ -312,7 +323,7 @@ export function startLearnHost(deps: StartLearnHostDeps): LearnController {
   return controller;
 }
 
-/** null-safe 取单例 —— startLearnHost 之前调用返回 null(builtins /learn 用)。 */
+/** null-safe 取单例 —— startLearnHost 之前调用返回 null(cindy_helper Learn 工具使用)。 */
 export function getLearnController(): LearnController | null {
   return _controller;
 }

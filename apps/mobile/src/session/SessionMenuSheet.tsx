@@ -1,11 +1,12 @@
+import type { OpenAiAccountProvider } from './sessionControls';
 /**
  * SessionMenuSheet —— 会话右上角「…」菜单浮窗(取代旧三 tab 的会话设置面板)。
  *
  * 形态对齐「+ 号」Context 面板 / 模型浮窗:SheetModal 外壳(背板淡入淡出 + 面板滑入
  * 滑出)+ SheetSurface(把手
  * half/full/下拉 dismiss),**单 Modal 双 Surface 叠层**:一级 = 详情头部(状态 chip /
- * 元信息 / 用量摘要)+ 操作列表(重命名 / 复制链接 / 置顶 / 归档 / 删除)+「会话信息」入口;
- * 二级 = 会话信息(用量 / 工作目录 / 附加引用目录),translateY 滑入,返回键 /
+ * 元信息)+ 任务信息摘要卡入口 + 操作列表(重命名 / 复制链接 / 置顶 / 归档 / 删除);
+ * 二级 = 任务信息(用量 / 工作目录 / 附加引用目录),translateY 滑入,返回键 /
  * backdrop 先回一级再关浮窗(settleSessionMenuBack)。刻意不用嵌套 Modal,原因同
  * ModelPickerSheet 头注释(iOS 同级双 Modal 不显示、Android 返回键派发不可控)。
  *
@@ -18,15 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   Archive,
   ArchiveRestore,
-  ChevronRight,
   Copy,
-  GitBranch,
-  Info,
   Link2,
   Pencil,
   Pin,
   PinOff,
   RefreshCw,
+  Search,
   Sparkles,
   Trash2,
 } from 'lucide-react-native';
@@ -35,6 +34,7 @@ import {
   Alert,
   Animated,
   Pressable,
+  Platform,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -44,7 +44,7 @@ import { useTranslation } from 'react-i18next';
 import { mobilePresentationLocalizer } from '@/i18n/presentationLocalizer';
 import { Text, TextInput } from '@/components/AppText';
 import { MainWindowActionGroup } from '@/components/MobilePrimitives';
-import type { RemoteDirectoryEntry } from '@/device-link/mobileMakerTransport';
+import type { MobileMakerTransport, RemoteDirectoryEntry } from '@/device-link/mobileMakerTransport';
 import type { MobileCodexRateLimitsResult } from '@cindy/maker-shared/device-link-contract';
 import { projectDraftSessionTitle } from '@cindy/maker-shared/session-title';
 import { computeContextSheetSnapHeights, type ContextSheetSnap } from '@/session/contextSheetModel';
@@ -59,8 +59,10 @@ import {
   summarizeAccountRateLimits,
   summarizeCodexRateLimitReset,
   summarizeContextUsage,
-  summarizeSessionSpend,
 } from '@/session/sessionControls';
+import { useSessionMenuUsage, type SessionMenuUsageReader } from '@/session/useSessionMenuUsage';
+import { useSessionMenuContextUsage } from '@/session/useSessionMenuContextUsage';
+import { SessionUsageSummary } from '@/session/SessionUsageSummary';
 import {
   addSessionExtraDir,
   aiRenameFailureText,
@@ -76,6 +78,7 @@ import {
 } from '@/session/sessionMenu';
 import { SheetModal } from '@/session/SheetModal';
 import { SheetSurface } from '@/session/SheetSurface';
+import { SessionDetailsNative, SessionDetailsNativeActions } from './SessionDetailsNative';
 import type { RemoteSession } from '@/session/types';
 import { iconSize, iconStroke, monoFont, useTheme, useThemedStyles, type ThemeColors } from '@/theme';
 import { fontWeight, lineHeight, radius, spacing, typeScale } from '@/theme/tokens';
@@ -95,15 +98,18 @@ export interface SessionExtraDirBrowserState {
 }
 
 export interface SessionMenuSheetProps {
+  providerName?: string;
+  messageOnly?: boolean;
+  onOpenSearch?: () => void;
+  accountProvider?: OpenAiAccountProvider;
+  usageReader: SessionMenuUsageReader & Pick<MobileMakerTransport, 'getContextUsage'>;
   visible: boolean;
   /** 打开时落在哪个视图(header 用量入口可直达 info)。 */
   initialView: SessionMenuView;
   session: RemoteSession;
   busy: boolean;
   readOnlyReason?: string | null;
-  contextUsage: unknown;
-  contextLoading: boolean;
-  onRefreshContextUsage(): void;
+  onContextError(error: string | null): void;
   /**
    * 账号级限额快照(被控端 `maker:usage:account` 原始返回,unknown 防御解析)。
    * 父级只对 Codex 会话传数据;null = 不显示「账号限额」区(通道不支持 / 拉取失败 /
@@ -124,8 +130,6 @@ export interface SessionMenuSheetProps {
   onRegenerateTitle(): Promise<{ title: string | null }>;
   /** 打开工作目录(复用文件浏览页);调用方负责关 sheet 并跳转。 */
   onOpenWorkspace(): void;
-  /** Pi 原生会话树入口；只有 host runtime 真正返回 Pi 会话时由父级注入。 */
-  onOpenSessionTree?: () => void;
   onTogglePinned(): void;
   onArchive(): void;
   onRestore(): void;
@@ -136,14 +140,17 @@ export interface SessionMenuSheetProps {
 }
 
 export function SessionMenuSheet({
+  providerName,
+  messageOnly = false,
+  onOpenSearch,
+  usageReader,
+  accountProvider,
   visible,
   initialView,
   session,
   busy,
   readOnlyReason,
-  contextUsage,
-  contextLoading,
-  onRefreshContextUsage,
+  onContextError,
   accountUsage,
   codexRateLimits,
   codexResetBusy,
@@ -156,7 +163,6 @@ export function SessionMenuSheet({
   onRename,
   onRegenerateTitle,
   onOpenWorkspace,
-  onOpenSessionTree,
   onTogglePinned,
   onArchive,
   onRestore,
@@ -168,10 +174,20 @@ export function SessionMenuSheet({
   const styles = useThemedStyles(makeStyles);
   const { colors } = useTheme();
   const { t, i18n: i18nInstance } = useTranslation();
+  const menuUsage = useSessionMenuUsage(session, usageReader, visible && !messageOnly, codexRateLimits, accountProvider);
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const [view, setView] = useState<SessionMenuView>('menu');
+  const [view, setView] = useState<SessionMenuView>(initialView);
+  const [opening, setOpening] = useState({ visible, initialView });
+  // Reset before effects: reopening the primary menu must not inspect the old info view.
+  if (opening.visible !== visible || opening.initialView !== initialView) {
+    setOpening({ visible, initialView });
+    if (visible) setView(initialView);
+  }
+  const { contextUsage, contextLoading, refresh: onRefreshContextUsage } = useSessionMenuContextUsage(
+    session, usageReader, visible && !messageOnly && view === 'info', onContextError,
+  );
   const [primarySnap, setPrimarySnap] = useState<ContextSheetSnap>('half');
   const [secondarySnap, setSecondarySnap] = useState<ContextSheetSnap>('half');
   const [renaming, setRenaming] = useState(false);
@@ -212,7 +228,6 @@ export function SessionMenuSheet({
   // 不触发重置,见上方 windowHeightRef 注释。
   useEffect(() => {
     if (!visible) return;
-    setView(initialView);
     setPrimarySnap('half');
     setSecondarySnap('half');
     renameSeqRef.current += 1;
@@ -237,14 +252,6 @@ export function SessionMenuSheet({
   useEffect(() => () => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
   }, []);
-
-  // 进入 info 视图且还没有上下文数据时自动拉一次(免去手点「刷新」的空态)。
-  // 依赖刻意只挂 visible/view:contextUsage 到货或 loading 翻转不应重复触发拉取。
-  useEffect(() => {
-    if (!visible || view !== 'info') return;
-    if (contextUsage || contextLoading) return;
-    onRefreshContextUsage();
-  }, [visible, view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 账号限额拉取:每次进入 info 视图都拉(被控端通道 cached-first,重复拉便宜且
   // 能带回后台刷新的新快照,不做「有数据就短路」——否则打开期间数据永不更新);
@@ -427,7 +434,6 @@ export function SessionMenuSheet({
     onSetExtraDirs(removeSessionExtraDir(session.extraDirs, path));
   }, [onSetExtraDirs, session.extraDirs]);
 
-  const spend = summarizeSessionSpend(session, mobilePresentationLocalizer);
   const usage = summarizeContextUsage(contextUsage, mobilePresentationLocalizer);
   // 账号限额行:窗口构成完全跟随被控端上游接口返回(不假设 5h/周),解析不出内容 → null 不渲染。
   // 陈旧判定依赖当前时间: 重开面板要重算, 面板长开跨过失效时刻也要重算
@@ -472,8 +478,8 @@ export function SessionMenuSheet({
   const workspace = buildSessionInfoWorkspace(session);
   const showExtraDirs = sessionInfoShowsExtraDirs(session);
 
-  const mainActions = actions.filter((action) => action.id !== 'delete');
-  const deleteAction = actions.find((action) => action.id === 'delete');
+  const mainActions = messageOnly ? [] : actions.filter((action) => action.id !== 'delete');
+  const deleteAction = messageOnly ? undefined : actions.find((action) => action.id === 'delete');
 
   const confirmCodexReset = useCallback(() => {
     if (!resetSummary?.canReset || codexResetBusy) return;
@@ -541,6 +547,7 @@ export function SessionMenuSheet({
       ) : (
         <>
           <View style={styles.headerBlock} testID="session.menuHeader">
+            <Text style={styles.detailTitle}>{header.title}</Text>
             {header.chips.length > 0 ? (
               <View style={styles.chipRow}>
                 {header.chips.map((chip) => (
@@ -558,21 +565,18 @@ export function SessionMenuSheet({
                 {readOnlyReason}
               </Text>
             ) : null}
-            {header.usageSummary ? (
-              <Pressable
-                accessibilityLabel={t('session.menu.viewUsageDetail')}
-                accessibilityRole="button"
-                onPress={openInfo}
-                style={({ pressed }) => [styles.usageRow, pressed && styles.pressed]}
-                testID="session.menuUsageRow"
-              >
-                <Text numberOfLines={1} style={styles.usageText}>{header.usageSummary}</Text>
-                <ChevronRight color={colors.textTertiary} size={iconSize.md} strokeWidth={iconStroke.regular} />
-              </Pressable>
-            ) : null}
           </View>
 
-          <View style={styles.actionGroup}>
+          {!messageOnly ? <SessionUsageSummary providerName={providerName} session={session} usage={menuUsage} contextUsage={contextUsage} onPress={openInfo} translucent={Platform.OS === 'ios'} /> : null}
+
+          {Platform.OS === 'ios' ? (
+            <SessionDetailsNativeActions actions={mainActions.map(action => ({
+              label: action.id === 'copyLink' ? copyLabel(action.label, 'copyLink', t('session.menu.linkCopied')) : action.label,
+              disabled: action.disabled,
+              testID: action.testID,
+              onPress: () => handleAction(action),
+            }))} />
+          ) : <View style={styles.actionGroup}>
             {mainActions.map((action) => (
               <MenuActionRow
                 key={action.id}
@@ -585,28 +589,21 @@ export function SessionMenuSheet({
                 testID={action.testID}
               />
             ))}
-          </View>
+          </View>}
 
-          <View style={styles.actionGroup}>
-            {session.agentKind === 'pi' && onOpenSessionTree ? (
-              <MenuActionRow
-                icon={GitBranch}
-                label={t('session.menu.branches')}
-                onPress={onOpenSessionTree}
-                testID="session.branchesButton"
-                trailing={<ChevronRight color={colors.textTertiary} size={iconSize.md} strokeWidth={iconStroke.regular} />}
-              />
-            ) : null}
-            <MenuActionRow
-              icon={Info}
-              label={t('session.menu.sessionInfo')}
-              onPress={openInfo}
-              testID="session.infoButton"
-              trailing={<ChevronRight color={colors.textTertiary} size={iconSize.md} strokeWidth={iconStroke.regular} />}
-            />
-          </View>
+          {onOpenSearch ? (
+            Platform.OS === 'ios' ? <SessionDetailsNativeActions actions={[{
+              label: t('session.presentation.overview.actions.search.label'),
+              onPress: onOpenSearch,
+              testID: 'session.detailsSearch',
+            }]} /> : <View style={styles.actionGroup}>
+              <MenuActionRow icon={Search} label={t('session.presentation.overview.actions.search.label')} onPress={onOpenSearch} testID="session.detailsSearch" />
+            </View>
+          ) : null}
 
-          {deleteAction ? (
+          {deleteAction ? Platform.OS === 'ios' ? (
+            <SessionDetailsNativeActions actions={[{ label: deleteAction.label, testID: deleteAction.testID, disabled: deleteAction.disabled, danger: true, onPress: () => handleAction(deleteAction) }]} />
+          ) : (
             <View style={styles.actionGroup}>
               <MenuActionRow
                 danger
@@ -625,6 +622,7 @@ export function SessionMenuSheet({
 
   const infoContent = (
     <View style={styles.infoBody} testID="session.infoSheetBody">
+      <SessionUsageSummary providerName={providerName} session={session} usage={menuUsage} contextUsage={contextUsage} detail translucent={Platform.OS === 'ios'} />
       <View style={styles.infoSection}>
         <View style={styles.infoSectionHeader}>
           <Text style={styles.infoSectionTitle}>{t('session.menu.usageSection')}</Text>
@@ -632,7 +630,7 @@ export function SessionMenuSheet({
             accessibilityLabel={t('session.menu.refreshContextUsage')}
             accessibilityRole="button"
             disabled={contextLoading}
-            onPress={onRefreshContextUsage}
+            onPress={() => { onRefreshContextUsage(); menuUsage.refresh(); onRefreshAccountUsage(); }}
             style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
             testID="session.contextRefreshButton"
           >
@@ -643,7 +641,6 @@ export function SessionMenuSheet({
             )}
           </Pressable>
         </View>
-        <InfoRow label={t('session.menu.currentSessionSpend')} value={spend.available ? spend.detail : t('session.menu.noSessionSpend')} />
         <InfoRow label={t('session.menu.contextLabel')} value={usage.detail} />
         {usage.rows.length > 0 ? (
           <View style={styles.usageRows} testID="session.contextRows">
@@ -654,10 +651,10 @@ export function SessionMenuSheet({
         ) : null}
       </View>
 
-      {accountLimits || resetSummary ? (
+      {(!menuUsage.account && accountLimits) || resetSummary ? (
         <View style={styles.infoSection} testID="session.accountLimitsSection">
           <Text style={styles.infoSectionTitle}>{t('session.menu.accountLimits')}</Text>
-          {accountLimits?.rows.map((row, index) => (
+          {!menuUsage.account && accountLimits?.rows.map((row, index) => (
             // 两个窗口都缺时长数据时 label 会同为「限额」,key 需带 index 去重。
             <InfoRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
           ))}
@@ -802,6 +799,42 @@ export function SessionMenuSheet({
     </View>
   );
 
+  const renameFooter = renaming ? (
+    <MainWindowActionGroup
+      primaryActions={[{
+        accessibilityLabel: t('session.menu.confirmRename'),
+        label: t('session.menu.confirm'),
+        onPress: submitRename,
+        testID: 'session.renameButton',
+        tone: 'primary',
+      }]}
+      cancelAction={{
+        accessibilityLabel: t('session.menu.cancelRename'),
+        label: t('session.common.cancel'),
+        onPress: cancelRename,
+        testID: 'session.renameCancelButton',
+      }}
+      testID="session.renameActions"
+    />
+  ) : undefined;
+
+  if (Platform.OS === 'ios') {
+    const showingInfo = !messageOnly && view === 'info';
+    return (
+      <SessionDetailsNative
+        visible={visible}
+        title={t(showingInfo ? 'session.menu.sessionInfo' : 'session.menu.details')}
+        backLabel={t('session.menu.backToMenu')}
+        onBack={showingInfo ? () => setView('menu') : undefined}
+        onClose={onClose}
+        onClosed={onClosed}
+        footer={renameFooter}
+      >
+        {showingInfo ? infoContent : menuContent}
+      </SessionDetailsNative>
+    );
+  }
+
   return (
     <SheetModal
       backdropTestID="session.settingsBackdrop"
@@ -815,35 +848,18 @@ export function SessionMenuSheet({
       <SheetSurface
         bottomInset={insets.bottom}
         // 确认对统一规则:重命名编辑态的确定/取消走 footer 插槽置底(满宽纵排,确定在上取消居底)。
-        footer={renaming ? (
-          <MainWindowActionGroup
-            primaryActions={[{
-              accessibilityLabel: t('session.menu.confirmRename'),
-              label: t('session.menu.confirm'),
-              onPress: submitRename,
-              testID: 'session.renameButton',
-              tone: 'primary',
-            }]}
-            cancelAction={{
-              accessibilityLabel: t('session.menu.cancelRename'),
-              label: t('session.common.cancel'),
-              onPress: cancelRename,
-              testID: 'session.renameCancelButton',
-            }}
-            testID="session.renameActions"
-          />
-        ) : undefined}
+        footer={renameFooter}
         heights={heights}
         onClose={onClose}
         onSnapChange={setPrimarySnap}
         snap={primarySnap}
         testID="session.menuSheet"
-        title={header.title}
+        title={t('session.menu.details')}
         variant="tasksheet"
       >
         {menuContent}
       </SheetSurface>
-      {view === 'info' ? (
+      {!messageOnly && view === 'info' ? (
         <Animated.View
           style={[styles.secondaryLayer, { transform: [{ translateY: secondaryTranslate }] }]}
           testID="session.infoLayer"
@@ -1002,6 +1018,11 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     gap: spacing.xs,
     paddingHorizontal: spacing.xs,
   },
+  detailTitle: {
+    color: colors.textPrimary,
+    fontSize: typeScale.body,
+    fontWeight: fontWeight.semibold,
+  },
   chipRow: {
     alignSelf: 'stretch',
     justifyContent: 'flex-start',
@@ -1031,19 +1052,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.textTertiary,
     fontSize: typeScale.caption,
     lineHeight: lineHeight.caption,
-  },
-  usageRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.xs,
-    justifyContent: 'space-between',
-    minHeight: 32,
-  },
-  usageText: {
-    color: colors.textSecondary,
-    flex: 1,
-    fontSize: typeScale.caption,
-    minWidth: 0,
   },
   actionGroup: {
     backgroundColor: colors.sheetActionSurface,

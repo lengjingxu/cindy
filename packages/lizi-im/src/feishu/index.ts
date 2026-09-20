@@ -20,7 +20,6 @@ import type { ChannelIM } from '../channelIM.js';
 import type {
   IMHost,
   IMCardActionEvent,
-  IMFinalReplyMirror,
   IMMessageEvent,
   IMStatus,
   InteractiveCardSpec,
@@ -36,7 +35,6 @@ import { feishuEvents } from './events.js';
 import { cancelAppRegistration, reconnectSavedCredentials, registerFeishuIpc } from './ipc.js';
 import * as outbound from './outbound.js';
 import * as streamingText from './streamingText.js';
-import { releaseMirrorConfirmation, retainMirrorConfirmation } from './dualDelivery.js';
 import { downloadAttachments, type DownloadResult } from './attachmentDownloader.js';
 import type { AttachmentRef } from './incomingContent.js';
 
@@ -397,6 +395,11 @@ export class FeishuIM extends BaseIM implements ChannelIM {
 
   // ── outbound ────────────────────────────────────────────────────────────────
 
+  /** Send a notification and retain the provider receipt for host-side reply routing. */
+  sendNotification(userId: string, markdown: string): Promise<{ messageId: string; chatId?: string }> {
+    return outbound.sendNotification(userId, markdown);
+  }
+
   async sendText(
     userId: string,
     text: string,
@@ -405,7 +408,7 @@ export class FeishuIM extends BaseIM implements ChannelIM {
     return this.sendWithDeferredOpenerConsume(
       userId,
       'markdown',
-      () => outbound.sendText(userId, text),
+      () => outbound.sendText(userId, text, opts),
       opts?.fallbackOpenerId,
     );
   }
@@ -429,7 +432,7 @@ export class FeishuIM extends BaseIM implements ChannelIM {
     return this.sendWithDeferredOpenerConsume(
       userId,
       'markdown',
-      () => outbound.sendInteractive(userId, { body: markdown, buttons: [] }),
+      () => outbound.sendInteractive(userId, { body: markdown, buttons: [] }, opts),
       opts?.fallbackOpenerId,
     );
   }
@@ -437,38 +440,9 @@ export class FeishuIM extends BaseIM implements ChannelIM {
   startStreamingText(
     userId: string,
     initial?: string,
+    opts?: { threadTs?: string },
   ): Promise<StreamingTextHandle> {
-    return streamingText.start(userId, initial);
-  }
-
-  retainFinalReplyMirror(mirror: IMFinalReplyMirror): () => void {
-    retainMirrorConfirmation(mirror.idempotencyKey);
-    return () => releaseMirrorConfirmation(mirror.idempotencyKey);
-  }
-
-  async mirrorFinalReply(
-    mirror: IMFinalReplyMirror,
-    text: string,
-    opts?: { mediaAbsPaths?: string[] },
-  ): Promise<void> {
-    if (mirror.kind !== 'parent-chat') return;
-    try {
-      await streamingText.mirrorFinal(
-        mirror.chatId,
-        mirror.idempotencyKey,
-        text,
-        opts?.mediaAbsPaths,
-        mirror.allowedFileRoots,
-        mirror.accountEpoch,
-        mirror.confirmed,
-      );
-    } catch (err) {
-      this.log.warn(
-        `parent-chat terminal mirror failed (non-fatal): ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
+    return streamingText.start(userId, initial, opts);
   }
 
   /**
@@ -754,8 +728,8 @@ export class FeishuIM extends BaseIM implements ChannelIM {
     return outbound.updateInteractive(messageId, spec);
   }
 
-  sendFile(userId: string, absPath: string, displayName?: string): Promise<SendFileResult> {
-    return outbound.sendFile(userId, absPath, displayName);
+  sendFile(userId: string, absPath: string, displayName?: string, opts?: { threadTs?: string }): Promise<SendFileResult> {
+    return outbound.sendFile(userId, absPath, displayName, opts);
   }
 
   /**
