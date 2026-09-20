@@ -1,3 +1,7 @@
+import { collectPluginInvocations, type PluginInvocation } from './pluginInvocations';
+import { extractPayloadToolResultFiles, extractPayloadToolCardIds, type PayloadToolFile } from '@cindy/maker-shared/payload-summary';
+import { placeBotTaskCardsAfterIntroduction, readBotCollaborationMeta, type BotCollaborationMeta } from '@cindy/maker-shared/botCollaboration';
+import { readBotDirectMessageMeta, type BotDirectMessageMeta } from '@cindy/maker-shared/botDirectMessage';
 import type { RemoteMessage, RemoteMessageRole } from '@/session/types';
 import type { MobileSystemCardType } from '@/session/systemCard';
 import { contentToPreview } from '@/utils/contentPreview';
@@ -48,9 +52,9 @@ import {
   type RemoteMoney,
 } from '@/session/remoteMoney';
 import {
-  localizeToolLoopError,
+  localizeAgentError,
   parseMobileToolLoopErrorDetails,
-} from '@/session/toolLoopErrorI18n';
+} from '@/session/agentErrorI18n';
 import type { MobileToolInputProjection } from '@/session/messageToolPayloadProjection';
 
 export type NormalizedRemoteMessageKind =
@@ -78,12 +82,16 @@ export interface NormalizedRemoteMessage {
   /** user Composer 的结构化语义引用；用于 fork / rewind 恢复同款 chip。 */
   agentReferences?: AgentInputReference[];
   secondaryBody?: string;
+  authorization?: Record<string, unknown>;
   systemCardData?: Record<string, unknown>;
   systemCardType?: MobileSystemCardType;
   attachments?: NormalizedAttachment[];
   /** user 专用：目标桌面落库的引用范围摘要，不含被引用消息正文。 */
   sessionReferences?: MobilePersistedSessionReferenceMetadata[];
   media?: NormalizedToolMedia[];
+  files?: PayloadToolFile[];
+  cardIds?: string[];
+  pluginInvocations?: PluginInvocation[];
   diff?: NormalizedToolDiff;
   align: 'user' | 'agent';
   createdAt: string;
@@ -107,6 +115,7 @@ export interface NormalizedRemoteMessage {
   modelMismatch?: { selected: string; actual: string };
   /** Orca 协同卡片(Lead 派活 / worker 回报);存在时由 MessageRenderer 渲染成专属卡片而非普通气泡。 */
   orcaCard?: OrcaCollabCard;
+  companion?: { kind: 'task'; meta: BotCollaborationMeta } | { kind: 'direct'; meta: BotDirectMessageMeta };
   /** tool 消息专用:tool_result 是否已到达(含被隐藏的 orca 空结果),驱动工具行 running/done 状态。 */
   toolSettled?: boolean;
   /** Large settled tool input is fetched only when the user asks to view it. */
@@ -148,6 +157,7 @@ export interface NormalizedAttachment {
   uri?: string;
   path?: string;
   mimeType?: string;
+  sha256?: string;
   previewable: boolean;
 }
 
@@ -186,8 +196,28 @@ interface ToolUsePayload extends MessageNormalizeToolUse {
 const toolResultPreviewByContent = new WeakMap<object, { language: string; preview: string }>();
 const toolUsePayloadByMessage = new WeakMap<RemoteMessage, ToolUsePayload>();
 
-export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): NormalizedRemoteMessage[] {
-  const sorted = sortMessagesByCreatedAt(messages);
+export function normalizeRemoteMessages(
+  messages: readonly RemoteMessage[],
+  options: { preserveSourceOrder?: boolean } = {},
+): NormalizedRemoteMessage[] {
+  // History views already place live tails after their persisted prefix. A live
+  // row's provisional timestamp must not undo that order during normalization.
+  const sorted = placeBotTaskCardsAfterIntroduction(
+    options.preserveSourceOrder ? messages : sortMessagesByCreatedAt(messages),
+    (message) => {
+      if (message.role === 'user') {
+        return message.agentMeta?.delivery !== 'steer' || message.agentMeta?.synthetic
+          ? 'boundary' : 'other';
+      }
+      if (message.role !== 'assistant' || message.agentMeta?.parentUuid || message.systemCardType)
+        return 'other';
+      const task = readBotCollaborationMeta(message.agentMeta?.botCollaboration);
+      if (task?.role === 'delegation-request') return 'task';
+      if (task || message.agentMeta?.botDirectMessage || message.agentMeta?.botAuthorization)
+        return 'other';
+      return typeof message.content === 'string' && message.content.trim() ? 'prose' : 'other';
+    },
+  );
   const toolResultPairing = buildMessageToolResultPairing(sorted, {
     contentToPreview: toolResultContentToPreview,
   });
@@ -195,6 +225,31 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
   const result: NormalizedRemoteMessage[] = [];
   for (const message of sorted) {
     if (message.role === 'tool_result') continue;
+    if (message.role === 'assistant') {
+      const authorization = readRecord(message.agentMeta?.botAuthorization);
+      const snapshot = readRecord(authorization?.snapshot);
+      if (authorization?.v === 1 && authorization.sessionId === message.sessionId && snapshot?.kind === 'plugin_setup') {
+        result.push({ key: messageNormalizeKey(message), source: message, kind: 'system', role: message.role,
+          label: 'authorization', body: typeof message.content === 'string' ? message.content : '', align: 'agent',
+          createdAt: message.createdAt, authorization: snapshot });
+        continue;
+      }
+
+      const task = readBotCollaborationMeta(message.agentMeta?.botCollaboration);
+      const direct = readBotDirectMessageMeta(message.agentMeta?.botDirectMessage);
+      const isTaskTrace = task?.role === 'delegation-request' || task?.role === 'interjection';
+      if (isTaskTrace || direct) {
+        result.push({
+          key: messageNormalizeKey(message), source: message, kind: 'system', role: message.role,
+          // Task traces are status-only, including legacy rows containing execution instructions.
+          label: 'companion', body: isTaskTrace ? '' : typeof message.content === 'string' ? message.content : '',
+          align: 'agent', createdAt: message.createdAt,
+          companion: isTaskTrace
+            ? { kind: 'task', meta: task } : { kind: 'direct', meta: direct! },
+        });
+        continue;
+      }
+    }
 
     if (message.role === 'tool_use') {
       const tool = parseToolUse(message);
@@ -230,6 +285,8 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
         body: tool.summary,
         secondaryBody,
         media: extractToolResultMedia(secondaryBody ?? ''),
+        files: extractPayloadToolResultFiles(secondaryBody ?? ''),
+        cardIds: extractPayloadToolCardIds(secondaryBody ?? ''),
         diff: tool.diff,
         align: 'agent',
         createdAt: message.createdAt,
@@ -268,7 +325,7 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
       const rawText = typeof c?.message === 'string' ? c.message : contentToPreview(message.content);
       const toolLoop = parseMobileToolLoopErrorDetails(c?.toolLoop);
       const errText =
-        describeAgentAuthError(rawText) ?? localizeToolLoopError(c?.reason, toolLoop) ?? rawText;
+        describeAgentAuthError(rawText) ?? localizeAgentError(c?.reason, toolLoop) ?? rawText;
       result.push({
         key: messageNormalizeKey(message),
         source: message,
@@ -280,6 +337,29 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
         createdAt: message.createdAt,
       });
       continue;
+    }
+
+    // Desktop persists context rebuilds as empty assistant rows with metadata.
+    if (message.role === 'assistant') {
+      const rebuild = readRecord(message.agentMeta?.contextRebuild);
+      if (rebuild) {
+        result.push({
+          key: messageNormalizeKey(message),
+          source: message,
+          kind: 'system',
+          role: message.role,
+          label: 'system:context-rebuild',
+          body: '',
+          systemCardType: 'context-rebuild',
+          systemCardData: {
+            reason: typeof rebuild.reason === 'string' ? rebuild.reason : 'context-overflow',
+            handoff: typeof rebuild.handoff === 'string' ? rebuild.handoff : '',
+          },
+          align: 'agent',
+          createdAt: message.createdAt,
+        });
+        continue;
+      }
     }
 
     // /goal 持久记录(桌面 goal-host 落库:role 'assistant' + 空 content + agentMeta 标记)
@@ -416,12 +496,7 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
       align: message.role === 'user' && hookSource === undefined ? 'user' : 'agent',
       createdAt: message.createdAt,
       isStreaming: readMessageStreaming(message) || undefined,
-      ...(message.role === 'assistant' && (
-        message.agentMeta?.turnCompleted === true ||
-        (turnCost.turnMoney?.amount ?? 0) > 0 ||
-        // 无报价轮只落 turnUsageDetails,它同样只在 turn 结束时写入,等价收尾信号。
-        turnCost.turnTotalTokens !== undefined
-      )
+      ...(remoteMessageCompletesTurn(message, turnCost)
         ? { turnCompleted: true }
         : {}),
       ...turnCost,
@@ -431,6 +506,12 @@ export function normalizeRemoteMessages(messages: readonly RemoteMessage[]): Nor
     });
   }
 
+  const pluginInvocations = collectPluginInvocations(sorted, toolResultPairing);
+  for (const row of result) {
+    if (row.kind === 'user' && !row.isSyntheticTrigger && !row.hookSource && !row.automationOrigin) {
+      row.pluginInvocations = pluginInvocations.get(row.source.clientId || row.source.id);
+    }
+  }
   dedupeToolImagesAgainstAssistantMarkdown(result);
   return result;
 }
@@ -449,10 +530,15 @@ function dedupeToolImagesAgainstAssistantMarkdown(
       if (message.kind !== 'assistant') continue;
       for (const image of collectMobileMarkdownImages(message.body)) inlineUrls.add(image.url);
     }
-    if (inlineUrls.size === 0) return;
+    const cards = new Set<string>();
     for (const message of messages.slice(lo, hi)) {
-      if (message.kind !== 'tool' || !message.media?.length) continue;
-      message.media = message.media.filter(
+      if (message.kind !== 'tool') continue;
+      message.cardIds = message.cardIds?.filter((id) => {
+        if (cards.has(id)) return false;
+        cards.add(id);
+        return true;
+      });
+      message.media = message.media?.filter(
         (item) => item.kind !== 'image' || !inlineUrls.has(item.url),
       );
     }
@@ -568,6 +654,7 @@ function readImageAttachments(value: unknown): NormalizedAttachment[] {
     const base64 = readString(record.base64);
     const mimeType = readString(record.mimeType) ?? readString(record.type) ?? 'image/png';
     const name = readString(record.originalName) ?? readString(record.name) ?? `image-${index + 1}`;
+    const sha256 = readString(record.sha256);
     const uri = url ?? (base64 ? `data:${mimeType};base64,${base64}` : undefined);
     if (!uri) return [];
     return [{
@@ -575,6 +662,7 @@ function readImageAttachments(value: unknown): NormalizedAttachment[] {
       name,
       uri,
       mimeType,
+      ...(sha256 ? { sha256 } : {}),
       previewable: isPreviewableUri(uri),
     }];
   });
@@ -791,6 +879,7 @@ function normalizeSystemCardType(value: unknown): MobileSystemCardType | null {
     || value === 'pwd'
     || value === 'status'
     || value === 'compact'
+    || value === 'context-rebuild'
     || value === 'cmd'
     || value === 'learn'
     ? value
@@ -842,6 +931,19 @@ function projectTurnMoney(
     },
     turnCostUsd: cost,
   };
+}
+
+/** Same completion boundary for normalization and streaming-prefix invalidation. */
+export function remoteMessageCompletesTurn(
+  message: RemoteMessage,
+  turnCost = readTurnCost(message),
+): boolean {
+  return message.role === 'assistant' && (
+    message.agentMeta?.turnCompleted === true
+    || (turnCost.turnMoney?.amount ?? 0) > 0
+    // Usage without a price is also written only when the turn ends.
+    || turnCost.turnTotalTokens !== undefined
+  );
 }
 
 function readTurnCost(

@@ -84,8 +84,10 @@
 
 ## 2. 运行时沙箱与进程隔离
 
-- 每个运行中的插件使用独立 Electron 沙箱进程与专属 session partition。沙箱禁止直接访问
-  Node、宿主文件系统和网络。
+- 每个运行中的插件使用独立 Electron 沙箱进程与按 owner × plugin 隔离的内存 session
+  partition。同插件的 `settingsHtml`、panel 与逻辑页继续共享该 partition，保留 browser
+  storage 与 `BroadcastChannel` 契约；沙箱禁止直接访问 Node、宿主文件系统和通用网络，
+  唯一例外是第 4 节明确限定的 HTTPS 图片资源。
 - 插件只允许读取自身安装目录内、经安全相对路径校验的静态资源，不得越权读取其它目录。
 - 逻辑页只能经最小 `contextBridge` 管子申请主机能力；面板 webview 保持零特权桥。
 - 主机按 `webContents` 绑定反查真实 ghostId，**不信任 sender 自报身份**。
@@ -113,8 +115,9 @@
 
 ### 3.1 安装与自动更新
 
-- 首次安装只来自四种明确依据：用户导入本地 `.cindy`、明确要求当前 Agent 调用
-  `ghost_forge_install`、用户点击某个市场条目的安装，或服务端为当前 owner 下发
+- 首次安装只来自明确依据：用户导入本地 `.cindy`、明确要求当前 Agent 调用
+  `ghost_forge_install`、用户点击某个市场条目的安装、当前 Agent 按用户请求与既有操作授权
+  调用 `ghost_market_install` 安装选定的缺失插件，或服务端为当前 owner 下发
   `defaultInstall`。安装成功默认启用；插件声明哪些能力不改变
   安装动作是否需要确认，因为安装不设能力确认弹窗。
 - 市场安装账本是后续更新来源的唯一事实：服务端市场按 `pluginId + releaseId` 路由，
@@ -161,9 +164,11 @@
   真正越出沙箱的技能继续使用 receipt 绑定的字节指纹与 Host 状态根快照。不要把审计字段误写成
   全量运行时内容校验，也不要因取消能力确认弹窗而删除现有完整性守门。
 - **Forge 的源码区与 Host 受管根互斥。** `ghost_forge_scaffold` / `ghost_forge_pack` /
-  `ghost_forge_install` 的目标
-  必须是当前会话工作目录里的独立作者目录；命中安装根或状态根一律拒绝，并按 realpath
-  挡住大小写折叠与软链／junction 别名。`ghost_forge_pack` 只负责校验与打包；只有用户明确
+  `ghost_forge_install` 的目标必须是独立作者目录，不得是安装根或状态根；按 realpath
+  挡住大小写折叠与软链／junction 别名。会话工作目录内直接放行；工作目录外走与
+  `ghost_call` 过户相同的会话权限路径（本地 Full Access 自动放行，Auto 交当前会话
+  AI 审阅，Ask 弹确认卡，远程／缺会话／查询失败 fail closed），禁止在 Host 已放行
+  后再因目录边界悄悄硬断。`ghost_forge_pack` 只负责校验与打包；只有用户明确
   要求后调用独立的 `ghost_forge_install` 才安装或更新，不因 scaffold／pack 成功而隐式安装。
 - `skill` 是唯一**越出沙箱**的能力：技能指令由主 Agent 以用户全部权限执行、全局
   生效、不随 workdir 级停用隐藏。其安全边界是**声明一致性**（manifest 里的
@@ -284,20 +289,40 @@
   宿主绝对路径或不必要的字节暴露给沙箱**。媒体字节须走
   [`media-storage-and-protocols.md`](media-storage-and-protocols.md) 的统一入库。
   `ghost_call` 的 `attachments`／`dir`／`save_dir` 在目标位于 workdir 外时，普通权限档
-  仍沿用现有确认与授权记忆策略；仅当 Host 能现读到**本地活跃会话**的运行时权限恰为
+  仍沿用现有确认与授权记忆策略；Auto 档把真实过户动作交给当前会话的 AI 审阅器，
+  allow 逐次放行、block 返回原因、ask 或服务故障才交用户确认。Full Access 旁路则仅当
+  Host 能现读到**本地活跃会话**的运行时权限恰为
   `bypassPermissions`（Full Access）时自动批准。该判定不得读取启动期 MCP context 快照，
   也不得回退可能滞后的 DB `permission_mode`。business `sessionId` 不足以证明仍是同一内存
   Session，必须同时匹配由 Maker 铸造、调用方不可覆盖的 instance identity；权限切换在途、
   close／detach 已开始、会话缺失、实例不匹配、查询失败、远程会话均 fail closed。
   对 Codex、Pi 与远端 Claude Code 这类进程外 harness，instance 只作为 opaque MCP route
   identity 写入 Host 生成的 loopback URL；桥接层必须将 URL identity 与注册表中的当前实例
-  严格比对，不匹配直接 401。兼容旧客户端时，缺 instance 的 URL 可继续获得普通会话上下文，
+  严格比对，不匹配直接 401。  兼容旧客户端时，缺 instance 的 URL 可继续获得普通会话上下文，
   但必须剥除 instance 能力，使 Full Access 自动交接继续 fail closed。
-  自动批准须在日志标明来源为 Full Access，不得伪装为用户点击，也不得写入人工目录授权
+  越界文件系统副作用（cindy-docs / 电脑工具的 `outside_workdir`，以及 Forge 的
+  `forge_source`）在缺少 instance、live grant 读不到或实例已失效时直接拒绝，
+  不得退回仅凭用户确认的放行；附件过户仍可确认。
+  自动批准须区分 Full Access 与 AI 审阅来源，不得伪装为用户点击，也不得写入人工目录授权
   记忆。附件自动交接必须写独立 `ghost-tool-grant`，不得写 `ghost-grant`；这是回退兼容
   边界——旧客户端只认识后者，降级时必须 fail closed，不能把新版自动交接误读成人工永久
-  授权。热切回其它档位后新请求必须恢复确认。此旁路**不适用于** workspace 创建、插件
-  Setup、OAuth、Secret／凭证或其它运行时确认边界，也不改变第 3.1 节的安装／更新策略。
+  授权。切回 Ask 后新请求恢复确认。在途插件操作统一沿用当前会话的操作审批：包括工作区
+  草稿创建、工作目录写入、媒体路径揭示，Forge 在工作目录外的打包／骨架，以及
+  cindy-docs / 电脑工具读写工作目录外路径，
+  Full Access 不额外审批，Auto 进入现有统一审阅器，
+  Ask 沿用原确认流程。越界路径的确认与执行绑定裁决时解析到的规范路径，
+  工作目录里的 symlink 不能把真实目标藏成相对路径。MCP 的 `prompt-each-time` 仅限制授权记忆，不得覆盖 Full Access，
+  也不得跳过 Auto 审阅。审批期间实例、权限或调用归属失效时，旧 allow 不可执行。
+  Plan 与操作审批档位正交：Host 副作用须先检查实时 Plan 状态，未知或切换中拒绝；
+  Plan 切换代次也参与审批后和落盘前复核，不能以数据库镜像或切回原状态恢复旧授权。
+  一次性 Plan 的 UI 开关在发送后熄灭，不代表当前 Plan 回合结束；授权判定使用 Provider
+  的执行态，不能只读下一轮开关。Claude Code 本地/SSH 的 Full Access 短路同样不能
+  放行当前 Plan 回合里的非只读工具；显式批准计划后才恢复底层操作审批档位。
+  这不扩大本轮来源/执行范围、不改变跨主机路径归属，不替用户填写 Setup、OAuth、Secret
+  等必要信息，也不改变第 3.1 节的安装／更新策略。自主面板或后台调用不得借用前台会话权限。
+  实现与回归见 [Session.reviewHostPermissionAction](../../packages/maker-core/src/session.ts)、
+  [fsSlot.test.ts](../../apps/desktop/src/main/cindy-brain/__tests__/fsSlot.test.ts) 和
+  [ghostWorkdirGate.test.ts](../../apps/desktop/src/main/mcp-integrations/__tests__/ghostWorkdirGate.test.ts)。
   `dir`／`save_dir` 批准的是裁决时解析到的 canonical realpath 快照；出票必须使用该规范路径
   并在票据库内重新解析核对，路径映射已变化时拒绝并要求重新确认。出票后真正读／写时仍须
   再次核对根与目标真身；保存文件必须排他创建且不跟随最终 symlink，不能让短命票据留下消费期
@@ -316,6 +341,16 @@
   `ghost_call.attachments` 显式交接；Host 复用已有的通用授权链，将授权后的指纹注入
   `args.attachments`，绝不把本地绝对路径暴露给插件。插件自行保存业务状态和更新 UI。
   Host 不自动回调插件，也不得新增画廊等插件业务语义。
+- 所有插件 HTML 页面（`settingsHtml`、panel、mainView 与逻辑页）都可以通过 `<img>` 或
+  CSS 图片直接加载任意 HTTPS 地址，这是唯一的页面网络直连例外。Host 统一生成包含
+  `img-src https:` 的 CSP，并由 owner × plugin session 请求闸把外部请求严格限定为
+  `protocol === "https:" && resourceType === "image"`。HTTP 图片、`fetch` / XHR、脚本、
+  样式表、字体、音视频、WebSocket 与其它协议一律不因此放行；同 ghost 的
+  `cindy-ghost://` 资源继续放行。该能力不新增 HTML sanitizer 或图片属性白名单；既有 CSP
+  继续阻止内联脚本和内联事件处理器，同包脚本行为不变。远程图片请求会向第三方暴露用户的
+  网络地址及完整 URL，作者不得把密钥、令牌或用户私密数据拼进图片 URL。session listener
+  按 owner × plugin 幂等注册；设置页与同插件其它页面继续共享 browser storage、IndexedDB
+  与 `BroadcastChannel`。
 - 面板供片与注入的主题 token 只用 `ghostPanelTheme.ts` 白名单内的值，不扩大暴露面。
 - `iosSimulator` 能力只允许读取 Host 当前台前任务的公开模拟器状态，并请求打开既有
   Host viewer。请求协议不得出现插件自报 `sessionId`，可选 `instanceId` 必须重新匹配
@@ -493,8 +528,9 @@ topic 路由；产品层多端语义见
 
 ## Review 清单
 
-1. 沙箱是否保持进程隔离、专属 partition、无 Node／宿主 FS／网络直连？身份是否由主机
-   反查而非信任 sender 自报？
+1. 沙箱是否保持进程隔离、专属 partition、无 Node／宿主 FS／通用网络直连？HTTPS 图片
+   例外是否仍严格限定为 `protocol === "https:" && resourceType === "image"`？身份是否由
+   主机反查而非信任 sender 自报？
 2. 是否先按执行者分清边界：当前 Agent 在途的通用操作是否严格绑定同插件、同会话、
    未交卷的 `callId` 并复用 Agent 授权；插件自主 Host 能力是否以 manifest 直接字段声明、
    在详情如实展示并由 Host 守门？是否误把安装弹窗或前端展示当成授权事实？

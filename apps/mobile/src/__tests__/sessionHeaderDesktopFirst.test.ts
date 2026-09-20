@@ -7,6 +7,22 @@ const readTextLf = (...args: Parameters<typeof readFileSync>): string =>
   String(readFileSync(...args)).replace(/\r\n/g, '\n');
 
 describe('mobile session header desktop-first surface', () => {
+  it('preserves title status in the iOS branch, not only in the legacy header', () => {
+    const source = readTextLf(resolve(process.cwd(), 'app/sessions/[sessionId].tsx'), 'utf8');
+    const start = source.indexOf('{nativeHeader ? <SessionHeaderNativeTitle');
+    const nativeBranch = source.slice(start, source.indexOf('/> : (', start));
+    expect(start).toBeGreaterThan(-1);
+    for (const prop of ['syncing={syncing}', 'syncingImmediately={syncingImmediately}',
+      'pinned={!messageOnly && !!currentSession?.pinnedAt}', 'notice={notice}']) {
+      expect(nativeBranch).toContain(prop);
+    }
+    const native = readTextLf(resolve(process.cwd(), 'src/session/SessionHeaderNativeControls.ios.tsx'), 'utf8');
+    expect(native).toContain('<QuietSyncIndicator active={syncing} immediate={syncingImmediately} />');
+    expect(native).toContain('{pinned ? <Pin');
+    expect(native).toContain('testID="session.headerNotice"');
+    expect(native).toContain('flexShrink: 1');
+  });
+
   it('releases the new-session handoff heavy topic when the session screen unmounts', () => {
     const source = readTextLf(resolve(process.cwd(), 'app/sessions/[sessionId].tsx'), 'utf8');
 
@@ -23,10 +39,11 @@ describe('mobile session header desktop-first surface', () => {
     expect(source).not.toContain('sessionHeaderIconBadgeText');
     expect(source).not.toContain('badge={');
     expect(source).not.toContain("if (queueCount > 0) return `队列 ${queueCount}`;");
-    expect(source).toContain("if (!session) return syncing ? i18n.t('session.screen.syncingSession') : null;\n  if (syncing) return i18n.t('session.screen.syncing');");
-    // 后台静默刷新:同步提示由 showSyncingIndicator gate —— 仅首次加载、还没有任何内容时显示,
-    // 已有 messages(重开已看过的会话)时后台对账静默,不再弹"正在同步"。
-    expect(source).toContain('const showSyncingIndicator = loading && messages.length === 0;');
+    expect(source).toContain('if (!session) return null;');
+    // Routine work uses the trailing title indicator, without an extra subtitle.
+    expect(source).toContain('const showSyncingIndicator = !showConnectionBanner && !showCachedHistoryNotice');
+    expect(source).toContain('<QuietSyncIndicator active={syncing} immediate={syncingImmediately} />');
+    expect(source).not.toContain("if (syncing) return i18n.t('session.screen.syncing');");
     expect(source).toContain("if (queuePaused) return i18n.t('session.screen.queuePausedNotice');\n  return null;");
     expect(source).toContain('attention ? (');
   });
@@ -46,12 +63,17 @@ describe('mobile session header desktop-first surface', () => {
     expect(source).not.toContain('<SafeAreaView style={styles.safeArea} testID="session.screen">');
     expect(source).not.toContain("import { BlurView } from 'expo-blur';");
     expect(source).toContain("import { BlurBackdrop } from '@/session/BlurBackdrop';");
-    expect(source).toContain("function TranslucentBackdrop()");
-    expect(source).toContain("<TranslucentBackdrop />");
-    expect(source).toContain('return <BlurBackdrop intensity={40} overlayColor={colors.chatHeaderSurface} style={styles.translucentBackdrop} />;');
+    // iOS floats individual glass capsules over the message canvas.
+    expect(source).not.toContain('<TranslucentBackdrop />');
+    expect(source).not.toContain('colors.chatHeaderSurface');
+    expect(source).toContain('safeArea: { flex: 1, backgroundColor: colors.surface }');
+    const chromeStyle = source.slice(source.indexOf('  sessionChrome: {'), source.indexOf('  sessionChromeContent: {'));
+    expect(chromeStyle).toContain("backgroundColor: Platform.OS === 'ios' ? 'transparent' : colors.surface");
     expect(source).toContain('<View ref={topOverlayRef} onLayout={handleTopOverlayLayout} pointerEvents="box-none" style={styles.sessionChrome} testID="session.chrome">');
     expect(source).toContain('<View style={[styles.sessionChromeContent, { paddingTop: insets.top }]}>');
-    expect(source).toContain("sessionChrome: {\n    left: 0,\n    overflow: 'hidden',\n    position: 'absolute',");
+    expect(chromeStyle).toContain("position: 'absolute'");
+    // Let native glass press feedback extend beyond the 44pt iOS header.
+    expect(chromeStyle).toContain("overflow: Platform.OS === 'ios' ? 'visible' : 'hidden'");
     expect(source).toContain('sessionChromeContent: {');
     expect(source).not.toContain("colors.glassTint");
     expect(source).not.toContain("colors.glassHighlight");
@@ -155,7 +177,9 @@ describe('mobile session header desktop-first surface', () => {
     expect(boundary).toContain('setAttachments([]);');
     expect(boundary).toContain('setAttachmentPreviews({});');
     expect(boundary).toContain('setMediaAssetAttachments({});');
-    expect(boundary).toContain('setPendingMediaAssets([]);');
+    // Thumbnail selections are committed immediately; task switches clear the
+    // canonical attachment collection instead of a separate pending-media list.
+    expect(boundary).toContain('attachmentsRef.current = [];');
     expect(boundary).toContain('setComposerPreviewAttachmentId(null);');
     expect(boundary).toContain('composerAnnotationsRef.current?.forgetAllAttachments();');
     expect(boundary).toContain('discardMobileUploadedAttachment(attachment');
@@ -188,8 +212,8 @@ describe('mobile session header desktop-first surface', () => {
     expect(draftScopeEnd).toBeGreaterThan(draftScopeStart);
     expect(draftScope).toContain('if (composerDraftStateKey !== activeComposerDraftScopeKey) {');
     expect(draftScope).toContain('const nextScope = readImmediateComposerDraftScope(sessionId, routeDraft);');
-    expect(draftScope).toContain('setComposerDocumentState(nextScope.document);');
-    expect(draftScope).toContain('setDraft(nextDraft);');
+    expect(draftScope).toContain('setComposerDraftSource(createComposerDraftSource(nextScope.document));');
+    expect(draftScope).toContain('draftRef.current = nextDraft;');
     expect(draftScope).toContain('setComposerDraftHydrated(false);');
     expect(draftScope).toContain('appliedRouteDraftRef.current = null;');
     expect(draftScope).toContain('composerDocumentRef.current = nextScope.document;');

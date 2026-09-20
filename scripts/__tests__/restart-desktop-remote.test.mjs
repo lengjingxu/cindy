@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import {
 	applyDesktopStartupConfigForPhase,
+	clearInheritedIsolatedAuthAuthorization,
 	clearDesktopDevCaches,
 	commandUsesUserDataDir,
 	createIsolatedAuthLaunchProof,
@@ -54,6 +55,7 @@ import {
 	shouldSuggestIsolatedNext,
 } from "../desktop-dev-verdict.mjs";
 import {
+	applyLinuxRendererEvidence,
 	collectDesktopWhoamiReport,
 	identifyDesktopProcesses,
 	mergeDesktopInstanceRecords,
@@ -498,7 +500,7 @@ test("isolated auth trust gate runs before credential write flags and userData c
 
 test("isolated auth proof is minted only by this invocation's accepted flag path", () => {
 	const source = fs.readFileSync(new URL("../restart-desktop-remote.mjs", import.meta.url), "utf8");
-	const ambientDeleteIdx = source.indexOf("delete process.env.XDT_ISOLATED_AUTH_PROOF;");
+	const ambientDeleteIdx = source.indexOf("clearInheritedIsolatedAuthAuthorization();");
 	const authorizeIdx = source.indexOf("isolatedAuthAuthorizedByRestart = true;");
 	const mintGuardIdx = source.indexOf("if (isolatedAuthAuthorizedByRestart) {");
 	const mintIdx = source.indexOf("createIsolatedAuthLaunchProof({", mintGuardIdx);
@@ -506,6 +508,17 @@ test("isolated auth proof is minted only by this invocation's accepted flag path
 	assert.ok(authorizeIdx > ambientDeleteIdx);
 	assert.ok(mintGuardIdx > authorizeIdx);
 	assert.ok(mintIdx > mintGuardIdx);
+});
+
+test("ordinary restart drops inherited isolated-auth capabilities", () => {
+	const env = {
+		XDT_ISOLATED_AUTH: "1",
+		XDT_ALLOW_DEV_OAUTH_WRITE: "1",
+		XDT_ISOLATED_AUTH_PROOF: "stale-proof",
+		XDT_ISOLATED: "1",
+	};
+	clearInheritedIsolatedAuthAuthorization(env);
+	assert.deepEqual(env, { XDT_ISOLATED: "1" });
 });
 
 test("preserve-running only shares a target with live records from the same region", () => {
@@ -585,6 +598,23 @@ test("desktop restart runner keeps the kill-before-deps order by default", () =>
 		[stepScript(root, "ensure-deps.mjs")],
 		[stepScript(root, "ensure-dev-runtime-assets.mjs")],
 		[stepScript(root, "restart-desktop-remote.mjs"), "--wait-ready"],
+	]);
+});
+
+test("desktop restart reports each real step before running it and stops progress on failure", () => {
+	const events = [];
+	const run = (step) => {
+		events.push('run:' + step.progress);
+		if (step.progress === 'assets') throw new Error('missing runtime');
+	};
+	assert.throws(() => runDesktopRestart(
+		['--isolated=progress-test'], '/repo/cindy', run,
+		(step) => events.push('step:' + step),
+	), /missing runtime/);
+	assert.deepEqual(events, [
+		'step:stopping', 'run:stopping',
+		'step:dependencies', 'run:dependencies',
+		'step:assets', 'run:assets',
 	]);
 });
 
@@ -897,7 +927,7 @@ test("devEnvPrefix passes XDT_LOGIN_SCENARIO and VITE_SPLASH_PHASE_FIXTURE throu
 	);
 	assert.equal(
 		prefix,
-		"XDT_LOGIN_SCENARIO='error:verify-code:INVALID_CODE' VITE_SPLASH_PHASE_FIXTURE='spawn_failed' ",
+		"XDT_LOGIN_SCENARIO='error:verify-code:INVALID_CODE' VITE_SPLASH_PHASE_FIXTURE='spawn_failed' CINDY_CUA_SMOKE='0' ",
 	);
 });
 
@@ -918,12 +948,30 @@ test("devEnvPrefix passes harness envs through on Windows cmd with quote strippi
 	);
 	assert.equal(
 		prefix,
-		'set "XDT_LOGIN_SCENARIO=providers:both" && set "VITE_SPLASH_PHASE_FIXTURE=updating" && ',
+		'set "XDT_LOGIN_SCENARIO=providers:both" && set "VITE_SPLASH_PHASE_FIXTURE=updating" && set "CINDY_CUA_SMOKE=0" && ',
 	);
 });
 
+test("devEnvPrefix overrides a stale Computer Use smoke flag in the target shell", () => {
+	for (const value of [undefined, "", "0", "1", "cursor-goal", "invalid"]) {
+		const env = value === undefined ? {} : { CINDY_CUA_SMOKE: value };
+		const node = process.platform === "win32" ? "%CINDY_TEST_NODE%" : "$CINDY_TEST_NODE";
+		const result = spawnSync(
+			`${devEnvPrefix(env)}"${node}" -p "process.env.CINDY_CUA_SMOKE"`,
+			{
+				shell: true,
+				env: { ...process.env, CINDY_CUA_SMOKE: "1", CINDY_TEST_NODE: process.execPath },
+				encoding: "utf8",
+				timeout: 5000,
+			},
+		);
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(result.stdout.trim(), ["1", "cursor-goal"].includes(value) ? value : "0", `caller value: ${value}`);
+	}
+});
+
 test("devEnvPrefix omits harness envs when unset (whitelist stays opt-in)", () => {
-	assert.equal(devEnvPrefix({}, "darwin"), "");
+	assert.equal(devEnvPrefix({}, "darwin"), "CINDY_CUA_SMOKE='0' ");
 });
 
 test("devEnvPrefix passes the explicit isolated OAuth write escape hatch", () => {
@@ -937,7 +985,7 @@ test("devEnvPrefix passes the explicit isolated OAuth write escape hatch", () =>
 			"darwin",
 		),
 		"XDT_ISOLATED_AUTH='1' XDT_ALLOW_DEV_OAUTH_WRITE='1' " +
-			"XDT_ISOLATED_AUTH_PROOF='proof-nonce' ",
+			"XDT_ISOLATED_AUTH_PROOF='proof-nonce' CINDY_CUA_SMOKE='0' ",
 	);
 });
 
@@ -952,7 +1000,7 @@ test("devEnvPrefix passes explicit model catalog test controls to Desktop", () =
 	);
 	assert.equal(
 		prefix,
-		"XDT_MODELS_URL='http://127.0.0.1:43181/api/model-catalog/catalog' " +
+		"CINDY_CUA_SMOKE='0' XDT_MODELS_URL='http://127.0.0.1:43181/api/model-catalog/catalog' " +
 			"XDT_MODELS_PATH='/tmp/model catalog.json' XDT_DISABLE_MODELS_FETCH='1' ",
 	);
 });
@@ -966,7 +1014,7 @@ test("devEnvPrefix passes native iOS dev switches to Electron", () => {
 			},
 			"darwin",
 		),
-		"CINDY_IOS_SIMULATOR_NATIVE_H264='1' CINDY_IOS_SIMULATOR_NATIVE_HID='1' ",
+		"CINDY_CUA_SMOKE='0' CINDY_IOS_SIMULATOR_NATIVE_H264='1' CINDY_IOS_SIMULATOR_NATIVE_HID='1' ",
 	);
 });
 
@@ -1298,4 +1346,30 @@ test("assertDesktopRestartStepSucceeded throws so runner can print a verdict", (
 		),
 		(error) => error instanceof DesktopRestartStepError && error.alreadyHasVerdict === true,
 	);
+});
+
+test('Linux readiness binds the reported renderer to a live descendant in the same checkout', () => {
+  const rootDir = path.resolve('/repo/cindy');
+  const executable = path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron');
+  const scanned = [{ pid: 10, rootDir, ready: false, state: 'starting' }];
+  const records = [{ pid: 10, rootDir, state: 'ready', rendererPid: 12 }];
+  const processes = [
+    { pid: 10, ppid: 1, command: `${executable} .` },
+    { pid: 11, ppid: 10, command: `${executable} --type=zygote` },
+    { pid: 12, ppid: 11, command: `${executable} --type=zygote` },
+  ];
+  assert.equal(applyLinuxRendererEvidence(scanned, records, processes, 'linux')[0].ready, true);
+  for (const recordsVariant of [[], [{ ...records[0], rendererPid: 99 }],
+    [{ ...records[0], rootDir: path.resolve('/other') }], [{ ...records[0], state: 'starting' }]]) {
+    assert.equal(applyLinuxRendererEvidence(scanned, recordsVariant, processes, 'linux')[0].ready, false);
+  }
+  for (const replacement of [
+    { ...processes[2], ppid: 99 },
+    { ...processes[2], command: '/other/electron --type=zygote' },
+    { ...processes[2], command: `${executable} --type=utility` },
+  ]) {
+    assert.equal(applyLinuxRendererEvidence(scanned, records, [...processes.slice(0, 2), replacement], 'linux')[0].ready, false);
+  }
+  assert.equal(applyLinuxRendererEvidence(scanned, records, processes, 'darwin')[0].ready, false);
+  assert.equal(applyLinuxRendererEvidence(scanned, records, processes, 'win32')[0].ready, false);
 });
