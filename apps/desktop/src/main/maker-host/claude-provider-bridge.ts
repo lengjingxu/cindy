@@ -12,6 +12,32 @@ export function claudeProviderReasoningNamespace(url: string, providerId?: strin
   return `cindy-provider-${createHash('sha256').update(material).digest('hex')}/`;
 }
 
+/**
+ * 读错误正文用于判定,带上限:上游可能回超长正文,而这里只为识别一句措辞。
+ * 判定句在正文前部(外层 error.message 里),截断不影响命中。
+ */
+const SYSTEM_ORDER_PROBE_LIMIT = 8 * 1024;
+
+async function readBoundedErrorText(response: Response): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return '';
+  const decoder = new TextDecoder();
+  let text = '';
+  try {
+    while (text.length < SYSTEM_ORDER_PROBE_LIMIT) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    return text.slice(0, SYSTEM_ORDER_PROBE_LIMIT);
+  } catch {
+    return text.slice(0, SYSTEM_ORDER_PROBE_LIMIT);
+  } finally {
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
 /** Reuse the two existing translators without opening another server or forwarding client credentials. */
 export function createClaudeProviderBridge(options: {
   url: string;
@@ -61,11 +87,13 @@ export function createClaudeProviderBridge(options: {
     if (!upstream.ok && options.capabilities?.systemMessagePolicy === undefined
       && options.capabilities?.developerRole !== 'developer') {
       // clone:不重试时错误正文要原样留给调用方(handler 读它做上游错误上报与呈现)。
-      const rejection = classifySystemOrderError(upstream.status, await upstream.clone().text().catch(() => ''));
+      const rejection = classifySystemOrderError(upstream.status, await readBoundedErrorText(upstream.clone()));
       if (rejection && shouldRetrySystemNormalization(rejection, translated.request.messages)) {
         const coalesced = coalesceLeadingSystemMessages(translated.request.messages);
         if (coalesced !== translated.request.messages) {
           translated.request.messages = coalesced;
+          // 首个响应被丢弃 → 立刻释放它的 body,别让废弃的连接/缓冲挂到本轮结束。
+          void upstream.body?.cancel().catch(() => undefined);
           upstream = await send(translated.request);
         }
       }

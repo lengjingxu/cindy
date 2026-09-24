@@ -3,7 +3,6 @@ import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { PROVIDER_MODEL_CATALOG } from '@cindy/model-providers';
-import type { ChatMessage } from '@cindy/responses-chat-bridge';
 import { claudeProviderReasoningNamespace, createClaudeProviderBridge } from '../claude-provider-bridge.js';
 
 async function runBridge(
@@ -99,7 +98,7 @@ describe('Claude Code custom provider translation', () => {
   it('retries once with the mid-conversation system hoisted when the upstream rejects it', async () => {
     // Claude Code 的 mid-conversation-system 把 system 投到 user 轮次之后;Google 的
     // OpenAI 兼容层是会话级限制,不合并就整轮 400 且下一轮复现。
-    const sent: ChatMessage[][] = [];
+    const sent: unknown[][] = [];
     const googleOrderError = JSON.stringify({
       error: {
         message: JSON.stringify({
