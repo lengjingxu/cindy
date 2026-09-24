@@ -4,7 +4,7 @@ import type { Effort, ProviderModelRecord } from '@cindy/model-providers';
 import { reconcileOutboundReasoningEffort } from './outbound-reasoning-effort.js';
 import { createPiProviderFetch, nativeBridgeApiKey } from './pi-provider-transport.js';
 import { createResponsesHandler, type ResponsesBridgeHandler } from '@cindy/anthropic-responses-bridge';
-import { ChatSseTranslator, translateResponsesRequestWithContext, type ChatBridgeCapabilities, type ResponsesRequest } from '@cindy/responses-chat-bridge';
+import { ChatSseTranslator, classifySystemOrderError, coalesceLeadingSystemMessages, shouldRetrySystemNormalization, translateResponsesRequestWithContext, type ChatBridgeCapabilities, type ResponsesRequest } from '@cindy/responses-chat-bridge';
 
 /** Reasoning blobs are private to a connection, not to a shared upstream URL. */
 export function claudeProviderReasoningNamespace(url: string, providerId?: string): string {
@@ -49,7 +49,27 @@ export function createClaudeProviderBridge(options: {
       ...options.capabilities,
       ...(options.supportsFastMode ? { passthroughFields: [...(options.capabilities?.passthroughFields ?? []), 'service_tier'] } : {}),
     } });
-    const upstream = await options.fetchImpl(options.url, { ...init, body: JSON.stringify(normalizeProviderRequest(translated.request, { harness: 'claude-code', protocol: 'openai-chat', upstreamBase: options.url, model: responses.model }, { reasoningEffortAlreadyMapped: true })) });
+    const send = (request: typeof translated.request): Promise<Response> => options.fetchImpl(options.url, {
+      ...init,
+      body: JSON.stringify(normalizeProviderRequest(request, { harness: 'claude-code', protocol: 'openai-chat', upstreamBase: options.url, model: responses.model }, { reasoningEffortAlreadyMapped: true })),
+    });
+    let upstream = await send(translated.request);
+    // Claude Code 的 mid-conversation-system 会把 system 消息投到 user 轮次之后;
+    // 只接受开头 system 的上游(Google 的 OpenAI 兼容层、Qwen 模板运行器)会整轮 400,
+    // 且下一轮原样复现 → 会话卡死。这里与 responses-chat-bridge 的 handler 同口径重试一次:
+    // 只并到开头、只限本次请求内,显式策略与原生 developer 语义仍然优先。
+    if (!upstream.ok && options.capabilities?.systemMessagePolicy === undefined
+      && options.capabilities?.developerRole !== 'developer') {
+      // clone:不重试时错误正文要原样留给调用方(handler 读它做上游错误上报与呈现)。
+      const rejection = classifySystemOrderError(upstream.status, await upstream.clone().text().catch(() => ''));
+      if (rejection && shouldRetrySystemNormalization(rejection, translated.request.messages)) {
+        const coalesced = coalesceLeadingSystemMessages(translated.request.messages);
+        if (coalesced !== translated.request.messages) {
+          translated.request.messages = coalesced;
+          upstream = await send(translated.request);
+        }
+      }
+    }
     if (!upstream.ok || !upstream.body) return upstream;
     const translator = new ChatSseTranslator(responses.model, { toolContext: translated.toolContext });
     const reader = upstream.body.getReader();
