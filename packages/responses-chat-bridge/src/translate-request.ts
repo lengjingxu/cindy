@@ -661,10 +661,15 @@ function translateInput(input: ResponsesRequest['input'], opts: TranslateInputOp
         || typeof record.action.type !== 'string'
         || !record.action.type.trim()
       ) throw new UnsupportedResponsesFeatureError("input item 'web_search_call'");
-      pushBarrier({
+      const message: ChatMessage = {
         role: 'assistant',
         content: '[completed web search]\n' + JSON.stringify(record.action),
-      });
+      };
+      if ((assistant?.tool_calls?.length ?? 0) > 0 || pendingToolCalls.length > 0) {
+        deferredBarriers.push(message);
+      } else {
+        pushBarrier(message);
+      }
       continue;
     }
 
