@@ -1874,8 +1874,8 @@ export async function transcribeVoiceInputAudioFile(
  * state transitions, and timeline logging.
  */
 export function registerVoiceInputIpc(): void {
-  registerVoiceInputDataStoreIpc();
   registerSystemAudioMuteShutdown();
+  registerVoiceInputDataStoreIpc();
   const modelSelection = readActiveVoiceInputModelSelection('register');
   log.info('voice input model selection active', {
     path: getVoiceInputModelSelectionConfigPath(),

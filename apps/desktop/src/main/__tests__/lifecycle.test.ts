@@ -743,10 +743,25 @@ describe('system audio restoration during quit', () => {
     vi.restoreAllMocks();
   });
 
-  it('registers audio shutdown from the voice-input startup entry', () => {
-    const source = readFileSync(join(__dirname, '../voice-input/index.ts'), 'utf8');
-    expect(source).toContain('registerSystemAudioMuteShutdown();');
-    expect(source).not.toContain("app.once('before-quit'");
+  it('restores audio even when voice-input startup fails while registering its data store', async () => {
+    const { runQuitDisposers } = await freshLifecycle();
+    const { systemAudioMuteGuard, registerSystemAudioMuteShutdown } = await import('../voice-input/SystemAudioMuteGuard');
+    await systemAudioMuteGuard.mute(1);
+    const source = ts.createSourceFile('voice-input/index.ts', readFileSync(join(__dirname, '../voice-input/index.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
+    const entry = source.statements.find((node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === 'registerVoiceInputIpc');
+    expect(entry?.body).toBeDefined();
+    // Execute the production entry body up to its injected startup failure.
+    // This covers cleanup ordering, not full Electron bootstrap / IPC integration.
+    const body = ts.transpileModule(entry!.body!.getText(source), {
+      compilerOptions: { target: ts.ScriptTarget.ESNext },
+    }).outputText;
+    const register = new Function('registerSystemAudioMuteShutdown', 'registerVoiceInputDataStoreIpc', body);
+    expect(() => register(registerSystemAudioMuteShutdown, () => {
+      throw new Error('data store startup failed');
+    })).toThrow('data store startup failed');
+    await runQuitDisposers();
+    expect(mocks.audio.setMuted.mock.calls).toEqual([[true], [false]]);
   });
 
   it.each([
