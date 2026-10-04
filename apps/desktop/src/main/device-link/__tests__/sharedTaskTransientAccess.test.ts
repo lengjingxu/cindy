@@ -86,7 +86,9 @@ describe('shared task temporary authority fences preserve membership', () => {
       expect(resolve).toHaveBeenCalledWith({ url: expect.stringContaining('xdt-file:') }, 10 * 1024 * 1024);
       expect(localReader).not.toHaveBeenCalled();
       await writeFile(file, '\u0000'.repeat(400_000));
-      await expect(runInvoke(peer, request)).resolves.toMatchObject({ ok: true, result: { success: false, reason: 'oversize' } });
+      await expect(runInvoke(peer, request)).resolves.toMatchObject({ ok: true, result: { success: false, reason: 'oversize', limitMb: 10 } });
+      resolve.mockRejectedValueOnce(Object.assign(new Error('too large'), { code: 'OVERSIZE', size: 11 * 1024 * 1024 }));
+      await expect(runInvoke(peer, request)).resolves.toMatchObject({ ok: true, result: { success: false, reason: 'oversize', size: 11 * 1024 * 1024, limitMb: 10 } });
       resolve.mockRejectedValueOnce(new Error('[PERMISSION_DENIED] Outside shared task'));
       await expect(runInvoke(peer, request)).resolves.toMatchObject({ ok: false, error: { message: expect.stringContaining('PERMISSION_DENIED') } });
       resolve.mockImplementationOnce(async () => {

@@ -120,6 +120,27 @@ describe('fetchLocalMediaToOss — scheme 路由', () => {
     expect(uploadLocalFile).not.toHaveBeenCalled();
   });
 
+  it('allows task-authorized SSH file downloads and preserves structured size errors', async () => {
+    const url = 'xdt-file://open?path=/home/u/proj/notes.md&sessionId=task&remoteHostId=host-1&workdir=/home/u/proj';
+    await shared(() => resolveAuthorizedMedia({ url }, 1024));
+    expect(materializeSshRemoteMedia).toHaveBeenLastCalledWith(
+      { remoteHostId: 'host-1', workdir: '/home/u/proj' }, url, undefined,
+      { fileDownload: true, maxBytes: 1024 },
+    );
+    materializeSshRemoteMedia.mockResolvedValue({ ok: false, status: 403, code: 'OVERSIZE', size: 2048, message: 'too large' });
+    await expect(shared(() => resolveAuthorizedMedia({ url }, 1024))).rejects.toMatchObject({ code: 'OVERSIZE', size: 2048 });
+    expect(uploadLocalFile).not.toHaveBeenCalled();
+  });
+
+  it('reports local oversize before opening or uploading bytes', async () => {
+    const arg = { url: 'xdt-file://open?path=' + encodeURIComponent(path.resolve('work/notes.md')) };
+    statMock.mockResolvedValue({ isFile: () => true, size: 11 * 1024 * 1024 });
+    await expect(shared(() => resolveAuthorizedMedia(arg, 10 * 1024 * 1024)))
+      .rejects.toMatchObject({ code: 'OVERSIZE', size: 11 * 1024 * 1024 });
+    expect(openMock).not.toHaveBeenCalled();
+    expect(uploadLocalFile).not.toHaveBeenCalled();
+  });
+
   it('preserves upload size limits and isolates shared-task upload cache', async () => {
     const url = 'xdt-file://local?path=' + encodeURIComponent(path.resolve('work/a.png')) + '&maxBytes=100';
     let scope: string | undefined;

@@ -332,15 +332,18 @@ export async function resolveAuthorizedMedia(arg: unknown, maximumBytes?: number
     // SSH 分支的两道约束必须在 materialize **内部**生效:它 stat 完就会把整份文件分片拉进
     // Desktop 磁盘缓存,拉完再判等于流量已经花掉。
     const sshLimits =
-      constraints.baseDir !== null || constraints.maxBytes !== null
+      sharedTask || constraints.baseDir !== null || constraints.maxBytes !== null
         ? {
+            ...(sharedTask && url.startsWith('xdt-file://') ? { fileDownload: true } : {}),
             ...(constraints.baseDir ? { baseDir: constraints.baseDir } : {}),
             ...(constraints.maxBytes !== null ? { maxBytes: constraints.maxBytes } : {}),
           }
         : undefined;
     const materialized = await materializeSshRemoteMedia(sshOrigin, url, undefined, sshLimits);
     if (!materialized.ok) {
-      throw new Error(`SSH 媒体取回失败（${materialized.status}）：${materialized.message}`);
+      throw Object.assign(new Error(`SSH 媒体取回失败（${materialized.status}）：${materialized.message}`), {
+        code: materialized.code, size: materialized.size,
+      });
     }
     absPath = materialized.cachePath;
     mimeType = materialized.mime;
@@ -419,7 +422,9 @@ export async function resolveAuthorizedMedia(arg: unknown, maximumBytes?: number
       log.warn(
         `media:fetch rejected oversize ${sizeStat.size}B > ${constraints.maxBytes}B ${url.slice(0, 60)}`,
       );
-      throw new Error(`资源超出取件大小上限(${sizeStat.size} > ${constraints.maxBytes} 字节)`);
+      throw Object.assign(new Error(`资源超出取件大小上限(${sizeStat.size} > ${constraints.maxBytes} 字节)`), {
+        code: 'OVERSIZE', size: sizeStat.size,
+      });
     }
   }
 
