@@ -520,6 +520,43 @@ describe('createResponsesHandler', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it.each([true, false])('cancels an oversized unfinished SSE event (multiline=%s)', async (multiline) => {
+    const encoder = new TextEncoder();
+    const cancel = vi.fn();
+    const chunk = encoder.encode((multiline ? 'data: ' : '') + 'x'.repeat(1024 * 1024) + (multiline ? '\n' : ''));
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(pulls++ === 0 ? encoder.encode(`data: ${OK_SSE[0]}\n\n`) : chunk);
+      },
+      cancel,
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } })));
+    const result = await invoke(createResponsesHandler({ providers: [providerConfig()] }), {
+      model: 'chatgpt/gpt-5.5', messages: [], stream: true,
+    });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(pulls).toBeLessThanOrEqual(19);
+    expect(result.text).toContain('upstream SSE event exceeds');
+    expect(result.text).toContain('event: error');
+    expect(result.text).not.toContain('message_stop');
+  });
+
+  it('resets the event limit at each blank line, including within one large chunk', async () => {
+    // More than the per-event limit overall; each complete event is below it.
+    const padding = ': ' + 'x'.repeat(9 * 1024 * 1024) + '\n';
+    const body = OK_SSE.map(event => `${padding}data: ${event}\n\n`).join('');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(rawStream(body), {
+      headers: { 'content-type': 'text/event-stream' },
+    })));
+    const result = await invoke(createResponsesHandler({ providers: [providerConfig()] }), {
+      model: 'chatgpt/gpt-5.5', messages: [], stream: true,
+    });
+    expect(result.text).toContain('"text":"hi"');
+    expect(result.text).toContain('message_stop');
+    expect(result.text).not.toContain('event: error');
+  });
+
   it('does not dispatch an unterminated terminal event at EOF', async () => {
     const body = OK_SSE.slice(0, 3).map(json => `data: ${json}\n\n`).join('')
       + `data: ${OK_SSE[4]}\n`;
