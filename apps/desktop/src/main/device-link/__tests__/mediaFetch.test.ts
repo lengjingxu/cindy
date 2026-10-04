@@ -110,6 +110,16 @@ describe('fetchLocalMediaToOss — scheme 路由', () => {
     expect(uploadLocalFile).not.toHaveBeenCalled();
   });
 
+  it('pins an external historical attachment to its authorized physical target', async () => {
+    const file = path.resolve('downloads', 'report.pdf');
+    const arg = { url: 'xdt-file://open?path=' + encodeURIComponent(file) };
+    assertSharedTaskMedia.mockResolvedValue({ file });
+    await expect(shared(() => resolveAuthorizedMedia(arg))).resolves.toMatchObject({ absPath: file });
+    realpathMock.mockResolvedValue(path.resolve('downloads', 'private.pdf'));
+    await expect(shared(() => fetchLocalMediaToOss(arg))).rejects.toThrow('PERMISSION_DENIED');
+    expect(uploadLocalFile).not.toHaveBeenCalled();
+  });
+
   it('preserves upload size limits and isolates shared-task upload cache', async () => {
     const url = 'xdt-file://local?path=' + encodeURIComponent(path.resolve('work/a.png')) + '&maxBytes=100';
     let scope: string | undefined;

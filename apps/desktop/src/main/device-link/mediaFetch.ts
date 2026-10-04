@@ -318,10 +318,7 @@ export async function resolveAuthorizedMedia(arg: unknown, maximumBytes?: number
   const url = record.url;
   if (typeof url !== 'string' || !url) throw new Error('media:fetch 缺少 url');
   const sharedTask = getDeviceLinkInvokeContext()?.sharedTask;
-  let sharedRoot: string | undefined;
-  if (sharedTask) {
-    sharedRoot = await assertSharedTaskMedia(url, sharedTask);
-  }
+  const sharedScope = sharedTask ? await assertSharedTaskMedia(url, sharedTask) : undefined;
   const isPathMedia = url.startsWith('xdt-file://') || url.startsWith('xdt-audio://');
   const sshOrigin = isPathMedia ? await parseSshMediaOrigin(url) : null;
   const constraints: PathMediaConstraints = isPathMedia
@@ -387,8 +384,8 @@ export async function resolveAuthorizedMedia(arg: unknown, maximumBytes?: number
       throw new Error('媒体文件不存在或不可读');
     }
     // realpath 再查:挡字面形式看似无害的 symlink 逃逸。
-    if (sharedRoot && !isInsideRealDir(real, sharedRoot)) {
-      throw new Error('[PERMISSION_DENIED] Media left the shared task workdir');
+    if (sharedScope && (real !== sharedScope.file || sharedScope.root && !isInsideRealDir(real, sharedScope.root))) {
+      throw new Error('[PERMISSION_DENIED] Shared task file changed during read');
     }
     if (!isPathAllowedAgainst(real, getSensitiveMediaBlocklist())) {
       log.warn(`media:fetch blocked sensitive realpath ${url.slice(0, 60)}`);
