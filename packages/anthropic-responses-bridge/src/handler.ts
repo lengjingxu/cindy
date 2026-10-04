@@ -554,6 +554,7 @@ export function createResponsesHandler(opts: ResponsesHandlerOptions): Responses
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+    let eventData: string[] = [];
     // 零事件诊断:整流一条 Anthropic 事件都没写回时,CLI 只能报
     // "empty or malformed response (HTTP 200)" 并盲目重试,真实错误被完全掩盖(#941)。
     // 记录写回事件数与上游正文前缀,收尾时合成一条带上游信息的 error 事件 + warn 日志。
@@ -600,15 +601,21 @@ export function createResponsesHandler(opts: ResponsesHandlerOptions): Responses
           rawPrefix = (rawPrefix + chunkText).slice(0, RAW_PREFIX_LIMIT);
         }
         buf += chunkText;
-        // SSE 事件以空行分隔;逐行取 `data:` 负载。用游标扫描、chunk 末尾一次性 slice ——
+        // SSE 事件以空行分隔，多条 data 行合并为一个负载；chunk 不是事件边界。
+        // 用游标扫描、chunk 末尾一次性 slice ——
         // 避免每行 slice 整个剩余缓冲(大 chunk 数百行时是 O(n²) 拷贝,这是每 token 热路径)。
         let start = 0;
         let nl: number;
         while ((nl = buf.indexOf('\n', start)) >= 0) {
           const line = buf.slice(start, nl).replace(/\r$/, '');
           start = nl + 1;
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
+          if (line.startsWith('data:')) {
+            eventData.push(line.slice(5).trimStart());
+            continue;
+          }
+          if (line !== '') continue;
+          const payload = eventData.join('\n').trim();
+          eventData = [];
           if (!payload || payload === '[DONE]') continue;
           let ev: unknown;
           try {
