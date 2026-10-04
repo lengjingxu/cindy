@@ -7715,6 +7715,36 @@ describe('Teammate model selection shares profile persistence and route reconcil
     expect(await invoke('local-db:bots:get', 'bot-1')).toEqual(before);
   });
 
+  it.each([{}, { permissions: 'ask' }, { modelChainOverride: null }, { modelOverride: null }])(
+    'creates a profile without validating an inherited obsolete global route: %j', async capabilities => {
+      const { model } = await setupModelControl();
+      const route: BotModelRoute = { harness: 'pi', providerId: 'xd', model: model.id, effort: 'high', fastMode: false };
+      await invoke('local-db:bots:model-chain-settings-set', { modelChain: [route] });
+      model.efforts = ['low'];
+      try {
+        const created = await invoke('local-db:bots:create', { id: 'inherited-route', name: 'Inherited route', capabilities });
+        expect(created.id).toBe('inherited-route');
+        expect(created.capabilities.modelChainOverride ?? null).toBeNull();
+        expect(await modelSettings.readEffectiveBotModelChain(created.capabilities)).toEqual([route]);
+        // Creation does not repair or make the obsolete inherited route valid for sending.
+        await expect(validateBotModelSelections([route])).rejects.toThrow('[INVALID_PARAMS]');
+      } finally {
+        await invoke('local-db:bots:model-chain-settings-reset', undefined);
+      }
+    },
+  );
+
+  it.each(['modelChainOverride', 'modelChain', 'legacy'] as const)(
+    'rejects an explicitly selected invalid creation route in %s', async selection => {
+      const { model } = await setupModelControl();
+      const route: BotModelRoute = { harness: 'pi', providerId: 'xd', model: model.id, effort: '', fastMode: false };
+      const capabilities = selection === 'legacy' ? route : { [selection]: [route] };
+      await expect(invoke('local-db:bots:create', { id: 'invalid-route', name: 'Invalid route', capabilities }))
+        .rejects.toThrow('[INVALID_PARAMS]');
+      expect(h.sqlite!.prepare('SELECT id FROM bot_profiles WHERE id = ?').get('invalid-route')).toBeUndefined();
+    },
+  );
+
   it('keeps restored messages in order until the legacy profile is explicitly repaired through remote save', async () => {
     const { sessionId, model } = await setupModelControl();
     model.efforts = ['medium'];

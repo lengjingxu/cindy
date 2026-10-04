@@ -1353,7 +1353,14 @@ export async function createBotProfile(raw: unknown) {
     ...(gender ? { gender } : {}),
   });
   if (hasRequestedCapabilities) {
-    await validateBotModelSelections(await readEffectiveBotModelChain(persistedCapabilities));
+    // Validate only a model choice submitted with this creation request. An
+    // inherited global route may be obsolete, but must not block profile creation.
+    const submittedChain = Array.isArray(persistedCapabilities.modelChainOverride)
+      ? normalizeBotModelChain(persistedCapabilities.modelChainOverride)
+      : persistedCapabilities.modelChainOverride !== null && persistedCapabilities.modelOverride !== null
+        ? normalizeBotModelChain(persistedCapabilities.modelChain, persistedCapabilities)
+        : [];
+    await validateBotModelSelections(submittedChain);
     assertCreationOwnerStillCurrent();
   }
   // Progress is main-owned; callers can request an invitation, never supply its result.
