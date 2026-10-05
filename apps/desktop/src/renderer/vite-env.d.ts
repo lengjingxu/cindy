@@ -6012,6 +6012,15 @@ interface ElectronAPI {
       hits: Array<{ filename: string; type: string; title: string; snippet: string; score: number }>;
     }>;
     memoryHubIndexPreview: (workdir: string) => Promise<{ index: string }>;
+    memoryHubEntryWrite: (workdir: string, opts: {
+      filename: string; expectedUpdatedAt: string; title: string; description: string; body: string; mode: 'update';
+    }) => Promise<{ ok: true; filename: string }>;
+    memoryHubEntryDelete: (workdir: string, filename: string, expectedUpdatedAt: string) => Promise<{ ok: true }>;
+    memoryHubTrashList: (workdir: string) => Promise<{
+      entries: Array<{ filename: string; type: string; title: string; description: string; deletedAt: string; sizeBytes: number }>;
+    }>;
+    memoryHubRestore: (workdir: string, filename: string) => Promise<{ ok: true; filename: string }>;
+
 
     /** 启动期拉 main 持久化的三个 memory 开关 — 见 preload memoryGetSettings 注释 */
     memoryGetSettings: () => Promise<{

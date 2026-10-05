@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Eye, Loader2, Search, X } from 'lucide-react';
+import { ArrowLeft, Eye, Loader2, Search, Trash2, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { extractIpcError } from '@/utils/ipcError';
 import { createLogger } from '@/lib/logger';
 import {
   CURATED_MEMORY_HUB_TYPES,
@@ -38,10 +40,6 @@ interface MemoryHubEntryDetail {
   };
   body: string;
   sizeBytes: number;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function SnippetText({ snippet }: { snippet: string }) {
@@ -87,8 +85,42 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
   const [searching, setSearching] = useState(false);
   const [indexPreview, setIndexPreview] = useState<string | null>(null);
   const [digestOpen, setDigestOpen] = useState(false);
+  const [draft, setDraft] = useState<{ title: string; description: string; body: string } | null>(
+    null,
+  );
+  const [trash, setTrash] = useState<
+    Awaited<ReturnType<typeof window.electronAPI.maker.memoryHubTrashList>>['entries'] | null
+  >(null);
+  const [showTrash, setShowTrash] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const epoch = useRef(0);
+  const detailRequest = useRef(0);
+  const locked = busy || draft !== null;
+
+  const operationError = useCallback(
+    (err: unknown) => {
+      const code = extractIpcError(err)?.code;
+      setLoadError(
+        t(
+          `settings.memory.hub.${code === 'PRECONDITION_FAILED' ? 'versionConflict' : code === 'ALREADY_EXISTS' ? 'nameConflict' : 'operationFailed'}`,
+        ),
+      );
+    },
+    [t],
+  );
+  const close = () => {
+    if (!locked) onClose();
+  };
 
   const resetScopeState = useCallback(() => {
+    epoch.current += 1;
+    detailRequest.current += 1;
+    setDraft(null);
+    setTrash(null);
+    setShowTrash(false);
+    setConfirmDelete(false);
+    setLoadError(null);
     setEntries(null);
     setDetail(null);
     setDetailLoading(false);
@@ -104,38 +136,45 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
     setLoadError(null);
     setSelectedDirName(null);
     resetScopeState();
+    const current = epoch.current;
     try {
       const res = await window.electronAPI.maker.memoryHubListScopes();
+      if (current !== epoch.current) return;
       setScopes(res.scopes);
       const openable =
         res.scopes.find((scope) => scope.kind === 'local' && scopeIsOpenable(scope)) ??
         res.scopes.find((scope) => scopeIsOpenable(scope));
       if (openable) setSelectedDirName(openable.dirName);
     } catch (err) {
-      log.warn('memoryHubListScopes failed', err);
+      if (current !== epoch.current) return;
+      log.warn('memoryHubListScopes failed');
       setScopes([]);
-      setLoadError(errorMessage(err));
+      operationError(err);
     }
-  }, [resetScopeState]);
+  }, [resetScopeState, operationError]);
 
   useEffect(() => {
     if (open) void loadScopes();
+    return () => {
+      epoch.current += 1;
+    };
   }, [open, loadScopes]);
 
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !locked) onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, locked]);
 
   const selectedScope = scopes?.find((scope) => scope.dirName === selectedDirName) ?? null;
-  const openScopeKey = selectedScope && scopeIsOpenable(selectedScope) ? selectedScope.scopeKey : null;
+  const openScopeKey =
+    selectedScope && scopeIsOpenable(selectedScope) ? selectedScope.scopeKey : null;
 
   useEffect(() => {
-    if (!openScopeKey) {
+    if (!open || !openScopeKey) {
       setEntries(null);
       return;
     }
@@ -146,47 +185,54 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
         const res = await window.electronAPI.maker.memoryHubListEntries(openScopeKey);
         if (!cancelled) setEntries(res.entries);
       } catch (err) {
-        log.warn('memoryHubListEntries failed', err);
-        if (!cancelled) setLoadError(errorMessage(err));
+        log.warn('memoryHubListEntries failed');
+        if (!cancelled) operationError(err);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [openScopeKey, resetScopeState]);
+  }, [open, openScopeKey, resetScopeState, operationError]);
 
   const openDetail = useCallback(
     async (filename: string) => {
       if (!openScopeKey) return;
+      const current = epoch.current;
+      const request = ++detailRequest.current;
+      setLoadError(null);
+      setDraft(null);
+      setConfirmDelete(false);
       setDetailLoading(true);
       setHits(null);
       try {
         const res = await window.electronAPI.maker.memoryHubReadEntry(openScopeKey, filename);
-        setDetail(res.entry);
+        if (current === epoch.current && request === detailRequest.current) setDetail(res.entry);
       } catch (err) {
-        log.warn('memoryHubReadEntry failed', err);
-        setLoadError(errorMessage(err));
+        if (current === epoch.current && request === detailRequest.current) operationError(err);
       } finally {
-        setDetailLoading(false);
+        if (current === epoch.current && request === detailRequest.current) setDetailLoading(false);
       }
     },
-    [openScopeKey],
+    [openScopeKey, operationError],
   );
 
   const runSearch = useCallback(async () => {
     if (!openScopeKey || query.trim() === '') return;
+    const current = epoch.current;
+    detailRequest.current += 1;
+    setDetailLoading(false);
+    setLoadError(null);
     setSearching(true);
     setDetail(null);
     try {
       const res = await window.electronAPI.maker.memoryHubSearch(openScopeKey, query.trim());
-      setHits(res.hits);
+      if (current === epoch.current) setHits(res.hits);
     } catch (err) {
-      log.warn('memoryHubSearch failed', err);
-      setLoadError(errorMessage(err));
+      if (current === epoch.current) operationError(err);
     } finally {
-      setSearching(false);
+      if (current === epoch.current) setSearching(false);
     }
-  }, [openScopeKey, query]);
+  }, [openScopeKey, query, operationError]);
 
   const toggleIndexPreview = useCallback(async () => {
     if (indexPreview !== null) {
@@ -194,14 +240,98 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
       return;
     }
     if (!openScopeKey) return;
+    const current = epoch.current;
     try {
       const res = await window.electronAPI.maker.memoryHubIndexPreview(openScopeKey);
-      setIndexPreview(res.index);
+      if (current === epoch.current) setIndexPreview(res.index);
     } catch (err) {
-      log.warn('memoryHubIndexPreview failed', err);
-      setLoadError(errorMessage(err));
+      if (current === epoch.current) operationError(err);
     }
-  }, [indexPreview, openScopeKey]);
+  }, [indexPreview, openScopeKey, operationError]);
+
+  const refreshEntries = async () => {
+    if (!openScopeKey) return;
+    const current = epoch.current;
+    const res = await window.electronAPI.maker.memoryHubListEntries(openScopeKey);
+    if (current === epoch.current) setEntries(res.entries);
+  };
+
+  const saveEntry = async () => {
+    if (!openScopeKey || !detail || !draft || busy) return;
+    setBusy(true);
+    setLoadError(null);
+    try {
+      await window.electronAPI.maker.memoryHubEntryWrite(openScopeKey, {
+        ...draft,
+        filename: detail.filename,
+        expectedUpdatedAt: detail.frontmatter.updatedAt,
+        mode: 'update',
+      });
+      setDraft(null);
+      setIndexPreview(null);
+      await openDetail(detail.filename);
+      await refreshEntries();
+    } catch (err) {
+      operationError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteEntry = async () => {
+    if (!openScopeKey || !detail || busy) return;
+    setBusy(true);
+    setLoadError(null);
+    try {
+      await window.electronAPI.maker.memoryHubEntryDelete(
+        openScopeKey,
+        detail.filename,
+        detail.frontmatter.updatedAt,
+      );
+      setDetail(null);
+      setConfirmDelete(false);
+      setIndexPreview(null);
+      await refreshEntries();
+    } catch (err) {
+      operationError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openTrash = async () => {
+    if (!openScopeKey || locked) return;
+    const current = epoch.current;
+    detailRequest.current += 1;
+    setShowTrash(true);
+    setDetail(null);
+    setDetailLoading(false);
+    setHits(null);
+    setLoadError(null);
+    setTrash(null);
+    try {
+      const res = await window.electronAPI.maker.memoryHubTrashList(openScopeKey);
+      if (current === epoch.current) setTrash(res.entries);
+    } catch (err) {
+      if (current === epoch.current) operationError(err);
+    }
+  };
+
+  const restoreEntry = async (filename: string) => {
+    if (!openScopeKey || busy) return;
+    setBusy(true);
+    setLoadError(null);
+    try {
+      await window.electronAPI.maker.memoryHubRestore(openScopeKey, filename);
+      setTrash((items) => items?.filter((item) => item.filename !== filename) ?? null);
+      setIndexPreview(null);
+      await refreshEntries();
+    } catch (err) {
+      operationError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -211,7 +341,7 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) close();
       }}
     >
       <div
@@ -226,7 +356,8 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
+            disabled={locked}
             className="rounded-lg p-1.5 text-[var(--settings-section-desc)] hover:bg-[var(--settings-input-bg)]"
             aria-label={t('settings.memory.hub.close')}
           >
@@ -242,7 +373,11 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
             ) : (
               <select
                 value={selectedDirName ?? ''}
-                onChange={(event) => setSelectedDirName(event.target.value || null)}
+                disabled={locked}
+                onChange={(event) => {
+                  resetScopeState();
+                  setSelectedDirName(event.target.value || null);
+                }}
                 className={cn(
                   'min-w-0 flex-1 rounded-lg border border-[var(--settings-theme-card-border)]',
                   'bg-[var(--settings-input-bg)] px-2 py-1.5 text-13 text-[var(--settings-section-title)]',
@@ -250,7 +385,11 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
               >
                 {scopes.length === 0 && <option value="">—</option>}
                 {scopes.map((scope) => (
-                  <option key={scope.dirName} value={scope.dirName} disabled={!scopeIsOpenable(scope)}>
+                  <option
+                    key={scope.dirName}
+                    value={scope.dirName}
+                    disabled={!scopeIsOpenable(scope)}
+                  >
                     {scopeDisplayName(scope, t('settings.memory.hub.scopeLabel'))}
                     {scope.kind === 'remote' ? ` · ${t('settings.memory.hub.scopeRemoteTag')}` : ''}
                     {!scopeIsOpenable(scope) ? ` · ${t('settings.memory.hub.scopeViewOnly')}` : ''}
@@ -261,21 +400,22 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
           </label>
 
           {loadError && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-13 text-red-500">
-              {t('settings.memory.hub.loadFailed', { message: loadError })}
+            <div className="rounded-xl border border-[var(--error-border)] bg-[var(--error-bg)] px-3 py-2 text-13 text-[var(--error-fg)]">
+              {loadError}
             </div>
           )}
         </div>
 
-        {openScopeKey && (
+        {openScopeKey && !showTrash && (
           <div className="flex items-center gap-2 px-5 pb-3">
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-[var(--settings-theme-card-border)] bg-[var(--settings-input-bg)] px-3 py-1.5">
               <Search size={14} className="shrink-0 text-[var(--settings-section-desc)]" />
               <input
+                disabled={locked}
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') void runSearch();
+                  if (event.key === 'Enter' && !locked && !searching) void runSearch();
                 }}
                 placeholder={t('settings.memory.hub.searchPlaceholder')}
                 className="min-w-0 flex-1 bg-transparent text-13 text-[var(--settings-section-title)] outline-none placeholder:text-[var(--settings-section-desc)]"
@@ -284,13 +424,18 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
             <button
               type="button"
               onClick={() => void runSearch()}
-              disabled={searching || query.trim() === ''}
+              disabled={locked || searching || query.trim() === ''}
               className="rounded-lg bg-[var(--settings-input-bg)] px-3 py-1.5 text-13 text-[var(--settings-section-title)] disabled:opacity-50"
             >
-              {searching ? <Loader2 size={14} className="animate-spin" /> : t('settings.memory.hub.searchAction')}
+              {searching ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                t('settings.memory.hub.searchAction')
+              )}
             </button>
             <button
               type="button"
+              disabled={locked}
               onClick={() => void toggleIndexPreview()}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-13',
@@ -302,6 +447,15 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
               <Eye size={14} />
               {t('settings.memory.hub.preview')}
             </button>
+            <Button
+              variant="secondary"
+              disabled={locked}
+              onClick={() => void openTrash()}
+              className="gap-1.5 px-3"
+            >
+              <Trash2 size={14} />
+              {t('settings.memory.hub.trash')}
+            </Button>
           </div>
         )}
 
@@ -317,6 +471,58 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
             </div>
           )}
 
+          {showTrash && (
+            <div className="flex flex-col gap-3">
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  setShowTrash(false);
+                  setLoadError(null);
+                }}
+                className="w-fit gap-1.5 px-3"
+              >
+                <ArrowLeft size={14} />
+                {t('settings.memory.hub.back')}
+              </Button>
+              <h3 className="text-15 font-medium text-[var(--settings-section-title)]">
+                {t('settings.memory.hub.trash')}
+              </h3>
+              {trash === null && !loadError && <Loader2 size={18} className="animate-spin" />}
+              {trash?.length === 0 && (
+                <p className="text-13 text-[var(--settings-section-desc)]">
+                  {t('settings.memory.hub.trashEmpty')}
+                </p>
+              )}
+              {trash?.map((entry) => (
+                <div
+                  key={entry.filename}
+                  className="flex items-center gap-3 rounded-xl border border-[var(--settings-theme-card-border)] p-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-13 font-medium text-[var(--settings-section-title)]">
+                      {entry.title}
+                    </p>
+                    <p className="text-13 text-[var(--settings-section-desc)]">
+                      {entry.description}
+                    </p>
+                    <p className="text-12 text-[var(--settings-section-desc)]">{entry.filename}</p>
+                  </div>
+                  {entry.type !== 'digest' && (
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void restoreEntry(entry.filename)}
+                      className="px-3"
+                    >
+                      {t('settings.memory.hub.restoreAction')}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {detailLoading && (
             <div className="flex items-center justify-center py-10 text-[var(--settings-section-desc)]">
               <Loader2 size={18} className="animate-spin" />
@@ -327,34 +533,152 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => setDetail(null)}
+                disabled={locked}
+                onClick={() => {
+                  setDetail(null);
+                  setConfirmDelete(false);
+                  setLoadError(null);
+                }}
                 className="flex w-fit items-center gap-1.5 text-13 text-[var(--settings-section-desc)] hover:text-[var(--settings-section-title)]"
               >
                 <ArrowLeft size={14} />
                 {t('settings.memory.hub.back')}
               </button>
-              <div>
-                <h3 className="text-15 font-medium text-[var(--settings-section-title)]">
-                  {detail.frontmatter.title}
-                </h3>
-                <p className="mt-0.5 text-13 text-[var(--settings-section-desc)]">
-                  {detail.frontmatter.description}
-                </p>
-                <p className="mt-1 text-12 text-[var(--settings-section-desc)]">
-                  {detail.filename} ·{' '}
-                  {t('settings.memory.hub.entryMeta', {
-                    size: formatMemoryHubSize(detail.sizeBytes),
-                    time: formatMemoryHubTimestamp(detail.frontmatter.updatedAt),
-                  })}
-                </p>
-              </div>
-              <pre className="whitespace-pre-wrap rounded-lg bg-[var(--settings-input-bg)] p-3 text-13 leading-[1.6] text-[var(--settings-section-title)]">
-                {detail.body}
-              </pre>
+              {detail.frontmatter.type !== 'digest' && !draft && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setDraft({
+                        title: detail.frontmatter.title,
+                        description: detail.frontmatter.description,
+                        body: detail.body,
+                      });
+                      setConfirmDelete(false);
+                      setLoadError(null);
+                    }}
+                    className="px-3"
+                  >
+                    {t('settings.memory.hub.edit')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(true)}
+                    className="px-3"
+                  >
+                    {t('settings.memory.hub.delete')}
+                  </Button>
+                </div>
+              )}
+              {confirmDelete && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--settings-theme-card-border)] p-3">
+                  <p className="w-full text-13 text-[var(--settings-section-desc)]">
+                    {t('settings.memory.hub.confirmDelete')}
+                  </p>
+                  <Button loading={busy} onClick={() => void deleteEntry()} className="px-3">
+                    {t('settings.memory.hub.delete')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-3"
+                  >
+                    {t('settings.memory.hub.cancel')}
+                  </Button>
+                </div>
+              )}
+              {draft ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void saveEntry();
+                  }}
+                  className="flex flex-col gap-3"
+                >
+                  {(['title', 'description', 'body'] as const).map((field) => (
+                    <label
+                      key={field}
+                      className="flex flex-col gap-1.5 text-13 text-[var(--settings-section-desc)]"
+                    >
+                      {t(`settings.memory.hub.edit${field[0].toUpperCase()}${field.slice(1)}`)}
+                      {field === 'body' ? (
+                        <textarea
+                          required
+                          disabled={busy}
+                          rows={12}
+                          value={draft.body}
+                          onChange={(event) => setDraft({ ...draft, body: event.target.value })}
+                          className="resize-y rounded-lg border border-[var(--settings-theme-card-border)] bg-[var(--settings-input-bg)] p-3 text-13 leading-[1.6] text-[var(--settings-section-title)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                        />
+                      ) : (
+                        <input
+                          autoFocus={field === 'title'}
+                          required
+                          disabled={busy}
+                          maxLength={field === 'title' ? 100 : 200}
+                          value={draft[field]}
+                          onChange={(event) => setDraft({ ...draft, [field]: event.target.value })}
+                          className="rounded-full border border-[var(--settings-theme-card-border)] bg-[var(--settings-input-bg)] px-3 py-2 text-13 text-[var(--settings-section-title)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                        />
+                      )}
+                    </label>
+                  ))}
+                  <p className="text-12 text-[var(--settings-section-desc)]">
+                    {t('settings.memory.hub.editHint')}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="submit"
+                      loading={busy}
+                      disabled={
+                        !draft.title.trim() || !draft.description.trim() || !draft.body.trim()
+                      }
+                      className="px-3"
+                    >
+                      {t('settings.memory.hub.save')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        setDraft(null);
+                        setLoadError(null);
+                      }}
+                      className="px-3"
+                    >
+                      {t('settings.memory.hub.cancel')}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <div>
+                    <h3 className="text-15 font-medium text-[var(--settings-section-title)]">
+                      {detail.frontmatter.title}
+                    </h3>
+                    <p className="mt-0.5 text-13 text-[var(--settings-section-desc)]">
+                      {detail.frontmatter.description}
+                    </p>
+                    <p className="mt-1 text-12 text-[var(--settings-section-desc)]">
+                      {detail.filename} ·{' '}
+                      {t('settings.memory.hub.entryMeta', {
+                        size: formatMemoryHubSize(detail.sizeBytes),
+                        time: formatMemoryHubTimestamp(detail.frontmatter.updatedAt),
+                      })}
+                    </p>
+                  </div>
+                  <pre className="whitespace-pre-wrap rounded-lg bg-[var(--settings-input-bg)] p-3 text-13 leading-[1.6] text-[var(--settings-section-title)]">
+                    {detail.body}
+                  </pre>
+                </>
+              )}
             </div>
           )}
 
-          {!detail && !detailLoading && grouped && (
+          {!showTrash && !detail && !detailLoading && grouped && (
             <div className="flex flex-col gap-4">
               {entries !== null && (
                 <p className="text-12 text-[var(--settings-section-desc)]">
@@ -375,7 +699,9 @@ export function MemoryHubDialog({ open, onClose }: { open: boolean; onClose: () 
                       onClick={() => void openDetail(hit.filename)}
                       className="rounded-lg border border-[var(--settings-theme-card-border)] px-3 py-2 text-left hover:bg-[var(--settings-input-bg)]"
                     >
-                      <p className="text-13 font-medium text-[var(--settings-section-title)]">{hit.title}</p>
+                      <p className="text-13 font-medium text-[var(--settings-section-title)]">
+                        {hit.title}
+                      </p>
                       <SnippetText snippet={hit.snippet} />
                     </button>
                   ))}
@@ -465,8 +791,12 @@ function EntryRow({
       onClick={onOpen}
       className="rounded-lg border border-[var(--settings-theme-card-border)] px-3 py-2 text-left hover:bg-[var(--settings-input-bg)]"
     >
-      <p className="text-13 font-medium text-[var(--settings-section-title)]">{entry.frontmatter.title}</p>
-      <p className="mt-0.5 text-12 text-[var(--settings-section-desc)]">{entry.frontmatter.description}</p>
+      <p className="text-13 font-medium text-[var(--settings-section-title)]">
+        {entry.frontmatter.title}
+      </p>
+      <p className="mt-0.5 text-12 text-[var(--settings-section-desc)]">
+        {entry.frontmatter.description}
+      </p>
       <p className="mt-1 text-12 text-[var(--settings-section-desc)]">{meta}</p>
     </button>
   );
