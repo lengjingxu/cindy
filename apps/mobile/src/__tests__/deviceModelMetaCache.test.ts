@@ -12,6 +12,7 @@ import {
   getCachedDeviceApiKeyStatus,
   getCachedDeviceModelPricing,
   getDeviceModelPricingGen,
+  refreshDeviceModelPricing,
   subscribeDeviceModelPricingGen,
 } from '@/device-link/deviceModelMetaCache';
 
@@ -75,6 +76,26 @@ describe('deviceModelMetaCache', () => {
     clearAllDeviceModelMeta();
     expect(getCachedDeviceApiKeyStatus('devA')).toBeUndefined();
     expect(getCachedDeviceModelPricing('devB')).toBeUndefined();
+  });
+
+  it('refresh:忽略缓存命中强制拉取,与在途去重', async () => {
+    await fetchDeviceModelPricing('devA', vi.fn().mockResolvedValue(PRICING));
+    expect(getCachedDeviceModelPricing('devA')).toEqual(PRICING);
+
+    const PRICING_V2 = { 'gpt-5.5': { inputUsdPerMtok: 4, outputUsdPerMtok: 20 } };
+    let release: (v: typeof PRICING_V2) => void = () => undefined;
+    const fetcher = vi.fn(() => new Promise<typeof PRICING_V2>((r) => { release = r; }));
+    const pending = refreshDeviceModelPricing('devA', fetcher);
+    // 缓存命中不短路:refresh 必须真正发起拉取。
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    // 与在途去重。
+    void refreshDeviceModelPricing('devA', fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    release(PRICING_V2);
+    await expect(pending).resolves.toEqual(PRICING_V2);
+    expect(getCachedDeviceModelPricing('devA')).toEqual(PRICING_V2);
   });
 
   it('代际:evict/clearAll 自增并通知订阅者,退订后不再通知', () => {

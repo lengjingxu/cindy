@@ -14,7 +14,10 @@ import {
   fetchDeviceModelPricing,
   getCachedDeviceApiKeyStatus,
   getCachedDeviceModelPricing,
+  getDeviceModelPricingFetchEpoch,
   getDeviceModelPricingGen,
+  markDeviceModelPricingFetchEpoch,
+  refreshDeviceModelPricing,
   subscribeDeviceModelPricingGen,
   type DeviceApiKeyStatus,
 } from './deviceModelMetaCache';
@@ -44,15 +47,27 @@ export function useDeviceModelPricing(deviceId?: string): MobileModelPricingMap 
     // 才采纳结果——evict 后更早出发的在途请求仍会 resolve 旧值,不得覆盖新拉取。
     const pull = (): void => {
       const cached = getCachedDeviceModelPricing(deviceId);
-      if (cached !== undefined) {
+      const prevEpoch = getDeviceModelPricingFetchEpoch(deviceId);
+      const reconnected = prevEpoch !== undefined && prevEpoch !== connectionEpoch;
+      if (cached !== undefined && !reconnected) {
+        // 干净命中:缓存属当前连接代次(无记录 = 首次标记,语义同 useDeviceProviders)。
         setPricing(cached);
+        markDeviceModelPricingFetchEpoch(deviceId, connectionEpoch);
         return;
       }
-      setPricing(null);
+      // cache-miss;或重连后命中旧代次缓存(离线宽限期内恢复会取消驱逐,缓存未清,
+      // greptile P1):保留可展示的旧值(miss 为 null 降级),强制刷新拿被控端当前真相。
+      setPricing(cached ?? null);
       const startGen = getDeviceModelPricingGen(deviceId);
-      void fetchDeviceModelPricing(deviceId, () => maker.getModelPricing()).then((res) => {
+      void (reconnected
+        ? refreshDeviceModelPricing(deviceId, () => maker.getModelPricing())
+        : fetchDeviceModelPricing(deviceId, () => maker.getModelPricing())
+      ).then((res) => {
         if (!cancelled && getDeviceModelPricingGen(deviceId) === startGen) {
           setPricing(res ?? null);
+          // 只在采信成功路径记录代次;失败保持旧代次,下次 effect 重跑仍判定
+          // reconnected → 重试(对齐 providers 的 markDeviceFetchEpoch)。
+          if (res !== undefined) markDeviceModelPricingFetchEpoch(deviceId, connectionEpoch);
         }
       });
     };

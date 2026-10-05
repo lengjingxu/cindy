@@ -13,6 +13,7 @@ import {
   clearAllDeviceModelMeta,
   evictDeviceModelMeta,
   fetchDeviceModelPricing,
+  refreshDeviceModelPricing,
 } from '@/device-link/deviceModelMetaCache';
 import { useDeviceModelPricing } from '@/device-link/useDeviceModelMeta';
 
@@ -84,6 +85,10 @@ describe('useDeviceModelPricing 生命周期刷新', () => {
     act(() => {
       releaseFirst(PRICING); // 旧响应(驱逐前发起)晚到
     });
+    // 先冲刷微任务,让代次守卫的 .then 回调执行完再断言;否则守卫失效时旧值
+    // 会稍后才写入,断言提前通过造成漏报(greptile P2)。
+    await Promise.resolve();
+    await Promise.resolve();
     expect(result.current).toBeNull(); // 旧值不得覆盖
 
     act(() => {
@@ -115,6 +120,24 @@ describe('useDeviceModelPricing 生命周期刷新', () => {
       release(PRICING);
     });
     await waitFor(() => expect(result.current).toEqual(PRICING));
+  });
+
+  it('宽限期内重连(驱逐被取消):缓存命中也强制刷新新值', async () => {
+    // 首次成功拉取并记录缓存所属连接代次。
+    getModelPricing.mockResolvedValueOnce(PRICING);
+    const { result, rerender } = renderHook(() => useDeviceModelPricing('devA'));
+    await waitFor(() => expect(result.current).toEqual(PRICING));
+    expect(getModelPricing).toHaveBeenCalledTimes(1);
+
+    // 同设备重连(离线宽限期内恢复,驱逐被取消,缓存未清):effect 重跑命中缓存,
+    // 但缓存属旧连接代次,须强制刷新拿被控端当前价(greptile P1)。
+    getModelPricing.mockResolvedValueOnce(PRICING_V2);
+    act(() => {
+      linkState.connectionEpoch = 1;
+    });
+    rerender();
+    await waitFor(() => expect(result.current).toEqual(PRICING_V2));
+    expect(getModelPricing).toHaveBeenCalledTimes(2);
   });
 
   it('离线驱逐重拉失败维持降级;重连后重拉拿到新值', async () => {
