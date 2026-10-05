@@ -1,6 +1,7 @@
 export const DESKTOP_COMPANION_GET_STATE_CHANNEL = 'desktop-companion:get-state';
 export const DESKTOP_COMPANION_SET_ENABLED_CHANNEL = 'desktop-companion:set-enabled';
 export const DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL = 'desktop-companion:set-location-enabled';
+export const DESKTOP_COMPANION_SET_SYSTEM_ENABLED_CHANNEL = 'desktop-companion:set-system-enabled';
 export const DESKTOP_COMPANION_REFRESH_CHANNEL = 'desktop-companion:refresh';
 export const DESKTOP_COMPANION_STATE_EVENT_CHANNEL = 'desktop-companion:state';
 export const DESKTOP_COMPANION_GET_PREVIEW_CHANNEL = 'desktop-companion:get-preview';
@@ -16,11 +17,13 @@ export type DesktopCompanionStatus = 'idle' | 'generating' | 'ready' | 'error';
 export interface DesktopCompanionSettings {
   enabled: boolean;
   locationEnabled: boolean;
+  systemEnabled: boolean;
 }
 
 export const DEFAULT_DESKTOP_COMPANION_SETTINGS: DesktopCompanionSettings = {
   enabled: false,
   locationEnabled: false,
+  systemEnabled: false,
 };
 
 export interface DesktopCompanionReuseItem {
@@ -33,8 +36,11 @@ export interface DesktopCompanionReuseItem {
 
 export interface DesktopCompanionSnapshot {
   supported: boolean;
+  systemSupported: boolean;
+  generation: number;
   enabled: boolean;
   locationEnabled: boolean;
+  systemEnabled: boolean;
   status: DesktopCompanionStatus;
   lastTopic: string | null;
   lastUpdatedAt: number | null;
@@ -50,6 +56,7 @@ export function normalizeDesktopCompanionSettings(raw: unknown): DesktopCompanio
   return {
     enabled: record.enabled === true,
     locationEnabled: record.locationEnabled === true,
+    systemEnabled: record.systemEnabled === true,
   };
 }
 

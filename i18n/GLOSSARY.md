@@ -183,6 +183,10 @@ Anthropic Messages API / wire protocol 的用户可见名称。四语统一保�
 
 Cindy 在 X 上发出的那条公开回复。zh-CN 取「回帖」以强调它是**一条公开帖子**而不是私聊消息——这正是 X 与 Slack / Telegram 的性质差异, 也是风险告知的核心。与「消息」区分开: 后者按 task-and-conversation-naming 只用于任务内的单条往来。proposed 同上。
 
+### Workbench
+
+伙伴主任务右侧栏里的标签：主人交给伙伴的项目，以及项目里的任务、自动化与产出（docs/product-rules/cindy-bots-runtime.md「工作台」一节）。只指这个伙伴视图，不泛指任务列表或其它面板。先登记为 proposed，待 Chris 实机试用后再定。
+
 ### Security check
 
 登录邮箱发码前的 CAPTCHA(Cloudflare Turnstile)挑战。中文用「安全验证」(腾讯/阿里系产品的通行叫法,2026-08-19 用户反馈弃用「人机验证」;与「验证码」= verification code 消歧——后者已被 login.codePlaceholder 占用指 6 位数字码);en 用 Security check 而非品牌词 Turnstile 或缩写 CAPTCHA。消费处:login.captcha.* 与 login.errors.CAPTCHA_*(desktop 五语 + mobile 影子 catalog)。
@@ -211,13 +215,13 @@ Cindy AI 个人账号的免费会员身份标签。只在服务端明确下发 a
 
 Cindy Make 设置中保留全部制作、修改轮次与合入记录的列表；结束制作及清理工作目录后仍可回看。
 
-### Reapply integration
+### Add back to personal version
 
 重新应用之前明确撤销的制作改动，区别于把尚未合入的新修改首次加入个人源码。
 
-### Undo integration
+### Remove from personal version
 
-撤销单次制作已合入个人源码的全部改动，保留其他制作与已有应用成品；通过新的反向提交实现。
+从个人版移除单次制作已经加入的全部改动，保留其他制作与已有应用成品；底层通过新的反向提交实现，不改写 Git 历史。
 
 ### Version Control
 
@@ -249,7 +253,7 @@ Cindy Make 生成的本机定制应用成品。可与原版切换并沿用同一
 
 ### Desktop presence
 
-设置「灵动岛」页里按任务、记忆、时间、位置更换 macOS 系统桌面的能力。不要写成桌宠、动态壁纸引擎、Live Wallpaper。
+旧版桌面互动名称；当前统一入口为外观设置中的记忆壁纸，保留旧术语供历史记录使用。
 
 ### Release
 
@@ -287,6 +291,22 @@ OAuth 2.0 Device Authorization Grant 中由用户在另一设备验证页输入�
 
 远程桌面操作菜单的安全设置；仅用于可选的本机保存密码自动解锁。
 
+### Group Admin
+
+可管理群资料和成员，但不能替伙伴主人授权工具或私人资料。群设置内可简称管理员 / Admin。
+
+### Group chat
+
+伙伴群聊：用户把 2–6 位伙伴放进一个群，用户说一句，伙伴们按规则接话（docs/product-rules/bot-group-chat.md）。群是独立对象，不是任务，也不是某位伙伴的主任务；群里的单条往来仍叫「消息」（见 task-and-conversation-naming）。英文分两层：侧栏标题与按钮用 Title Case（Group Chats、New Group Chat），句中用小写 group chat——故 checkCase 为 false。zh-CN 短句里可简称「群」（群名称、群设置）。与企业微信「群机器人」（wecom-group-bot）等 IM 平台的群概念无关。先登记为 proposed：第一阶段刚落地，等 UI 走查后再定。
+
+### Group Nickname
+
+仅在单个群中显示的名字。为空时使用账号显示名；不覆盖个人资料名字或稳定身份。
+
+### Group Owner
+
+Chat Server 的群角色，可由人或伙伴担任；不要与伙伴主人或分工负责人混同。群设置成员行英文可简写 Owner。
+
 ### Harness
 
 用于任务筛选、搜索筛选，以及用户确认并公开提交 Issue 时显示承载当前 Agent 的运行框架。五语暂统一保留英文 Harness；具体值固定使用 Claude Code、Codex、Pi 的公开全名，不使用 cc/cx/pi 等内部缩写。
@@ -294,6 +314,10 @@ OAuth 2.0 Device Authorization Grant 中由用户在另一设备验证页输入�
 ### Hunyuan
 
 模型显示品牌采用官方中文名称，版本号和变体原样保留；仅用于展示与搜索，不改模型 ID 或用户保存的名称。
+
+### Invitation Code
+
+共享任务加入表单中由房主提供、访客输入的代码；用户要求明确称为邀请码，避免被理解为任意邀请文本。
 
 ### iOS Simulator
 
@@ -326,6 +350,10 @@ Orca 协同角色名，与 Worker 成对。五语统一保留英文 Lead，不�
 ### Erika
 
 灵动岛角色皮肤名(设置页「图标皮肤」列表)。角色专名,四语统一保留拉丁原词,不做音译(避免「艾莉卡 / エリカ / 에리카」多套写法)。
+
+### Memory wallpaper
+
+外观壁纸里的记忆生成模式，同一画面可用于 Cindy 应用和 macOS 系统桌面。只使用当前账号记忆标题，图片不进入跨账号共享壁纸。
 
 ### Audio Generation
 
@@ -370,6 +398,10 @@ issue #882：模型管理/新对话选择器的分类标签，对应 Gateway mod
 ### OpenClaw
 
 腾讯授权页可能展示的外部产品名称，客户端仅按原品牌名展示；先登记为 proposed，待产品术语评审后再决定是否固化。
+
+### Organizer
+
+伙伴群聊里负责出安排、改安排的那位成员（docs/product-rules/bot-group-chat.md §7.1）：群设置里指定，未指定或已不可用时由成员顺序里第一位可用的伙伴担任。英文**不得**写作 Lead——Lead 是 Orca 协同的角色名（见 lead 条目）。标签与按钮用 Title Case（Organizer、Make Organizer），句中用小写 organizer，故 checkCase 为 false。先登记为 proposed：第二阶段刚落地，等 UI 走查后再定。
 
 ### Overview
 
@@ -491,6 +523,10 @@ Orca Worker 创建卡上的命名字段。它只是派活用的名字，不改�
 
 日志上报文案里对「App 自身运行日志」的用户可见说法。刻意不直接叫「日志」: 设置页同屏已有「日志目录」「Debug 日志」两处指本地文件, 而这里要表达的是被上报的那部分内容(基础设施运行记录, 不含对话)。proposed: 与「日志」的分工尚未产品裁决。
 
+### Shared Session
+
+远程连接的多人版本，按单个任务共享完整上下文和同一 Agent，不作为独立会议产品。
+
 ### shortcut listener permission
 
 macOS TCC 的 kTCCServiceListenEvent(系统设置里叫「输入监控」)在 Cindy 内的对外称法。产品侧只按用途讲: 这个权限只服务语音输入快捷键的监听, 不讲系统实现, 所以 zh-CN 沿用设置页权限项已有的「监听权限」(settings.voiceInput.permissions.inputMonitoring.label), 不引入「输入监控」这个直译——后者听起来像 Cindy 在监控用户的全部输入, 与实际能力(只识别快捷键按键组合)不符, 反而制造隐私误解。禁用项都挂 whenEn 条件: 要引用 macOS 系统设置面板名本身时那是 OS 的 UI 名称, 不受本条约束。四语的比喻不统一(en listener / ja 監視 / ko 감지)是现状登记而非裁决——各语言内部一致但跨语言不同, 保持 proposed 等产品拍板, 先把清单摆出来防止继续在 listener / monitoring / detection 之间漂移。
@@ -504,6 +540,10 @@ macOS TCC 的 kTCCServiceListenEvent(系统设置里叫「输入监控」)在 Ci
 ### Smart routing
 
 Codex Subagent 的可选扩展调配开关。默认关闭以保留 Codex 原生 Sol/Terra 调配；开启后允许 Codex 从 Cindy 已连接的更多模型中按任务选择。
+
+### Tag
+
+任务列表的 Finder 式颜色标签；仅标识任务，不改变运行状态。用户已确认显示为重叠色球，整合现有任务菜单，当前不增加筛选入口。
 
 ### Teammate
 
@@ -533,6 +573,10 @@ Cindy 里的**持久 AI 助手实体**（原名 Bot）：有长期身份、自�
 
 语音输入的用户自定义术语表(人名、产品名、代号与其常见误识别写法),在同账号的电脑之间自动同步、手机只读查看。当前先采用四语直译并登记为待讨论术语,避免与「自定义词典」「术语表」「用户词库」等说法混用。
 
+### Wallpaper
+
+Desktop appearance setting for an in-app visual background layer.
+
 ### WeChat
 
 个人微信连接的产品名称，沿用微信官方品牌写法；先登记为 proposed，待产品术语评审后再决定是否固化。
@@ -552,6 +596,10 @@ Cindy 里的**持久 AI 助手实体**（原名 Bot）：有长期身份、自�
 ### withdraw (a reply)
 
 用户在 X 上让 Cindy 删掉它那条公开回帖的动作(在回帖下回 /delete)。zh-CN 取「撤回」而不是「删除」——「删除」在本仓已大量用于删任务/删会话/删文件, 而这个动作的对象是「已经发出去的公开内容」, 与 IM 里的消息撤回同义。刻意登记为 proposed: X 撤回是新功能(server PR #288 / client 侧告知), 四语只有这一处用例, 等更多用例出现后再定 decided。
+
+### Work split
+
+伙伴群聊第二阶段：负责人把一件事分成几步派给群里的伙伴，用户点「开始」后伙伴一位接一位做，每做完一步停下等用户点「继续」（docs/product-rules/bot-group-chat.md §7）。英文动作说法 split the work（输入框「+」菜单「安排分工」= Split the Work），名词 work split；句中小写，故 checkCase 为 false。**不得**译作「协同 / 協同 / Collaboration」（Orca 多 Agent 协同的功能名，见 collaboration 条目）、「协作」（共享任务）或「接力」。分工里的每一步叫「一步 / step」，不叫「任务」（见 task-and-conversation-naming）；负责人出的方案叫「安排 / plan」。先登记为 proposed：第二阶段刚落地，等 UI 走查后再定。
 
 ## 怎么加一条术语
 

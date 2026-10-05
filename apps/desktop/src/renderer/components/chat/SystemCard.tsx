@@ -1,3 +1,6 @@
+import { formatCompactionDuration, formatSessionDuration, formatShellDuration } from '@/lib/sessionDurationFormat';
+import { Button } from '@/components/ui/button';
+import { BotSessionTaskResultCard } from '@/features/bots/BotSessionTaskResultCard';
 /**
  * SystemCard
  * ---------------------------------------------------------------------------
@@ -21,6 +24,11 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 
+import {
+  hasInterruptionContext,
+  readAutoResumeInfo,
+  type AutoResumeCardInfo,
+} from '@/lib/autoResumePresentation';
 import { cn } from '@/lib/utils';
 import { Collapse } from '@/components/ui/collapse';
 import { Spinner } from '@/components/ui/spinner';
@@ -68,6 +76,7 @@ interface SystemCardProps {
     | 'agent-switch'
     | 'bot-session-task-message'
     | 'bot-session-task'
+    | 'bot-session-task-result'
     | 'bot-direct-message'
     | 'bot-authorization'
     | 'context-rebuild';
@@ -143,11 +152,13 @@ function HelpCard({ data }: { data?: Record<string, unknown> }) {
 
   return (
     <div className={cardClass}>
-      <div className={titleClass}>Available Commands</div>
+      <div className={titleClass}>{t('chat.systemCard.help.title')}</div>
       {desktopCmds.length > 0 && renderCommandRows(desktopCmds)}
       {agentBuiltinCmds.length > 0 && (
         <>
-          <div className={cn(titleClass, desktopCmds.length > 0 && 'mt-3')}>Built-in Commands</div>
+          <div className={cn(titleClass, desktopCmds.length > 0 && 'mt-3')}>
+            {t('chat.systemCard.help.builtInCommands')}
+          </div>
           {renderCommandRows(agentBuiltinCmds)}
         </>
       )}
@@ -159,26 +170,27 @@ function HelpCard({ data }: { data?: Record<string, unknown> }) {
               (desktopCmds.length > 0 || agentBuiltinCmds.length > 0) && 'mt-3',
             )}
           >
-            Project Commands
+            {t('chat.systemCard.help.projectCommands')}
           </div>
           {renderCommandRows(projectCmds)}
         </>
       )}
-      {commands.length === 0 && <div className={labelClass}>No commands available.</div>}
+      {commands.length === 0 && <div className={labelClass}>{t('chat.systemCard.help.empty')}</div>}
     </div>
   );
 }
 
 function CostCard({ data }: { data?: Record<string, unknown> }) {
+  const { t } = useTranslation();
   const tokenUsage = (data?.tokenUsage as number) ?? 0;
   const tokenText = tokenUsage >= 1000 ? `${(tokenUsage / 1000).toFixed(1)}k` : String(tokenUsage);
 
   return (
     <div className={cardClass}>
-      <div className={titleClass}>Session Cost</div>
+      <div className={titleClass}>{t('chat.systemCard.cost.title')}</div>
       <div className="flex flex-col gap-[2px]">
         <div className={rowClass}>
-          <span className={labelClass}>Tokens used (this turn)</span>
+          <span className={labelClass}>{t('chat.systemCard.cost.tokensUsed')}</span>
           <span className={valueClass}>{tokenText}</span>
         </div>
       </div>
@@ -688,45 +700,49 @@ function fmtContextTokens(n: number): string {
 }
 
 function PwdCard({ data }: { data?: Record<string, unknown> }) {
-  const workingDir = (data?.workingDir as string) ?? '(not set)';
+  const { t } = useTranslation();
+  const workingDir = (data?.workingDir as string) ?? t('chat.systemCard.pwd.notSet');
 
   return (
     <div className={cardClass}>
-      <div className={titleClass}>Working Directory</div>
+      <div className={titleClass}>{t('chat.systemCard.pwd.title')}</div>
       <span className={cn(codeClass, 'text-14')}>{workingDir}</span>
     </div>
   );
 }
 
 function StatusCard({ data }: { data?: Record<string, unknown> }) {
+  const { t } = useTranslation();
   const model = (data?.model as string) ?? '';
   const effort = (data?.effort as string) ?? '';
   const permissionMode = (data?.permissionMode as string) ?? '';
-  const workingDir = (data?.workingDir as string) ?? '(not set)';
+  const workingDir = (data?.workingDir as string) ?? t('chat.systemCard.pwd.notSet');
   const isRunning = (data?.isRunning as boolean) ?? false;
 
   return (
     <div className={cardClass}>
-      <div className={titleClass}>Session Status</div>
+      <div className={titleClass}>{t('chat.systemCard.status.title')}</div>
       <div className="flex flex-col gap-[2px]">
         <div className={rowClass}>
-          <span className={labelClass}>Agent</span>
-          <span className={valueClass}>{isRunning ? 'Running' : 'Idle'}</span>
+          <span className={labelClass}>{t('chat.systemCard.status.agent')}</span>
+          <span className={valueClass}>
+            {isRunning ? t('chat.systemCard.status.running') : t('chat.systemCard.status.idle')}
+          </span>
         </div>
         <div className={rowClass}>
-          <span className={labelClass}>Model</span>
+          <span className={labelClass}>{t('chat.systemCard.status.model')}</span>
           <span className={valueClass}>{model}</span>
         </div>
         <div className={rowClass}>
-          <span className={labelClass}>Effort</span>
+          <span className={labelClass}>{t('chat.systemCard.status.effort')}</span>
           <span className={valueClass}>{effort}</span>
         </div>
         <div className={rowClass}>
-          <span className={labelClass}>Permission mode</span>
+          <span className={labelClass}>{t('chat.systemCard.status.permissionMode')}</span>
           <span className={valueClass}>{permissionMode}</span>
         </div>
         <div className={rowClass}>
-          <span className={labelClass}>Working directory</span>
+          <span className={labelClass}>{t('chat.systemCard.pwd.title')}</span>
           <span className={valueClass}>{workingDir}</span>
         </div>
       </div>
@@ -755,7 +771,9 @@ function CompactBoundaryCard({ data }: { data?: Record<string, unknown> }) {
   // post_tokens / duration_ms fields.
   const stats: string[] = [];
   if (saved > 0) stats.push(t('chat.systemCard.compact.savedTokens', { tokens: fmtTokens(saved) }));
-  if (durationMs > 0) stats.push(`${(durationMs / 1000).toFixed(1)}s`);
+  if (durationMs > 0) {
+    stats.push(formatCompactionDuration(durationMs, t));
+  }
   const triggerLabel =
     trigger === 'manual' ? t('chat.systemCard.compact.manual') : t('chat.systemCard.compact.auto');
 
@@ -786,14 +804,6 @@ function CompactBoundaryCard({ data }: { data?: Record<string, unknown> }) {
  * 它不是要读的信息面板,而是会话里的一条达成标记("目标已达成 · N 轮 · 耗时 X")。
  * 由 mapServerMessages 从持久化的 agentMeta.goalCompletion 派生(重开会话仍在)。
  */
-function fmtGoalDuration(ms: number): string {
-  const totalSec = Math.max(0, Math.round(ms / 1000));
-  if (totalSec < 60) return `${totalSec}s`;
-  const min = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
-}
-
 function GoalCompleteCard({ data }: { data?: Record<string, unknown> }) {
   const { t } = useTranslation();
   const turnsUsed = typeof data?.turnsUsed === 'number' ? data.turnsUsed : 0;
@@ -801,7 +811,7 @@ function GoalCompleteCard({ data }: { data?: Record<string, unknown> }) {
   const reason = typeof data?.reason === 'string' ? data.reason : '';
   const label = t('goal.complete.record', {
     turns: turnsUsed,
-    duration: fmtGoalDuration(elapsedMs),
+    duration: formatSessionDuration(elapsedMs, t, { minimumSeconds: 0 }),
   });
 
   return (
@@ -849,53 +859,6 @@ function GoalResumedCard({ data }: { data?: { kind?: string } }) {
       <div className="h-px flex-1 bg-[var(--msg-tool-card-border)]" />
     </div>
   );
-}
-
-/**
- * silent-stop 自动续跑分隔条:上游空响应静默收尾后,main 守卫自动补发了隐藏的
- * 「继续」。用户不看到用户气泡,只看到这条轻分隔线标记"上一段与下一段之间发生过
- * 一次自动接续"(否则模型"一句话断成两段凭空接着说"会让人怀疑消息丢了)。
- * 复用 CompactBoundaryCard / GoalResumedCard 的分隔条视觉语言。
- */
-/** 活动行需要的展示信息(从 systemCardData 松散读取,缺字段一律降级而不是崩)。 */
-interface AutoResumeCardInfo {
-  error?: string;
-  attempt?: number;
-  maxAttempts?: number;
-  sessionTotal?: number;
-  /** 结果:由 main 在产出 / 再次被打断时回填;缺省 = 还在等结果。 */
-  outcome?: 'succeeded' | 'failed';
-}
-
-/**
- * 这条自动续跑记录属于「中断重连」还是 silent-stop 的「空回复后续跑」。
- *
- * 判据是有没有任何中断上下文（原因 / 次数 / 累计 / 结果）。**必须区分**：silent-stop 那条
- * 路径也走 `auto-resume` 卡，但它不是重连——把三态重连行套上去，历史里那条「已自动继续」
- * 会变成语义错误的「重新连接」（copilot review）。
- */
-function hasInterruptionContext(info: AutoResumeCardInfo): boolean {
-  return (
-    info.error !== undefined ||
-    info.attempt !== undefined ||
-    info.maxAttempts !== undefined ||
-    info.sessionTotal !== undefined ||
-    info.outcome !== undefined
-  );
-}
-
-function readAutoResumeInfo(data?: Record<string, unknown>): AutoResumeCardInfo {
-  const num = (v: unknown) =>
-    typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
-  return {
-    ...(typeof data?.error === 'string' && data.error.length > 0 ? { error: data.error } : {}),
-    ...(num(data?.attempt) !== undefined ? { attempt: num(data?.attempt) } : {}),
-    ...(num(data?.maxAttempts) !== undefined ? { maxAttempts: num(data?.maxAttempts) } : {}),
-    ...(num(data?.sessionTotal) !== undefined ? { sessionTotal: num(data?.sessionTotal) } : {}),
-    ...(data?.outcome === 'succeeded' || data?.outcome === 'failed'
-      ? { outcome: data.outcome }
-      : {}),
-  };
 }
 
 /**
@@ -1327,14 +1290,17 @@ function ReviewCard({ data, workingDir }: { data?: Record<string, unknown>; work
         )}
         <span className="min-w-0 flex-1 font-medium">{t(`chat.systemCard.review.${status}`)}</span>
         {reviewerSessionId && (
-          <button
+          <Button
+            variant="secondary"
+            size="xs"
+            compact
+            tone="quiet"
             type="button"
             onClick={() => navigate(`/cc-agent/${reviewerSessionId}`)}
-            className="flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted/50"
           >
             {t('chat.systemCard.review.openTask')}
             <ArrowRight size={12} />
-          </button>
+          </Button>
         )}
       </div>
       {status === 'running' && (
@@ -1418,6 +1384,8 @@ export function SystemCard({
       return <ReviewCard data={data} workingDir={workingDir} />;
     case 'bot-session-task-message':
       return <BotSessionTaskMessageTrace data={data} />;
+    case 'bot-session-task-result':
+      return <BotSessionTaskResultCard data={data} sessionId={sessionId} />;
     case 'bot-session-task':
       return <BotSessionTaskCard data={data} sessionId={sessionId} />;
     case 'bot-authorization':
@@ -1438,6 +1406,7 @@ export function SystemCard({
 // apps/desktop/src/main/commands/builtins.ts:CmdExecutionResult。
 
 function CmdCard({ data }: { data?: Record<string, unknown> }) {
+  const { t } = useTranslation();
   const cmdLine = (data?.cmdLine as string) ?? '';
   const cwd = (data?.cwd as string) ?? '';
   const exitCode = (data?.exitCode as number) ?? -1;
@@ -1485,7 +1454,9 @@ function CmdCard({ data }: { data?: Record<string, unknown> }) {
       <div className="flex items-center gap-2">
         <span className={cn(titleClass, 'mb-0')}>$ Shell</span>
         {statusChip}
-        <span className={cn(labelClass, 'text-12 ml-auto')}>{elapsedMs}ms</span>
+        <span className={cn(labelClass, 'text-12 ml-auto')}>
+          {formatShellDuration(elapsedMs, t)}
+        </span>
       </div>
 
       <pre className={cmdLineClass}>{cmdLine || '<empty>'}</pre>

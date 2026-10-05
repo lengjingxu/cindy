@@ -1,6 +1,4 @@
 import { BrowserWindow, ipcMain, systemPreferences } from 'electron';
-import fs from 'node:fs';
-import path from 'node:path';
 
 import {
   DESKTOP_COMPANION_GET_STATE_CHANNEL,
@@ -8,66 +6,40 @@ import {
   DESKTOP_COMPANION_REFRESH_CHANNEL,
   DESKTOP_COMPANION_SET_ENABLED_CHANNEL,
   DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL,
+  DESKTOP_COMPANION_SET_SYSTEM_ENABLED_CHANNEL,
   DESKTOP_COMPANION_STATE_EVENT_CHANNEL,
 } from '../../shared/desktopCompanion.js';
-import { activeOwnerScopeKey, ownerScopedUserDataPath } from '../appSessionState.js';
+import { activeOwnerScopeKey, getActiveAppSession, isAppSessionBoundaryPending, ownerScopedUserDataPath } from '../appSessionState.js';
 import { throwIpcError } from '../utils/ipcValidate.js';
+import { readBoundedFileNoFollow } from '../utils/readBoundedFile.js';
+import { assertTrustedAppRendererEvent, isTrustedAppRendererWindow } from '../security/trustedAppRenderer.js';
+import { parseBlobUrl } from '../cindy-media/blobStore.js';
+import { readMemorySettings } from '../maker-host/memory-settings-store.js';
 import { createLogger } from '../logger.js';
 
 import { generateDesktopCompanionStill, generateDesktopCompanionVideo, peekDesktopCompanionMedia } from './media.js';
 import { listMemoryTopics } from './memories.js';
 import { characterReferencePath, MacDesktopCompanionNativeHost } from './nativeHost.js';
-import { DesktopCompanionService, materializeToApplyDir } from './service.js';
-import { readPersistedState, writePersistedState } from './store.js';
+import { DesktopCompanionService } from './service.js';
+import { normalizePersistedState, readPersistedState, writePersistedState } from './store.js';
 import { readRecentCompanionTask } from './tasks.js';
+import { companionMediaExists, companionMediaPath, releaseCompanionMedia, storeCompanionMedia } from './managedMedia.js';
 
 const log = createLogger('desktop-companion');
-
 let service: DesktopCompanionService | null = null;
 let nativeHost: MacDesktopCompanionNativeHost | null = null;
 let runtimeStarted = false;
+
+function hasOwner(): boolean {
+  return Boolean(getActiveAppSession().dataOwnerId) && !isAppSessionBoundaryPending();
+}
 
 function statePath(): string {
   return ownerScopedUserDataPath('desktop-companion', 'state.json');
 }
 
-function applyDir(): string {
-  return ownerScopedUserDataPath('desktop-companion', 'apply');
-}
-
-function shouldReduceMotion(): boolean {
-  try {
-    return systemPreferences.getAnimationSettings?.().prefersReducedMotion === true;
-  } catch {
-    return false;
-  }
-}
-
-function ownerKey(): string {
-  // 含 owner scope key（含账号代次）：同 owner 的 generation bump 也会使
-  // 在途生成失效，避免切号/重登后旧代次越过隐私边界（review #4706 复审）。
-  return ownerScopedUserDataPath('desktop-companion') + ':' + activeOwnerScopeKey();
-}
-
-function removeFile(filePath: string): void {
-  try {
-    fs.rmSync(filePath, { force: true });
-  } catch {
-    // best-effort cache cleanup
-  }
-}
-
-function sweepOrphans(keep: ReadonlySet<string>): void {
-  try {
-    for (const entry of fs.readdirSync(applyDir())) {
-      const fullPath = path.join(applyDir(), entry);
-      if (!keep.has(fullPath) && fs.statSync(fullPath).isFile()) {
-        removeFile(fullPath);
-      }
-    }
-  } catch {
-    // apply dir may not exist yet
-  }
+function assertOwner(): void {
+  if (!hasOwner()) throwIpcError('INTERNAL', 'Wallpaper account is not ready');
 }
 
 export function getDesktopCompanionService(): DesktopCompanionService {
@@ -76,107 +48,112 @@ export function getDesktopCompanionService(): DesktopCompanionService {
   service = new DesktopCompanionService({
     now: () => Date.now(),
     isMac: () => process.platform === 'darwin',
-    shouldReduceMotion,
-    readState: () => readPersistedState(statePath()),
-    writeState: (next) => writePersistedState(statePath(), next),
-    applyDir,
+    shouldReduceMotion: () => systemPreferences.getAnimationSettings?.().prefersReducedMotion === true,
+    readState: () => hasOwner() ? readPersistedState(statePath()) : normalizePersistedState(null),
+    writeState: (next) => { assertOwner(); writePersistedState(statePath(), next); },
     characterRefPath: characterReferencePath,
-    ownerKey,
-    removeFile,
-    sweepOrphans,
+    ownerKey: activeOwnerScopeKey,
+    removeFile: (source) => {
+      void releaseCompanionMedia(source).catch(() => log.warn('Wallpaper reference cleanup failed'));
+    },
+    exists: companionMediaExists,
     collectContext: async (locationEnabled) => {
-      const task = await readRecentCompanionTask().catch((error) => {
-        log.warn('read task failed', { error: String(error) });
-        return null;
-      });
-      const memoryRoot = ownerScopedUserDataPath('maker-memory');
-      const memoryTopics = listMemoryTopics(memoryRoot);
-      let city: string | null = null;
-      if (locationEnabled) {
-        try {
-          city = (await nativeHost?.locateCity()) ?? null;
-        } catch (error) {
-          log.warn('locate failed', { error: String(error) });
-        }
-      }
+      assertOwner();
+      const owner = activeOwnerScopeKey();
+      const memoryTopics = readMemorySettings().maker
+        ? listMemoryTopics(ownerScopedUserDataPath('maker-memory'))
+        : [];
+      const task = await readRecentCompanionTask();
+      if (!hasOwner() || activeOwnerScopeKey() !== owner) throw new Error('ACCOUNT_CHANGED');
+      const city = locationEnabled && process.platform === 'darwin' ? await nativeHost!.locateCity() : null;
+      if (!hasOwner() || activeOwnerScopeKey() !== owner) throw new Error('ACCOUNT_CHANGED');
       return { taskTitle: task?.title ?? null, memoryTopics, city };
     },
-    peekMedia: peekDesktopCompanionMedia,
+    peekMedia: () => hasOwner() ? peekDesktopCompanionMedia() : { image: false, video: false },
     generateStill: (prompt, refPath) => generateDesktopCompanionStill({ prompt, refPath }),
-    generateVideo: (prompt, stillPath) => generateDesktopCompanionVideo({ prompt, stillPath }),
-    materialize: (media, kind) => materializeToApplyDir(applyDir(), media, kind),
-    setWallpaper: async (stillPath) => {
-      await nativeHost?.setWallpaper(stillPath);
-    },
-    playVideo: async (videoPath) => {
-      await nativeHost?.playVideo(videoPath);
-    },
-    stopVideo: async () => {
-      await nativeHost?.stopVideo();
-    },
-    toPreviewSrc: (filePath) => filePath,
+    generateVideo: (prompt, source, assertStillValid) => generateDesktopCompanionVideo({ prompt, stillPath: companionMediaPath(source), assertStillValid }),
+    materialize: storeCompanionMedia,
+    setWallpaper: (source, assertStillValid) => nativeHost!.setWallpaper(companionMediaPath(source), assertStillValid),
+    playVideo: (source, assertStillValid) => nativeHost!.playVideo(companionMediaPath(source), assertStillValid),
+    stopVideo: () => nativeHost!.stopVideo(),
+    // An opaque marker preserves old previews without disclosing a disk path.
+    toPreviewSrc: (source) => source ? (parseBlobUrl(source) ? source : 'legacy') : null,
   });
   return service;
 }
 
 export function startDesktopCompanion(): void {
-  if (process.platform !== 'darwin') return;
   getDesktopCompanionService().start();
 }
 
 export async function resetDesktopCompanion(): Promise<void> {
-  if (!service) return;
-  service.stop();
+  service?.stop();
   await nativeHost?.stop();
-  service.start();
 }
 
 export async function disposeDesktopCompanion(): Promise<void> {
-  if (!service) return;
-  service.stop();
-  await nativeHost?.stop();
+  await resetDesktopCompanion();
 }
 
 function broadcastDesktopCompanionState(): void {
   if (!service) return;
   const snapshot = service.snapshot();
   for (const window of BrowserWindow.getAllWindows()) {
-    window.webContents.send(DESKTOP_COMPANION_STATE_EVENT_CHANNEL, snapshot);
+    if (isTrustedAppRendererWindow(window))
+      window.webContents.send(DESKTOP_COMPANION_STATE_EVENT_CHANNEL, snapshot);
   }
 }
 
 function registerDesktopCompanionIpc(): void {
   const companion = getDesktopCompanionService();
-  companion.subscribe(() => broadcastDesktopCompanionState());
-  ipcMain.handle(DESKTOP_COMPANION_GET_STATE_CHANNEL, () => companion.snapshot());
-  ipcMain.handle(DESKTOP_COMPANION_SET_ENABLED_CHANNEL, async (_event, enabled: unknown) => {
-    if (typeof enabled !== 'boolean') throwIpcError('INVALID_PARAMS', 'enabled must be boolean');
-    return companion.setEnabled(enabled);
+  companion.subscribe(broadcastDesktopCompanionState);
+  ipcMain.handle(DESKTOP_COMPANION_GET_STATE_CHANNEL, (event) => {
+    assertTrustedAppRendererEvent(event);
+    return companion.snapshot();
   });
-  ipcMain.handle(DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL, async (_event, enabled: unknown) => {
-    if (typeof enabled !== 'boolean') throwIpcError('INVALID_PARAMS', 'locationEnabled must be boolean');
-    return companion.setLocationEnabled(enabled);
+  for (const [channel, apply] of [
+    [DESKTOP_COMPANION_SET_ENABLED_CHANNEL, (value: boolean) => companion.setEnabled(value)],
+    [DESKTOP_COMPANION_SET_LOCATION_ENABLED_CHANNEL, (value: boolean) => companion.setLocationEnabled(value)],
+    [DESKTOP_COMPANION_SET_SYSTEM_ENABLED_CHANNEL, (value: boolean) => companion.setSystemEnabled(value)],
+  ] as const) {
+    ipcMain.handle(channel, async (event, enabled: unknown) => {
+      assertTrustedAppRendererEvent(event);
+      assertOwner();
+      if (typeof enabled !== 'boolean') throwIpcError('INVALID_PARAMS', 'enabled must be boolean');
+      try { return await apply(enabled); }
+      catch { throwIpcError('INTERNAL', 'Unable to update wallpaper settings'); }
+    });
+  }
+  ipcMain.handle(DESKTOP_COMPANION_REFRESH_CHANNEL, async (event) => {
+    assertTrustedAppRendererEvent(event);
+    assertOwner();
+    return companion.refresh();
   });
-  ipcMain.handle(DESKTOP_COMPANION_REFRESH_CHANNEL, async () => companion.refresh());
-  ipcMain.handle(DESKTOP_COMPANION_GET_PREVIEW_CHANNEL, async (_event, filePath: unknown) => {
-    if (typeof filePath !== 'string') throwIpcError('INVALID_PARAMS', 'filePath required');
+  ipcMain.handle(DESKTOP_COMPANION_GET_PREVIEW_CHANNEL, async (event, source: unknown) => {
+    assertTrustedAppRendererEvent(event);
+    assertOwner();
+    const owner = activeOwnerScopeKey();
+    const generation = companion.snapshot().generation;
     const state = readPersistedState(statePath());
-    if (state.lastStillPath !== filePath) {
-      throwIpcError('INVALID_PARAMS', 'preview path does not match the current wallpaper');
+    if (source !== 'legacy' || !state.lastStillPath || parseBlobUrl(state.lastStillPath))
+      throwIpcError('INVALID_PARAMS', 'Wallpaper preview is not current');
+    try {
+      const filePath = companionMediaPath(state.lastStillPath);
+      const bytes = await readBoundedFileNoFollow(filePath, 12 * 1024 * 1024);
+      if (!bytes || !hasOwner() || activeOwnerScopeKey() !== owner || companion.snapshot().generation !== generation)
+        throw new Error('Preview expired');
+      const mime = filePath.endsWith('.png') ? 'image/png' : filePath.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+      return 'data:' + mime + ';base64,' + bytes.toString('base64');
+    } catch {
+      throwIpcError('INVALID_PARAMS', 'Wallpaper preview is unavailable');
     }
-    const stat = await fs.promises.stat(filePath).catch(() => null);
-    if (!stat || !stat.isFile() || stat.size > 12 * 1024 * 1024) {
-      throwIpcError('INVALID_PARAMS', 'preview file unavailable');
-    }
-    const buffer = await fs.promises.readFile(filePath);
-    const mime = filePath.endsWith('.png') ? 'image/png' : 'image/jpeg';
-    return 'data:' + mime + ';base64,' + buffer.toString('base64');
   });
 }
 
 export function ensureDesktopCompanionRuntime(): void {
-  if (runtimeStarted) return;
-  runtimeStarted = true;
-  registerDesktopCompanionIpc();
+  if (!runtimeStarted) {
+    runtimeStarted = true;
+    registerDesktopCompanionIpc();
+  }
   startDesktopCompanion();
 }

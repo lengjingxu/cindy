@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 import { shouldShowOpenPathError } from '../../../shared/openPathResult';
 /**
  * SchedulerPage — /schedules 主路由（master-detail 改版）
@@ -575,7 +576,7 @@ export function SchedulerPage() {
   const isEmpty = !loading && !error && schedules.length === 0;
 
   return (
-    <div className="flex h-full w-full flex-col bg-[hsl(var(--content-area))]">
+    <div className="app-wallpaper-surface flex h-full w-full flex-col bg-[hsl(var(--content-area))]">
       {/* Header — 无 loading 守卫（CLAUDE.md §12：避免 loading→loaded 那一帧
           count / New 按钮突然出现导致整行抖动）。空数据时 New 按钮藏起来留给 EmptyState
           的主 CTA 接盘，避免双 CTA。 */}
@@ -694,19 +695,10 @@ export function SchedulerPage() {
 function NewAutomationButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation();
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex h-9 items-center gap-1.5 rounded-full px-5 text-sm font-medium',
-        'bg-[var(--lightbox-cta-bg)] text-[var(--lightbox-cta-fg)] hover:bg-[var(--lightbox-cta-hover)]',
-        'transition-colors',
-        '[&>svg]:-translate-y-px',
-      )}
-    >
+    <Button variant="cta" size="lg" type="button" onClick={onClick}>
       <Plus size={14} strokeWidth={2.5} />
       {t('scheduler.button.newAutomation')}
-    </button>
+    </Button>
   );
 }
 

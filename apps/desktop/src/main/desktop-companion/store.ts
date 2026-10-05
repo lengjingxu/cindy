@@ -46,9 +46,13 @@ function isReuseItem(raw: unknown): raw is DesktopCompanionReuseItem {
 export function normalizePersistedState(raw: unknown): DesktopCompanionPersistedState {
   if (!raw || typeof raw !== 'object') return { ...EMPTY, settings: { ...EMPTY.settings }, reusePool: [] };
   const record = raw as Record<string, unknown>;
+  const settings = normalizeDesktopCompanionSettings(record.settings);
+  // Older enabled installations always controlled the system desktop.
+  if (record.version !== 2 && record.settings && typeof record.settings === 'object' &&
+    !('systemEnabled' in record.settings)) settings.systemEnabled = settings.enabled;
   const reusePool = Array.isArray(record.reusePool) ? record.reusePool.filter(isReuseItem) : [];
   return {
-    settings: normalizeDesktopCompanionSettings(record.settings),
+    settings,
     lastFingerprint: typeof record.lastFingerprint === 'string' ? record.lastFingerprint : null,
     lastTopic: typeof record.lastTopic === 'string' ? record.lastTopic : null,
     lastUpdatedAt:
@@ -82,6 +86,10 @@ export function readPersistedState(filePath: string): DesktopCompanionPersistedS
 export function writePersistedState(filePath: string, state: DesktopCompanionPersistedState): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const tmp = filePath + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+  const settings = Object.fromEntries(
+    Object.entries(state.settings).filter(([key, value]) =>
+      value !== DEFAULT_DESKTOP_COMPANION_SETTINGS[key as keyof DesktopCompanionSettings]),
+  );
+  fs.writeFileSync(tmp, JSON.stringify({ ...state, version: 2, settings }, null, 2));
   fs.renameSync(tmp, filePath);
 }

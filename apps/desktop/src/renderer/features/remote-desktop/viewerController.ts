@@ -50,6 +50,10 @@ export interface ViewerSnapshot {
   credentialNotice: string | null;
 }
 
+/** macOS reports native fullscreen transitions as a brief hide/show; only a
+ * viewer that stays hidden pauses the host's video. Showing resumes at once. */
+const HIDDEN_VIDEO_PAUSE_MS = 1500;
+
 function connectionBudget(caps: RemoteDesktopCapabilities | null): number {
   // Match Mobile: system consent has its own two-minute host deadline.
   return (
@@ -72,7 +76,7 @@ export class DesktopViewerController {
     displayId: '',
     transport: '',
     latency: null,
-    settings: { fps: 30, bitrate: 0, audio: true },
+    settings: { fps: 30, quality: 'auto', audio: true },
     ready: false,
     preferences: { ...DEFAULT_VIEWER_PREFERENCES },
     safety: { privacyActive: false, notice: null, clipboardProgress: null },
@@ -87,7 +91,6 @@ export class DesktopViewerController {
   private opening = false;
   private epoch = 0;
   private resuming = false;
-  private wantsControl = true;
   private retryAt = 0;
   private retryDelay = 1000;
   private connectionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,6 +106,12 @@ export class DesktopViewerController {
   private settingsTimer: ReturnType<typeof setTimeout> | null = null;
   private statsAt = 0;
   private frameAt = 0;
+  private hidden = false;
+  private hiddenTimer: ReturnType<typeof setTimeout> | null = null;
+  private hiddenBusy = false;
+  /** Counts host video streams; each new offer starts unpaused. */
+  private videoStream = 0;
+  private videoHidden = false;
   private unlockAttempted = false;
   private credentialRetry: {
     action: 'settings' | 'enable' | 'disable' | 'unlock' | 'biometric';
@@ -136,6 +145,8 @@ export class DesktopViewerController {
           : null,
       onOfferStart: (lease) => {
         this.offers.add(lease);
+        this.videoStream++;
+        this.videoHidden = false;
       },
       onOfferSettled: (lease) => {
         this.offers.delete(lease);
@@ -255,6 +266,8 @@ export class DesktopViewerController {
     this.offers.clear();
     this.statsAt = 0;
     this.frameAt = 0;
+    this.videoStream++;
+    this.videoHidden = false;
     this.clipboardQueue = Promise.resolve();
     this.clipboardQueued = 0;
     this.opening = false;
@@ -312,7 +325,8 @@ export class DesktopViewerController {
             : 'control',
       });
       this.runtime.receive({ type: 'mode', mode: 'pointer' });
-      if (caps.canControl && this.wantsControl) await this.setControl(true);
+      if (!caps.canControl) throw new Error('DESKTOP_INPUT_UNSUPPORTED');
+      await this.acquireControl();
     } catch (error) {
       if (epoch === this.epoch) this.fail(error);
     } finally {
@@ -321,7 +335,11 @@ export class DesktopViewerController {
   }
   private fail(error: unknown): void {
     const code = error instanceof Error ? error.message : '';
-    const blocked = remoteDesktopFailureKey(code);
+    const blocked =
+      remoteDesktopFailureKey(code) ??
+      (/DESKTOP_(VIEW_ONLY|INPUT_(BUSY|UNSUPPORTED|UNAVAILABLE|TIMEOUT))/.test(code)
+        ? 'controlUnavailable'
+        : null);
     this.cancel(true);
     this.publish({ status: 'reconnecting', error: blocked });
     this.retryAt = Date.now() + this.retryDelay;
@@ -333,27 +351,17 @@ export class DesktopViewerController {
     this.resuming = false;
     void this.connect(this.state.error === 'connectionBusy');
   }
-  async setControl(enabled: boolean): Promise<void> {
+  private async acquireControl(): Promise<void> {
     if (this.state.closing || this.state.controlPending || !this.session.lease) return;
-    this.wantsControl = enabled;
     this.runtime.receive({ type: 'releaseInput' });
     const lease = this.session.lease;
     this.publish({ controlPending: true });
     this.syncControl();
     try {
-      const result = await this.session.control(enabled);
+      const result = await this.session.control(true);
       if (lease !== this.session.lease) return;
-      if (!result.controlling) this.wantsControl = false;
+      if (!result.controlling) throw new Error('DESKTOP_VIEW_ONLY');
       this.publish({ error: null });
-    } catch (error) {
-      if (lease !== this.session.lease) return;
-      this.wantsControl = false;
-      const code = error instanceof Error ? error.message : '';
-      if (/DESKTOP_(LEASE_EXPIRED|STOPPED|DISABLED)|ACCESS_REVOKED|REMOTE_DISABLED/.test(code)) {
-        this.fail(error);
-        return;
-      }
-      this.publish({ error: enabled ? (remoteDesktopFailureKey(code) ?? 'busy') : null });
     } finally {
       if (lease === this.session.lease) {
         this.publish({ controlPending: false });
@@ -366,10 +374,7 @@ export class DesktopViewerController {
    * Menu focus only releases held keys; it does not revoke desktop control. */
   private syncControl(): void {
     const controlling =
-      this.state.ready &&
-      this.wantsControl &&
-      !this.state.controlPending &&
-      this.session.lease?.controlling === true;
+      this.state.ready && !this.state.controlPending && this.session.lease?.controlling === true;
     if (controlling === this.state.controlling) return;
     this.clipboardRevision++;
     this.publish({ controlling });
@@ -498,6 +503,56 @@ export class DesktopViewerController {
   }
   releaseInput(): void {
     this.runtime.receive({ type: 'releaseInput' });
+  }
+  /** Hiding keeps the session but pauses the host's video; showing resumes it. */
+  setHidden(hidden: boolean): void {
+    if (this.hiddenTimer) clearTimeout(this.hiddenTimer);
+    this.hiddenTimer = null;
+    this.hidden = hidden;
+    if (hidden)
+      this.hiddenTimer = setTimeout(() => {
+        this.hiddenTimer = null;
+        void this.syncHidden();
+      }, HIDDEN_VIDEO_PAUSE_MS);
+    else void this.syncHidden();
+  }
+  private hiddenSettled(): boolean {
+    return this.hidden && this.hiddenTimer === null;
+  }
+  private async syncHidden(): Promise<void> {
+    const lease = this.session.lease;
+    const hidden = this.hiddenSettled();
+    if (
+      this.hiddenBusy ||
+      this.disposed ||
+      !lease ||
+      !this.streaming ||
+      !this.state.caps?.viewerHidden ||
+      hidden === this.videoHidden
+    )
+      return;
+    const stream = this.videoStream;
+    this.hiddenBusy = true;
+    let failed = false;
+    try {
+      await this.request({ op: 'viewerHidden', lease: lease.lease, hidden });
+    } catch {
+      failed = true;
+    } finally {
+      this.hiddenBusy = false;
+    }
+    if (stream === this.videoStream) {
+      // Even an unacknowledged request may have applied, so track it as applied:
+      // showing then always sends a resume. A resume that may not have applied
+      // must not leave the picture frozen: rebuild, since a new offer starts unpaused.
+      this.videoHidden = hidden;
+      if (failed && !hidden && this.session.lease === lease) {
+        this.pendingSettings = true;
+        this.applySettings();
+      }
+    }
+    // Terminates: after any outcome videoHidden equals the requested state.
+    void this.syncHidden();
   }
   actualSize(): void {
     const lease = this.session.lease;
@@ -669,8 +724,9 @@ export class DesktopViewerController {
     try {
       const result = await this.session.heartbeat();
       if (epoch === this.epoch) {
-        if (!result.controlling && this.state.controlling) this.wantsControl = false;
-        this.syncControl();
+        if (!result.controlling && !this.opening && !this.state.controlPending)
+          this.fail(new Error('DESKTOP_VIEW_ONLY'));
+        else this.syncControl();
       }
     } catch (error) {
       if (epoch === this.epoch && !(error instanceof Error && error.message === 'INVOKE_TIMEOUT'))
@@ -686,7 +742,9 @@ export class DesktopViewerController {
       this.state.closing ||
       this.streaming ||
       this.frameBusy === lease.lease ||
-      !this.scope.active
+      !this.scope.active ||
+      // Screenshot fallback stops polling while hidden, once it has shown a frame.
+      (this.hiddenSettled() && this.state.ready)
     )
       return;
     this.frameBusy = lease.lease;
@@ -754,6 +812,7 @@ export class DesktopViewerController {
         this.streaming = true;
         this.publish({ transport: 'video', latency: null });
         this.present('live');
+        void this.syncHidden();
         break;
       case 'framePresented':
         if (this.streaming) break;
@@ -797,7 +856,7 @@ export class DesktopViewerController {
         break;
       }
       case 'inputOverflow':
-        void this.setControl(false);
+        this.fail(new Error('DESKTOP_INPUT_UNAVAILABLE'));
         break;
       case 'input':
         if (
@@ -813,8 +872,12 @@ export class DesktopViewerController {
           sequence: message.sequence as number,
           events: message.events,
         })
-          .catch(() => {
-            if (this.session.lease === lease) void this.setControl(false);
+          .catch((error) => {
+            if (
+              this.session.lease === lease &&
+              !(error instanceof Error && error.message === 'INVOKE_TIMEOUT')
+            )
+              this.fail(error);
           })
           .finally(() => {
             if (this.session.lease === lease)
@@ -838,6 +901,8 @@ export class DesktopViewerController {
   dispose(): void {
     this.cancel();
     this.disposed = true;
+    if (this.hiddenTimer) clearTimeout(this.hiddenTimer);
+    this.hiddenTimer = null;
     if (this.connectionTimer !== null) clearTimeout(this.connectionTimer);
     this.connectionTimer = null;
     for (const t of this.timers) clearInterval(t);

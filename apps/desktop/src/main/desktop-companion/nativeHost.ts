@@ -24,12 +24,29 @@ export class MacDesktopCompanionNativeHost {
   private buffer = '';
   private nextId = 1;
   private pending = new Map<string, Pending>();
+  private starting: Promise<void> | null = null;
+  private generation = 0;
+  private stopping = false;
 
   async ensureStarted(): Promise<void> {
+    if (this.stopping) throw new Error('HOST_STOPPED');
     if (this.proc && !this.proc.killed) return;
+    if (this.starting) return this.starting;
+    const generation = this.generation;
+    this.starting = this.start(generation);
+    try {
+      await this.starting;
+    } finally {
+      this.starting = null;
+    }
+  }
+
+  private async start(generation: number): Promise<void> {
     const binary = await resolveHelperBinary();
+    if (generation !== this.generation) throw new Error('HOST_STOPPED');
     const child = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc = child;
+    this.buffer = '';
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => this.onStdout(chunk));
     child.stderr.setEncoding('utf8');
@@ -38,47 +55,66 @@ export class MacDesktopCompanionNativeHost {
     });
     child.on('exit', (code) => {
       log.info('helper exit', { code });
+      if (this.proc !== child) return;
       this.failAll(new Error('desktop companion helper exited'));
       this.proc = null;
     });
   }
 
-  async setWallpaper(filePath: string): Promise<void> {
-    const result = await this.request({ op: 'setWallpaper', path: filePath });
+  async setWallpaper(filePath: string, assertStillValid: () => void): Promise<void> {
+    const result = await this.request({ op: 'setWallpaper', path: filePath }, 8_000, assertStillValid);
     if (result.ok !== true) throw new Error(String(result.error ?? 'setWallpaper failed'));
   }
 
-  async playVideo(filePath: string): Promise<void> {
-    const result = await this.request({ op: 'playVideo', path: filePath });
+  async playVideo(filePath: string, assertStillValid: () => void): Promise<void> {
+    const result = await this.request({ op: 'playVideo', path: filePath }, 8_000, assertStillValid);
     if (result.ok !== true) throw new Error(String(result.error ?? 'playVideo failed'));
   }
 
   async stopVideo(): Promise<void> {
     if (!this.proc) return;
-    const result = await this.request({ op: 'stopVideo' });
+    const result = await this.send(this.proc, { op: 'stopVideo' }, 8_000);
     if (result.ok !== true) throw new Error(String(result.error ?? 'stopVideo failed'));
   }
 
   async locateCity(): Promise<string | null> {
     const result = await this.request({ op: 'locate' }, 12_000);
-    if (result.ok !== true) return null;
+    if (result.ok !== true) throw new Error(String(result.error ?? 'locate failed'));
     const city = typeof result.city === 'string' ? result.city.trim() : '';
     return city || null;
   }
 
   async stop(): Promise<void> {
-    if (!this.proc) return;
+    this.generation += 1;
+    this.stopping = true;
     try {
-      await this.request({ op: 'quit' }, 1_000);
-    } catch {
-      this.proc.kill();
+      try {
+        await this.starting;
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'HOST_STOPPED') throw error;
+      }
+      const child = this.proc;
+      if (!child) return;
+      // The helper exits when stdin closes. Await exit before a new owner can start it.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('desktop companion helper stop timeout')), 8_000);
+        child.once('exit', () => { clearTimeout(timer); resolve(); });
+        child.stdin.end();
+      });
+    } finally {
+      this.stopping = false;
     }
-    this.proc = null;
-    this.failAll(new Error('desktop companion helper stopped'));
   }
 
-  private async request(payload: Record<string, unknown>, timeoutMs = 8_000): Promise<Record<string, unknown>> {
+  private async request(payload: Record<string, unknown>, timeoutMs = 8_000, assertStillValid?: () => void): Promise<Record<string, unknown>> {
+    const generation = this.generation;
     await this.ensureStarted();
+    if (generation !== this.generation || !this.proc) throw new Error('HOST_STOPPED');
+    assertStillValid?.();
+    return this.send(this.proc, payload, timeoutMs);
+  }
+
+  private send(child: ChildProcessWithoutNullStreams, payload: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
     const id = String(this.nextId++);
     const line = JSON.stringify({ id, ...payload }) + '\n';
     return new Promise((resolve, reject) => {
@@ -96,7 +132,7 @@ export class MacDesktopCompanionNativeHost {
           reject(error);
         },
       });
-      this.proc?.stdin.write(line);
+      child.stdin.write(line);
     });
   }
 
@@ -130,13 +166,15 @@ export class MacDesktopCompanionNativeHost {
   }
 }
 
-export function characterReferencePath(): string | null {
+export function characterReferencePath(): string {
   const candidates = [
     path.join(process.resourcesPath ?? '', 'tools', 'desktop-companion', 'cindy-character.jpg'),
     path.join(app.getAppPath(), SOURCE_RELATIVE.replace('macos-desktop-companion-helper.swift', 'cindy-character.jpg')),
     path.join(__dirname, '..', '..', '..', CHARACTER_RELATIVE),
   ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+  const source = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!source) throw new Error('CHARACTER_REFERENCE_MISSING');
+  return source;
 }
 
 async function resolveHelperBinary(): Promise<string> {

@@ -1,73 +1,71 @@
 import { useCallback, useEffect, useState } from 'react';
-
 import type { DesktopCompanionSnapshot } from '../../shared/desktopCompanion';
 
 const EMPTY: DesktopCompanionSnapshot = {
-  supported: false,
-  enabled: false,
-  locationEnabled: false,
-  status: 'idle',
-  lastTopic: null,
-  lastUpdatedAt: null,
-  lastError: null,
-  previewSrc: null,
-  imageReady: false,
-  videoReady: false,
+  supported: false, systemSupported: false, generation: -1,
+  enabled: false, locationEnabled: false, systemEnabled: false,
+  status: 'idle', lastTopic: null, lastUpdatedAt: null, lastError: null,
+  previewSrc: null, imageReady: false, videoReady: false,
 };
 
-export function useDesktopCompanionSettings(): {
-  snapshot: DesktopCompanionSnapshot;
-  previewDataUrl: string | null;
-  setEnabled: (enabled: boolean) => Promise<void>;
-  setLocationEnabled: (enabled: boolean) => Promise<void>;
-  refresh: () => Promise<void>;
-} {
+/** Keep account generations ordered; an old response must never restore its artwork. */
+export function useDesktopCompanionSettings() {
   const [snapshot, setSnapshot] = useState<DesktopCompanionSnapshot>(EMPTY);
-  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [legacyPreview, setLegacyPreview] = useState<{ generation: number; url: string } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    void window.electronAPI.desktopCompanion.getState().then((next) => {
-      if (!cancelled) setSnapshot(next);
-    });
-    const unsubscribe = window.electronAPI.desktopCompanion.onState((next) => setSnapshot(next));
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
-
-  const setEnabled = useCallback(async (enabled: boolean) => {
-    setSnapshot(await window.electronAPI.desktopCompanion.setEnabled(enabled));
-  }, []);
-
-  useEffect(() => {
-    const filePath = snapshot.previewSrc;
-    if (!filePath) {
-      setPreviewDataUrl(null);
+    const bridge = window.electronAPI?.desktopCompanion;
+    if (!bridge) {
+      setSnapshot(EMPTY);
       return;
     }
-    let cancelled = false;
-    void window.electronAPI.desktopCompanion
-      .getPreview(filePath)
-      .then((dataUrl) => {
-        if (!cancelled) setPreviewDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setPreviewDataUrl(null);
-      });
-    return () => {
-      cancelled = true;
+    let disposed = false;
+    let revision = 0;
+    const apply = (next: DesktopCompanionSnapshot) => {
+      if (!disposed) setSnapshot((current) => next.generation >= current.generation ? next : current);
     };
-  }, [snapshot.previewSrc]);
-
-  const setLocationEnabled = useCallback(async (enabled: boolean) => {
-    setSnapshot(await window.electronAPI.desktopCompanion.setLocationEnabled(enabled));
+    const unsubscribe = bridge.onState((next) => { revision++; apply(next); });
+    const request = revision;
+    void bridge.getState().then((next) => {
+      if (request === revision) apply(next);
+    }).catch(() => {
+      if (!disposed && request === revision)
+        setSnapshot({ ...EMPTY, lastError: 'STATE_UNAVAILABLE' });
+    });
+    return () => { disposed = true; unsubscribe(); };
   }, []);
 
-  const refresh = useCallback(async () => {
-    setSnapshot(await window.electronAPI.desktopCompanion.refresh());
-  }, []);
+  useEffect(() => {
+    setLegacyPreview(null);
+    if (!snapshot.enabled || snapshot.previewSrc !== 'legacy') return;
+    let cancelled = false;
+    void window.electronAPI.desktopCompanion.getPreview('legacy').then((url) => {
+      if (!cancelled) setLegacyPreview({ generation: snapshot.generation, url });
+    }).catch(() => {
+      if (!cancelled) setSnapshot((current) => ({ ...current, lastError: 'PREVIEW_UNAVAILABLE' }));
+    });
+    return () => { cancelled = true; };
+  }, [snapshot.enabled, snapshot.generation, snapshot.previewSrc]);
 
-  return { snapshot, previewDataUrl, setEnabled, setLocationEnabled, refresh };
+  const update = useCallback(async (action: () => Promise<DesktopCompanionSnapshot>) => {
+    try {
+      const next = await action();
+      setSnapshot((current) => next.generation >= current.generation ? next : current);
+    } catch {
+      setSnapshot((current) => ({ ...current, lastError: 'SETTINGS_FAILED' }));
+    }
+  }, []);
+  const setEnabled = useCallback((enabled: boolean) =>
+    update(() => window.electronAPI.desktopCompanion.setEnabled(enabled)), [update]);
+  const setLocationEnabled = useCallback((enabled: boolean) =>
+    update(() => window.electronAPI.desktopCompanion.setLocationEnabled(enabled)), [update]);
+  const setSystemEnabled = useCallback((enabled: boolean) =>
+    update(() => window.electronAPI.desktopCompanion.setSystemEnabled(enabled)), [update]);
+  const refresh = useCallback(() =>
+    update(() => window.electronAPI.desktopCompanion.refresh()), [update]);
+  const source = snapshot.enabled ? snapshot.previewSrc : null;
+  const previewDataUrl = source && /^cindy-media:\/\/blobs\/[0-9a-f]{64}\.webp$/.test(source)
+    ? source
+    : source === 'legacy' && legacyPreview?.generation === snapshot.generation ? legacyPreview.url : null;
+  return { snapshot, previewDataUrl, setEnabled, setLocationEnabled, setSystemEnabled, refresh };
 }

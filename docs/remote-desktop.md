@@ -29,8 +29,9 @@ It opens a clean, independent window with native mouse/keyboard input and a smal
 toolbar. Reopening the same target focuses its existing window. Full screen,
 display selection, sound, video settings and portable
 clipboard shortcuts are available. Resolution changes appear only for a capable
-host and affect its actual monitor. Ctrl+Alt+Esc releases keyboard focus;
-Cmd/Ctrl+W requests closing this viewer, including while it owns keyboard focus.
+host and affect its actual monitor. While the picture owns keyboard focus,
+shortcuts including Cmd/Ctrl+W go to the remote computer. Ctrl+Alt+Esc releases
+keyboard focus; without it, Cmd/Ctrl+W requests closing this viewer.
 Native window close and the close shortcut share a confirmation
 dialog only after a connection is established; cancelling keeps the connection and control lease. Confirmation belongs
 to the current window generation and cannot close a later connection.
@@ -270,14 +271,15 @@ Control is a lease-scoped capability, not the session itself. When the host can
 no longer inject input — the native helper died, it reported a failed injection,
 or its write path failed — it releases control and keeps everything else: the
 lease, the capture owner, the video track and the last picture. It does not call
-`stop()`, so an input fault can never surface as an ended desktop session.
+`stop()` on the host. A desktop viewer may still end its own lease when it sees
+the lost control; the mobile viewer can keep watching.
 
 The host also releases control when its own input path refuses a batch before
 injecting anything, so the two sides cannot disagree about who controls: a later
 take-control genuinely restarts the helper instead of being skipped as "already
 controlling".
 
-The viewer follows the host's control bit instead of rebuilding the session. A
+The mobile viewer follows the host's control bit instead of rebuilding the session. A
 rejected input batch, a failed control request or a heartbeat that reports
 `controlling: false` all drop the phone to view only with the existing view-only
 hint and take-control action; media and lease identity are untouched. A dropped
@@ -299,18 +301,27 @@ release that discards its key-up, and the heartbeat still owns liveness. Errors
 that do mean the lease is gone (`DESKTOP_LEASE_EXPIRED`, `DESKTOP_STOPPED`,
 revocation, an unsupported channel) still recover the session as before.
 
+Desktop viewers require control. They request it on every connection and do not
+offer a view-only action. If the host refuses control, revokes it later, rejects
+an input batch, or the viewer input queue overflows, the desktop viewer stops its
+lease and media, retains the last picture, and shows an error with a reconnect
+action. Reconnecting requests control again before the desktop becomes usable.
+An input request whose outcome is unknown (`INVOKE_TIMEOUT`) waits for the
+heartbeat instead of immediately discarding the lease.
+
 This matters most on Windows, where the SendInput helper reports a failed
 injection as a helper failure whereas the macOS helper posts events without a
 result path. On Windows the helper now costs control only; whether a specific
 machine can inject at all (elevated foreground window, secure desktop, a session
 worker outside the interactive window station) is a separate, still unverified
-question, and the helper's `error` line does not yet carry a reason.
+question, and the helper's `error` line does not yet carry a reason. On the
+desktop viewer, losing that control also ends the current viewer lease.
 
 Deterministic tests cover the controller release (lease, media and single-viewer
 arbitration retained; later input refused as view-only; control can be taken
-again), the desktop wiring that turns a refused or failed input batch into a
-release rather than a stop, the failure classification (release, unknown outcome,
-rebuild), and the viewer paths that drop to view only without reconnecting.
+again), the host failure classification (release, unknown outcome, rebuild),
+the mobile viewer's view-only recovery, and the desktop viewer's stop and
+reconnect behavior after control or input failure.
 
 ## Authority and lifetime
 
@@ -376,12 +387,34 @@ reads revoke prior permission, and older concurrent reads cannot restore it.
 Empty connection
 heartbeats do not claim input ownership.
 
+Agent inputs in the same Cindy process share FIFO admission with a cancellable
+five-second wait (`DESKTOP_INPUT_BUSY` on expiry). A logical text input keeps its
+place across chunks; human input still preempts at a chunk boundary. The host
+rechecks cancellation, session lifetime and observation freshness after waiting,
+before dispatch. Input from another task invalidates prior observations, including
+pending reads; captures overlapping any Agent input cannot authorize later actions.
+New or recreated task sessions must observe after prior Agent input as well.
+Interrupted multi-chunk text reports completed, attempted and remaining character
+counts without replaying the prefix. Timeout/cancellation during native input keeps
+ownership until driver teardown settles. See
+[`inputOwnership.ts`](../apps/desktop/src/main/remote-desktop/inputOwnership.ts)
+and the [Computer Use regression tests](../apps/desktop/src/main/mcp-integrations/__tests__/computer.test.ts).
+
 The native macOS/Windows helper acknowledges a batch only after posting all its
 events; the Windows service forwards that acknowledgement. Main retains ownership
 through native shutdown when stopping held input. The guard coordinates only
 remote input and CUA calls in this Cindy process: physical keyboard/mouse input,
 other applications, and separate Cindy processes are outside it. Native event
 posting is not proof that an application has finished handling those events.
+
+On macOS, a drag without `delivery_mode` uses `background` when the driver
+advertises that parameter. A background refusal is returned without an automatic
+foreground retry. Explicit `foreground` remains available, but agents must
+coordinate desktop use with the person before requesting it. Legacy drivers
+without the parameter retain their native behavior. Background delivery itself
+does not guarantee focus isolation: the driver may temporarily change application
+or window focus. Cindy does not currently verify restoration of the original
+focused window or text field, and does not force focus back after an action.
 
 ## Wayland capture lifetime
 
@@ -1008,8 +1041,8 @@ An optional `shape` hint selects a bounded standard cursor keyword (text, hand,
 resize, etc.); size, DPI and accessibility appearance remain owned by the local
 OS and do not follow the remote screen zoom. Missing, custom or unknown shapes
 fall back to the local arrow. Old viewers ignore the hint and Mobile retains the
-raster path. Desktop view-only mode shows the local arrow rather than a second
-remote pointer overlay.
+raster path. While desktop control is unavailable, the connection overlay stays
+visible instead of presenting a view-only desktop.
 
 Checked: desktop/mobile types, native compilation, a bounded read-only native
 capture returning cursor geometry/raster metadata. Real phone gestures,
@@ -1089,8 +1122,7 @@ An overflowing picture can be panned with the middle mouse button or by hovering
 within 28 local pixels of a viewport edge. Edge panning accelerates toward the
 edge, supports diagonal movement, and stops at the desktop bounds, on pointer
 leave or focus loss. Remote hover/drag coordinates follow the moving picture;
-view-only sessions pan locally without sending input. Window maximization/fullscreen
-uses the native window controls.
+window maximization/fullscreen uses the native window controls.
 Zoom out can go below fit, down to 10% of the smaller of fit and actual size.
 Exposed margins use the same fixed-fit, three-segment ambient canvas as Mobile,
 with 16px blur, 1.12 overscan and 0.72 opacity. Same-aspect desktops also retain

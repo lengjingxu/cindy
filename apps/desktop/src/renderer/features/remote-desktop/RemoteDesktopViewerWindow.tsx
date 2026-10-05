@@ -11,7 +11,11 @@ import {
   X,
   Monitor,
 } from 'lucide-react';
-import type { RemoteDesktopDisplayMode } from '@cindy/device-link';
+import {
+  REMOTE_DESKTOP_VIDEO_QUALITIES,
+  type RemoteDesktopDisplayMode,
+  type RemoteDesktopVideoQuality,
+} from '@cindy/device-link';
 import { WindowControls } from '@/components/title-bar/WindowControls';
 import { useMacFullscreen } from '@/hooks/useMacFullscreen';
 import i18n from '@/i18n';
@@ -19,10 +23,23 @@ import { DesktopViewerController, type ViewerSnapshot } from './viewerController
 import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tip } from '@/components/ui/tooltip';
+
+// Fullscreen keeps an 8px toolbar strip visible. Electron drag regions swallow
+// hover and macOS slides its own menu bar over the top edge, so reveal is
+// pointer-driven and only collapses once the pointer moves back into the stage.
+const TOOLBAR_REVEAL_EDGE = 8;
+const TOOLBAR_HIDE_MARGIN = 16;
+
+const QUALITY_LABELS = {
+  auto: 'remoteDesktop.viewer.automatic',
+  saver: 'remoteDesktop.viewer.saver',
+  hd: 'remoteDesktop.viewer.hd',
+} as const satisfies Record<RemoteDesktopVideoQuality, string>;
 
 /** A clean, standalone remote desktop surface. No App, router, agent or task providers. */
 export function RemoteDesktopViewerWindow() {
@@ -30,12 +47,14 @@ export function RemoteDesktopViewerWindow() {
   const { isMac, isFullscreen } = useMacFullscreen();
   const api = window.electronAPI.remoteDesktopViewer;
   const root = useRef<HTMLDivElement>(null),
+    toolbar = useRef<HTMLElement>(null),
     controller = useRef<DesktopViewerController | null>(null);
   const [state, setState] = useState<ViewerSnapshot | null>(null);
   const [settings, setSettings] = useState<'display' | 'clipboard' | 'security' | null>(null),
     [selectOpen, setSelectOpen] = useState(false),
     [notice, setNotice] = useState<string | null>(null),
     [closeGeneration, setCloseGeneration] = useState<number | null>(null);
+  const [toolbarRevealed, setToolbarRevealed] = useState(false);
   const [modes, setModes] = useState<RemoteDesktopDisplayMode[]>([]);
   const [modesStatus, setModesStatus] = useState<'idle' | 'loading' | 'failed'>('idle');
   const generation = useRef(-1);
@@ -56,6 +75,17 @@ export function RemoteDesktopViewerWindow() {
     }
     setCloseGeneration(generation.current);
   }, []);
+  useEffect(() => {
+    setToolbarRevealed(false);
+    if (!isFullscreen) return;
+    const move = (event: PointerEvent) => {
+      if (event.clientY <= TOOLBAR_REVEAL_EDGE) setToolbarRevealed(true);
+      else if (event.clientY > (toolbar.current?.offsetHeight ?? 0) + TOOLBAR_HIDE_MARGIN)
+        setToolbarRevealed(false);
+    };
+    window.addEventListener('pointermove', move, true);
+    return () => window.removeEventListener('pointermove', move, true);
+  }, [isFullscreen]);
   useEffect(() => {
     if (!root.current) return;
     controller.current = new DesktopViewerController(api, root.current, (snapshot) => {
@@ -81,6 +111,7 @@ export function RemoteDesktopViewerWindow() {
     const closeRequested = api.onCloseRequested((value) => {
       if (value === generation.current) requestClose();
     });
+    const hidden = api.onHidden?.((value) => controller.current?.setHidden(value));
     const blur = () => {
       controller.current?.releaseInput();
       void api.inputFocus(generation.current, false).catch(() => {});
@@ -90,7 +121,13 @@ export function RemoteDesktopViewerWindow() {
         .inputFocus(generation.current, (event.target as HTMLElement)?.id === 'keyboard-input')
         .catch(() => {});
     };
+    // Programmatic blur (Ctrl+Alt+Esc, control loss) has no focusin; release shortcuts here too.
+    const focusOut = (event: FocusEvent) => {
+      if ((event.target as HTMLElement)?.id !== 'keyboard-input') return;
+      void api.inputFocus(generation.current, false).catch(() => {});
+    };
     document.addEventListener('focusin', focus);
+    document.addEventListener('focusout', focusOut);
     window.addEventListener('blur', blur);
     void api
       .state()
@@ -107,7 +144,9 @@ export function RemoteDesktopViewerWindow() {
       off();
       locale();
       closeRequested();
+      hidden?.();
       document.removeEventListener('focusin', focus);
+      document.removeEventListener('focusout', focusOut);
       window.removeEventListener('blur', blur);
       controller.current?.dispose();
       controller.current = null;
@@ -162,27 +201,6 @@ export function RemoteDesktopViewerWindow() {
       )}
     </span>
   );
-  const controlPrompt = !state?.controlling && (
-    <div className="flex flex-col gap-2" role="status">
-      <p>
-        {t(
-          !state?.ready
-            ? 'remoteDesktop.connecting'
-            : state.controlPending
-              ? 'remoteDesktop.viewer.controlPending'
-              : 'remoteDesktop.viewer.controlRequired',
-        )}
-      </p>
-      <Button
-        variant="secondary"
-        disabled={!state?.ready || !state.caps?.canControl || state.controlPending}
-        loading={state?.controlPending}
-        onClick={() => void controller.current?.setControl(true)}
-      >
-        {t('remoteDesktop.takeControl')}
-      </Button>
-    </div>
-  );
   const preference = (key: 'privacyScreen' | 'hostMute' | 'clipboardSync' | 'lockOnExit') =>
     state && (
       <div className="remote-viewer-preference" key={key}>
@@ -225,7 +243,9 @@ export function RemoteDesktopViewerWindow() {
       }}
     >
       <header
+        ref={toolbar}
         className="remote-viewer-toolbar"
+        data-revealed={toolbarRevealed || undefined}
         data-settings-open={!!settings || undefined}
         data-select-open={selectOpen || undefined}
         style={{ paddingLeft: isMac && !isFullscreen ? 82 : 12 }}
@@ -243,8 +263,8 @@ export function RemoteDesktopViewerWindow() {
                       ? 'remoteDesktop.lockingOnExit'
                       : 'remoteDesktop.disconnecting',
                   )
-                : state?.ready
-                  ? t(state.controlling ? 'remoteDesktop.controlling' : 'remoteDesktop.viewOnly')
+                : state?.ready && state.controlling
+                  ? t('remoteDesktop.controlling')
                   : t('remoteDesktop.connecting')}
             </span>
             {state?.ready && (
@@ -356,12 +376,11 @@ export function RemoteDesktopViewerWindow() {
             {state?.caps?.videoSettings && (
               <>
                 <FormField label={t('remoteDesktop.viewer.fps')} className="remote-viewer-field">
-                  {({ id }) => (
-                    <Select
-                      id={id}
-                      className="w-full"
-                      label={t('remoteDesktop.viewer.fps')}
-                      value={String(state.settings.fps)}
+                  {() => (
+                    <SegmentedControl
+                      fullWidth
+                      aria-label={t('remoteDesktop.viewer.fps')}
+                      value={String(state.settings.fps) as '30' | '60'}
                       options={[
                         { value: '30', label: '30 fps' },
                         { value: '60', label: '60 fps' },
@@ -369,32 +388,24 @@ export function RemoteDesktopViewerWindow() {
                       onValueChange={(value) =>
                         controller.current?.settings({ fps: Number(value) as 30 | 60 })
                       }
-                      onOpenChange={onSelectOpenChange}
                     />
                   )}
                 </FormField>
                 <FormField
                   label={t('remoteDesktop.viewer.quality')}
+                  hint={t('remoteDesktop.viewer.qualityHint')}
                   className="remote-viewer-field"
                 >
-                  {({ id }) => (
-                    <Select
-                      id={id}
-                      className="w-full"
-                      label={t('remoteDesktop.viewer.quality')}
-                      value={String(state.settings.bitrate)}
-                      options={[0, 2000000, 8000000, 20000000].map((value, index) => ({
-                        value: String(value),
-                        label: t(
-                          `remoteDesktop.viewer.${['automatic', 'smooth', 'balanced', 'clear'][index]}`,
-                        ),
+                  {() => (
+                    <SegmentedControl
+                      fullWidth
+                      aria-label={t('remoteDesktop.viewer.quality')}
+                      value={state.settings.quality}
+                      options={REMOTE_DESKTOP_VIDEO_QUALITIES.map((value) => ({
+                        value,
+                        label: t(QUALITY_LABELS[value]),
                       }))}
-                      onValueChange={(value) =>
-                        controller.current?.settings({
-                          bitrate: Number(value) as 0 | 2000000 | 8000000 | 20000000,
-                        })
-                      }
-                      onOpenChange={onSelectOpenChange}
+                      onValueChange={(quality) => controller.current?.settings({ quality })}
                     />
                   )}
                 </FormField>
@@ -479,7 +490,6 @@ export function RemoteDesktopViewerWindow() {
               )}
               {preference('hostMute')}
             </div>
-            {controlPrompt}
             {network && <div className="remote-viewer-panel-section">{network}</div>}
           </ViewerPanel>
           <ViewerPanel
@@ -523,7 +533,6 @@ export function RemoteDesktopViewerWindow() {
             <p>
               {t('remoteDesktop.viewer.clipboardShortcutHint', { modifier: isMac ? '⌘' : 'Ctrl' })}
             </p>
-            {controlPrompt}
           </ViewerPanel>
           <ViewerPanel
             label={t('remoteDesktop.viewer.securityPanel')}
@@ -540,10 +549,7 @@ export function RemoteDesktopViewerWindow() {
                 <>
                   {isMac && state.caps?.platform === 'darwin' && (
                     <div className="flex flex-col gap-2">
-                      <label
-                        className="flex items-center justify-between gap-3"
-                        htmlFor="viewer-autoUnlock"
-                      >
+                      <label className="remote-viewer-toggle-row" htmlFor="viewer-autoUnlock">
                         <span>{t('remoteDesktop.autoUnlock')}</span>
                         <Switch
                           id="viewer-autoUnlock"
@@ -556,10 +562,7 @@ export function RemoteDesktopViewerWindow() {
                       </label>
                       <p>{t('remoteDesktop.autoUnlockHint')}</p>
                       {state.credential?.autoUnlock && (
-                        <label
-                          className="flex items-center justify-between gap-3"
-                          htmlFor="viewer-biometric"
-                        >
+                        <label className="remote-viewer-toggle-row" htmlFor="viewer-biometric">
                           <span>{t('remoteDesktop.biometricVerification')}</span>
                           <Switch
                             id="viewer-biometric"
@@ -595,7 +598,6 @@ export function RemoteDesktopViewerWindow() {
                 </>
               )}
             </div>
-            {controlPrompt}
           </ViewerPanel>
         </div>
         {!isMac && <WindowControls onClose={requestClose} />}
@@ -626,51 +628,57 @@ export function RemoteDesktopViewerWindow() {
             <span id="mouse-wheel-grip" />
           </Button>
         </div>
-        {!state?.closing && (!state?.ready || state?.error || state?.status === 'reconnecting') && (
-          <div className="remote-viewer-connection" role="status">
-            <span>
-              {state?.error
-                ? t(
+        {!state?.closing &&
+          (!state?.ready ||
+            !state.controlling ||
+            state.error ||
+            state.status === 'reconnecting') && (
+            <div className="remote-viewer-connection" role="status">
+              <span>
+                {state?.error
+                  ? t(
+                      state.error === 'connectionBusy' && state.caps?.connectionTakeover
+                        ? 'remoteDesktop.connectionBusyTakeover'
+                        : `remoteDesktop.${state.error}`,
+                    )
+                  : t(
+                      state?.controlPending
+                        ? 'remoteDesktop.viewer.controlPending'
+                        : state?.status === 'reconnecting'
+                          ? 'remoteDesktop.reconnecting'
+                          : 'remoteDesktop.connecting',
+                    )}
+              </span>
+              {state?.error && (
+                <Button
+                  variant="secondary"
+                  className={action}
+                  onClick={() => controller.current?.retry()}
+                >
+                  {t(
                     state.error === 'connectionBusy' && state.caps?.connectionTakeover
-                      ? 'remoteDesktop.connectionBusyTakeover'
-                      : `remoteDesktop.${state.error}`,
-                  )
-                : t(
-                    state?.status === 'reconnecting'
-                      ? 'remoteDesktop.reconnecting'
-                      : 'remoteDesktop.connecting',
+                      ? 'remoteDesktop.takeoverConnection'
+                      : 'remoteDesktop.connect',
                   )}
-            </span>
-            {state?.error && (
-              <Button
-                variant="secondary"
-                className={action}
-                onClick={() => controller.current?.retry()}
-              >
-                {t(
-                  state.error === 'connectionBusy' && state.caps?.connectionTakeover
-                    ? 'remoteDesktop.takeoverConnection'
-                    : 'remoteDesktop.connect',
-                )}
-              </Button>
-            )}
-            {state?.error === 'permissionHint' && (
-              <Button
-                variant="secondary"
-                className={action}
-                onClick={() => {
-                  void controller.current
-                    ?.permissionGuide()
-                    .then(() => setNotice(t('remoteDesktop.permissionGuideOpened')))
-                    .catch(() => setNotice(t('remoteDesktop.permissionActionFailed')));
-                  setSettings('security');
-                }}
-              >
-                {t('remoteDesktop.openGuideOnComputer')}
-              </Button>
-            )}
-          </div>
-        )}
+                </Button>
+              )}
+              {state?.error === 'permissionHint' && (
+                <Button
+                  variant="secondary"
+                  className={action}
+                  onClick={() => {
+                    void controller.current
+                      ?.permissionGuide()
+                      .then(() => setNotice(t('remoteDesktop.permissionGuideOpened')))
+                      .catch(() => setNotice(t('remoteDesktop.permissionActionFailed')));
+                    setSettings('security');
+                  }}
+                >
+                  {t('remoteDesktop.openGuideOnComputer')}
+                </Button>
+              )}
+            </div>
+          )}
         {isFullscreen && network && <div className="remote-viewer-network-overlay">{network}</div>}
         {(notice || state?.safety.notice || state?.safety.privacyActive) && (
           <div className="remote-viewer-feedback" role="status">
@@ -779,9 +787,8 @@ function ViewerTool({
   disabled?: boolean;
   pressed?: boolean;
 }) {
-  const { t } = useTranslation();
   return (
-    <Tip text={disabled ? t('remoteDesktop.viewer.controlRequired') : label} side="bottom">
+    <Tip text={label} side="bottom">
       <Button
         variant="secondary"
         className="remote-viewer-icon"

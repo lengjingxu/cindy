@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { sanitizeSceneText } from './context.js';
+import { readBoundedFileNoFollowSync } from '../utils/readBoundedFile.js';
 
 function titleFromMarkdown(content: string): string | null {
   const title = content.match(/^title:\s*(.+)$/m)?.[1]?.trim();
@@ -23,7 +24,8 @@ export function listMemoryTopics(memoryRoot: string, limit = 8): string[] {
     }
     for (const file of files) {
       try {
-        const title = titleFromMarkdown(fs.readFileSync(path.join(fullDir, file), 'utf8'));
+        const bytes = readBoundedFileNoFollowSync(path.join(fullDir, file), 128 * 1024, { containWithin: memoryRoot });
+        const title = bytes ? titleFromMarkdown(bytes.toString('utf8')) : null;
         if (title) topics.push(title);
         if (topics.length >= limit) return topics;
       } catch {

@@ -29,7 +29,7 @@ import { formatSidebarFutureTime, formatSidebarTime } from '../lib/formatSidebar
 import { scheduleFocusPath } from '@/features/scheduler/lib/scheduleSessionBinding';
 import { hasSessionSelectionModifier, SessionItem } from './SessionItem';
 import type { SessionClickHandler } from './SessionItem';
-import { MENU_CONTENT_CLASS, MENU_ITEM_CLASS, MENU_SEPARATOR_CLASS } from './menuStyles';
+import { MENU_ITEM_CLASS } from './menuStyles';
 import {
   useSessionAttentionUrgency,
   useSessionsAttentionUrgencyIdSet,
@@ -47,6 +47,7 @@ import {
 } from './sidebarRightStatus';
 import {
   resolveCollapsedAttention,
+  resolveCollapsedGroupHeaderSessionId,
   resolveCollapsedGroupRightStatus,
 } from './projectCollapsedAttention';
 import { AutomationTimerIcon } from './AutomationTimerIcon';
@@ -440,10 +441,14 @@ export const AutomationSessionGroupItem = withSidebarNavigation<AutomationSessio
       [countdownText, runCountText, stoppedText],
     );
 
-    // 点击空白行区域或标题都打开最新运行；旧错误通过独立子行打开。
-    // 行内控件各自 stopPropagation，不会误触发。
+    // 点击空白行区域 = 点击标题。展开态打开最新一条;收起且整组是红时打开
+    // 贡献红点的那条。行内控件各自 stopPropagation,不会误触发。
     const openLatestSession = () => {
-      const targetId = latestSessionId;
+      const targetId = resolveCollapsedGroupHeaderSessionId({
+        collapsed,
+        latestSessionId,
+        attention: collapsedAttention,
+      });
       if (!targetId) return;
       // 仅在展开 + 前 5 条态下冻结当前布局;收起态无子项可冻结。
       if (!collapsed && !showAll) freezeCurrentLayout(targetId);
@@ -771,7 +776,7 @@ export const AutomationSessionGroupItem = withSidebarNavigation<AutomationSessio
                           align="end"
                           sideOffset={2}
                           onClick={(event) => event.stopPropagation()}
-                          className={cn(MENU_CONTENT_CLASS, 'min-w-36 overflow-hidden')}
+                          className="min-w-36 overflow-hidden"
                         >
                           <MountedMenuContent>
                             {() => (
@@ -800,14 +805,15 @@ export const AutomationSessionGroupItem = withSidebarNavigation<AutomationSessio
                                       : t('ccAgent.sidebar.automationGroup.menu.pause')}
                                   </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator className={MENU_SEPARATOR_CLASS} />
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   onSelect={() => onScheduleAction(group, 'delete')}
                                   disabled={
                                     group.scheduleSource === 'project' &&
                                     (!group.workingDir || !group.projectConfigId)
                                   }
-                                  className={cn(MENU_ITEM_CLASS, 'text-[hsl(var(--destructive))]')}
+                                  variant="danger"
+                                  className={MENU_ITEM_CLASS}
                                 >
                                   {t('ccAgent.sidebar.automationGroup.menu.delete')}
                                 </DropdownMenuItem>
