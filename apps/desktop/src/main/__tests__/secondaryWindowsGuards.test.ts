@@ -4,7 +4,7 @@
  *   preventDefault,仅 http(s) 额外转交系统浏览器;file:// 与解析失败 URL 不得在窗内导航。
  * - destroySecondaryWindowOnLoadFailure:主框加载失败销毁窗口,子框 / ABORTED(-3)不升级。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const openExternal = vi.fn();
 
@@ -24,6 +24,7 @@ import {
 // 生产由构建注入的 ambient;测试按 packaged 语义置空(isInternalUrl 恒 false)。
 (globalThis as Record<string, unknown>).MAIN_WINDOW_VITE_DEV_SERVER_URL = undefined;
 (globalThis as Record<string, unknown>).MAIN_WINDOW_VITE_NAME = 'index';
+afterEach(() => vi.unstubAllGlobals());
 
 interface FakeWin {
   preventDefault: ReturnType<typeof vi.fn>;
@@ -97,6 +98,18 @@ describe('installExternalLinkGuards — 顶层导航 deny-by-default', () => {
 
     expect(win.openHandler.handler?.({ url: 'https://example.com' })).toEqual({ action: 'deny' });
     expect(openExternal).toHaveBeenCalledWith('https://example.com');
+  });
+
+  it('dev 同源导航和开窗仍允许,不同源仍拦截', () => {
+    vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173/');
+    const win = fakeWin();
+    win.emitWillNavigate('http://localhost:5173/settings');
+    expect(win.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(win.openHandler.handler?.({ url: 'http://localhost:5173/settings' })).toEqual({ action: 'allow' });
+    win.emitWillNavigate('http://localhost:5174/settings');
+    expect(win.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledWith('http://localhost:5174/settings');
   });
 });
 

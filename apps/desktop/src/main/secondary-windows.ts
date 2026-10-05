@@ -94,8 +94,8 @@ export function installExternalLinkGuards(win: BrowserWindow): void {
 
 /**
  * 副窗首次展示前主框加载失败时销毁窗口,避免「永不展示的僵尸窗口」(#5450 R02):
- * did-finish-load / ready-to-show 在加载失败时不会到来,调用方已按「已打开」上报,
- * 用户什么都看不到。销毁是单次窗口的有界终点;'closed' 监听负责清理副窗 set。
+ * 展示事件与加载失败的实际顺序由 Electron 决定;尚未展示的失败窗口进入有界终点,
+ * 不依赖后续展示事件到来。'closed' 监听负责清理副窗 set。
  */
 export function destroySecondaryWindowOnLoadFailure(
   win: BrowserWindow,
@@ -223,8 +223,8 @@ export function openSessionInNewWindow(
       elapsedMs: Math.round(performance.now() - createdAt),
     });
   };
-  // 主框加载失败(网络/dev server 抖动/文件缺失)时销毁窗口:否则 did-finish-load
-  // 与 ready-to-show 都不会到来,窗口永久隐藏而调用方已按「已打开」上报。
+  // 首次展示前的主框加载失败(网络/dev server 抖动/文件缺失)进入明确终态,
+  // 不依赖 Electron 是否继续发出展示事件。
   // 已展示过的窗口保留给用户重试,不因 reload 失败销毁。
   // -3(ABORTED)是后续加载取代前一次的正常路径,不算失败。
   win.webContents.on(
