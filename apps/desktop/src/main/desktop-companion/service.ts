@@ -1,11 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import {
   DESKTOP_COMPANION_REUSE_MS,
   DESKTOP_COMPANION_TICK_MS,
   type DesktopCompanionReuseItem,
-  type DesktopCompanionSettings,
   type DesktopCompanionSnapshot,
   type DesktopCompanionStatus,
 } from '../../shared/desktopCompanion.js';
@@ -36,23 +32,32 @@ export interface DesktopCompanionServiceDeps {
   shouldReduceMotion: () => boolean;
   readState: () => DesktopCompanionPersistedState;
   writeState: (state: DesktopCompanionPersistedState) => void;
-  applyDir: () => string;
-  characterRefPath: () => string | null;
+  characterRefPath: () => string;
+  ownerKey: () => string;
+  removeFile: (filePath: string) => void;
   collectContext: (locationEnabled: boolean) => Promise<DesktopCompanionCollectedContext>;
   peekMedia: () => { image: boolean; video: boolean };
-  generateStill: (prompt: string, refPath: string | null) => Promise<GeneratedMedia>;
-  generateVideo: (prompt: string, stillPath: string) => Promise<GeneratedMedia>;
-  materialize: (media: GeneratedMedia, kind: 'still' | 'video') => string;
-  setWallpaper: (stillPath: string) => Promise<void>;
-  playVideo: (videoPath: string) => Promise<void>;
+  generateStill: (prompt: string, refPath: string) => Promise<GeneratedMedia>;
+  generateVideo: (prompt: string, stillPath: string, assertStillValid: () => void) => Promise<GeneratedMedia>;
+  materialize: (media: GeneratedMedia, kind: 'still' | 'video', assertStillValid: () => void) => string | Promise<string>;
+  exists: (source: string) => boolean;
+  setWallpaper: (stillPath: string, assertStillValid: () => void) => Promise<void>;
+  playVideo: (videoPath: string, assertStillValid: () => void) => Promise<void>;
   stopVideo: () => Promise<void>;
   toPreviewSrc: (stillPath: string | null) => string | null;
+}
+
+function wallpaperErrorCode(message: string | null): string | null {
+  if (message === null) return null;
+  return /^[A-Z][A-Z0-9_]{0,63}$/.test(message) ? message : 'UPDATE_FAILED';
 }
 
 export class DesktopCompanionService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private inflight: Promise<void> | null = null;
+  private chain: Promise<void> = Promise.resolve();
+  /** 代际计数：stop()/start() 各自自增，使在途旧代次在下一个检查点失效。 */
+  private generation = 0;
   private status: DesktopCompanionStatus = 'idle';
   private listeners = new Set<(snapshot: DesktopCompanionSnapshot) => void>();
 
@@ -67,13 +72,16 @@ export class DesktopCompanionService {
     const state = this.deps.readState();
     const media = this.deps.peekMedia();
     return {
-      supported: this.deps.isMac(),
+      supported: true,
+      systemSupported: this.deps.isMac(),
+      generation: this.generation,
       enabled: state.settings.enabled,
       locationEnabled: state.settings.locationEnabled,
+      systemEnabled: state.settings.systemEnabled,
       status: this.status,
       lastTopic: state.lastTopic,
       lastUpdatedAt: state.lastUpdatedAt,
-      lastError: state.lastError,
+      lastError: wallpaperErrorCode(state.lastError),
       previewSrc: this.deps.toPreviewSrc(state.lastStillPath),
       imageReady: media.image,
       videoReady: media.video,
@@ -81,10 +89,12 @@ export class DesktopCompanionService {
   }
 
   start(): void {
+    this.generation += 1;
     this.stopTimer();
-    if (!this.deps.isMac()) return;
-    const settings = this.deps.readState().settings;
-    if (!settings.enabled) return;
+    this.status = 'idle';
+    this.emit();
+    const state = this.deps.readState();
+    if (!state.settings.enabled) return;
     void this.tick();
     this.timer = setInterval(() => {
       void this.tick();
@@ -92,10 +102,13 @@ export class DesktopCompanionService {
   }
 
   stop(): void {
+    this.generation += 1;
     this.stopTimer();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
     void this.deps.stopVideo();
+    this.status = 'idle';
+    this.emit();
   }
 
   async setEnabled(enabled: boolean): Promise<DesktopCompanionSnapshot> {
@@ -115,8 +128,20 @@ export class DesktopCompanionService {
     const state = this.deps.readState();
     state.settings.locationEnabled = locationEnabled;
     this.deps.writeState(state);
-    if (state.settings.enabled) void this.tick();
+    if (state.settings.enabled) {
+      this.stop();
+      this.start();
+    }
     this.emit();
+    return this.snapshot();
+  }
+
+  async setSystemEnabled(systemEnabled: boolean): Promise<DesktopCompanionSnapshot> {
+    const state = this.deps.readState();
+    state.settings.systemEnabled = systemEnabled;
+    this.deps.writeState(state);
+    this.stop();
+    if (state.settings.enabled) this.start();
     return this.snapshot();
   }
 
@@ -132,9 +157,10 @@ export class DesktopCompanionService {
 
   private scheduleRetry(delayMs: number): void {
     if (this.retryTimer) clearTimeout(this.retryTimer);
+    const gen = this.generation;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      if (this.deps.readState().settings.enabled) void this.tick();
+      if (gen === this.generation && this.deps.readState().settings.enabled) void this.tick();
     }, delayMs);
   }
 
@@ -144,19 +170,31 @@ export class DesktopCompanionService {
   }
 
   private async tick(): Promise<void> {
-    if (this.inflight) return this.inflight;
-    this.inflight = this.runTick().finally(() => {
-      this.inflight = null;
-    });
-    return this.inflight;
+    const gen = this.generation;
+    // 串行化：同代次排队；代次已 bump 的旧 run 会在首个检查点快速失效返回，
+    // 让新代次的 run 顺位执行。禁止在 run 结束时自动补跑，避免与外部
+    // stop/start 的代次自增互相放大形成死循环（review #4706 复审）。
+    const run = this.chain.then(() => this.runTick(gen));
+    this.chain = run.catch(() => undefined);
+    return run;
   }
 
-  private async runTick(): Promise<void> {
-    if (!this.deps.isMac()) return;
+  private async runTick(gen: number): Promise<void> {
     const state = this.deps.readState();
     if (!state.settings.enabled) return;
+    const owner = this.deps.ownerKey();
+    // 生成跨越多次 await：代次、owner 或开关任一变化都视作本次作废，
+    // 不得再写状态、设壁纸或播视频（review #4706 Issue 1/2 + 复审补充）。
+    const abort = (): boolean =>
+      gen !== this.generation ||
+      this.deps.ownerKey() !== owner ||
+      !this.deps.readState().settings.enabled;
+    const assertStillValid = (): void => {
+      if (abort()) throw new Error('ACCOUNT_CHANGED');
+    };
     const media = this.deps.peekMedia();
     if (!media.image) {
+      if (gen !== this.generation) return;
       this.status = 'idle';
       state.lastError = 'NO_IMAGE_MODEL';
       this.deps.writeState(state);
@@ -166,9 +204,11 @@ export class DesktopCompanionService {
     }
 
     try {
+      if (gen !== this.generation) return;
       this.status = 'generating';
       this.emit();
       const collected = await this.deps.collectContext(state.settings.locationEnabled);
+      if (abort()) return;
       const now = this.deps.now();
       const timeSlot = timeSlotAt(new Date(now));
       const hasTask = Boolean(collected.taskTitle);
@@ -182,13 +222,17 @@ export class DesktopCompanionService {
         memoryKey,
       });
 
-      state.reusePool = pruneReusePool(state.reusePool, now, (filePath) => fs.existsSync(filePath));
+      const previousPool = state.reusePool;
+      state.reusePool = pruneReusePool(state.reusePool, now, (source) => this.exists(source));
+      this.removeDroppedPoolFiles(previousPool, state.reusePool);
 
-      if (state.lastFingerprint === fingerprint && state.lastStillPath && fs.existsSync(state.lastStillPath)) {
-        await this.deps.setWallpaper(state.lastStillPath);
-        if (state.lastVideoPath && fs.existsSync(state.lastVideoPath) && !this.deps.shouldReduceMotion()) {
-          await this.deps.playVideo(state.lastVideoPath);
+      if (state.lastFingerprint === fingerprint && state.lastStillPath && this.exists(state.lastStillPath)) {
+        if (this.deps.isMac() && state.settings.systemEnabled) await this.deps.setWallpaper(state.lastStillPath, assertStillValid);
+        if (abort()) return;
+        if (this.deps.isMac() && state.settings.systemEnabled && state.lastVideoPath && this.exists(state.lastVideoPath) && !this.deps.shouldReduceMotion()) {
+          await this.deps.playVideo(state.lastVideoPath, assertStillValid);
         }
+        if (abort()) return;
         this.status = 'ready';
         state.lastError = null;
         this.deps.writeState(state);
@@ -196,10 +240,11 @@ export class DesktopCompanionService {
         return;
       }
 
+      // 只复用与当前上下文指纹一致的条目（review #4706 Issue 3）。
       if (!hasTask) {
-        const reuse = state.reusePool[0];
+        const reuse = state.reusePool.find((entry) => entry.fingerprint === fingerprint);
         if (reuse) {
-          await this.applyExisting(state, reuse, now);
+          await this.applyExisting(state, reuse, now, abort);
           return;
         }
       }
@@ -212,47 +257,78 @@ export class DesktopCompanionService {
         mode,
       });
       const still = await this.deps.generateStill(prompt, this.deps.characterRefPath());
-      const stillPath = this.deps.materialize(still, 'still');
-      await this.deps.setWallpaper(stillPath);
-
-      let videoPath: string | null = null;
-      let lastError: string | null = null;
-      if (media.video && !this.deps.shouldReduceMotion()) {
-        try {
-          const video = await this.deps.generateVideo(buildDesktopCompanionVideoPrompt(topic), stillPath);
-          videoPath = this.deps.materialize(video, 'video');
-          await this.deps.playVideo(videoPath);
-        } catch (error) {
-          lastError = error instanceof Error ? error.message : String(error);
-          await this.deps.stopVideo();
-        }
-      } else {
-        await this.deps.stopVideo();
-      }
-
+      if (abort()) return;
+      const stillPath = await this.deps.materialize(still, 'still', assertStillValid);
+      if (abort()) return;
+      const previousStill = state.lastStillPath;
+      const previousVideo = state.lastVideoPath;
+      const previousPoolBeforePublish = state.reusePool;
       const item: DesktopCompanionReuseItem = {
-        fingerprint,
-        stillPath,
-        videoPath,
-        topic,
+        fingerprint, stillPath, videoPath: null, topic,
         expiresAt: now + DESKTOP_COMPANION_REUSE_MS,
       };
       state.reusePool = [item, ...state.reusePool.filter((entry) => entry.fingerprint !== fingerprint)].slice(0, 8);
       state.lastFingerprint = fingerprint;
       state.lastStillPath = stillPath;
-      state.lastVideoPath = videoPath;
+      state.lastVideoPath = null;
       state.lastTopic = topic;
       state.lastUpdatedAt = now;
-      state.lastError = lastError;
+      state.lastError = null;
+      this.deps.writeState(state);
+      this.removeDroppedPoolFiles(previousPoolBeforePublish, state.reusePool, [previousStill, previousVideo]);
+      this.emit();
+      if (this.deps.isMac() && state.settings.systemEnabled) await this.deps.setWallpaper(stillPath, assertStillValid);
+      if (abort()) return;
+
+      let videoPath: string | null = null;
+      if (this.deps.isMac() && state.settings.systemEnabled && media.video && !this.deps.shouldReduceMotion()) {
+          const video = await this.deps.generateVideo(buildDesktopCompanionVideoPrompt(topic), stillPath, assertStillValid);
+          if (abort()) {
+            await this.deps.stopVideo();
+            return;
+          }
+          videoPath = await this.deps.materialize(video, 'video', assertStillValid);
+          if (abort()) return;
+          item.videoPath = videoPath;
+          state.lastVideoPath = videoPath;
+          this.deps.writeState(state);
+          await this.deps.playVideo(videoPath, assertStillValid);
+      } else {
+        await this.deps.stopVideo();
+      }
+      if (abort()) return;
+
+      item.videoPath = videoPath;
+      state.lastVideoPath = videoPath;
       this.status = 'ready';
       this.deps.writeState(state);
       this.emit();
     } catch (error) {
+      if (abort()) return;
       const stateAfter = this.deps.readState();
       this.status = 'error';
-      stateAfter.lastError = error instanceof Error ? error.message : String(error);
+      stateAfter.lastError = wallpaperErrorCode(error instanceof Error ? error.message : String(error));
       this.deps.writeState(stateAfter);
       this.emit();
+    }
+  }
+
+  private removeDroppedPoolFiles(
+    previousPool: DesktopCompanionReuseItem[],
+    nextPool: DesktopCompanionReuseItem[],
+    previousMedia: Array<string | null> = [],
+  ): void {
+    const current = this.deps.readState();
+    const kept = new Set([
+      ...nextPool.flatMap((entry) => [entry.stillPath, entry.videoPath]),
+      current.lastStillPath, current.lastVideoPath,
+    ]);
+    const previous = new Set([
+      ...previousPool.flatMap((entry) => [entry.stillPath, entry.videoPath]),
+      ...previousMedia,
+    ]);
+    for (const source of previous) {
+      if (source && !kept.has(source)) this.deps.removeFile(source);
     }
   }
 
@@ -260,13 +336,17 @@ export class DesktopCompanionService {
     state: DesktopCompanionPersistedState,
     reuse: DesktopCompanionReuseItem,
     now: number,
+    abort: () => boolean,
   ): Promise<void> {
-    await this.deps.setWallpaper(reuse.stillPath);
-    if (reuse.videoPath && fs.existsSync(reuse.videoPath) && !this.deps.shouldReduceMotion()) {
-      await this.deps.playVideo(reuse.videoPath);
+    const assertStillValid = () => { if (abort()) throw new Error('ACCOUNT_CHANGED'); };
+    if (this.deps.isMac() && state.settings.systemEnabled) await this.deps.setWallpaper(reuse.stillPath, assertStillValid);
+    if (abort()) return;
+    if (this.deps.isMac() && state.settings.systemEnabled && reuse.videoPath && this.exists(reuse.videoPath) && !this.deps.shouldReduceMotion()) {
+      await this.deps.playVideo(reuse.videoPath, assertStillValid);
     } else {
       await this.deps.stopVideo();
     }
+    if (abort()) return;
     state.lastFingerprint = reuse.fingerprint;
     state.lastStillPath = reuse.stillPath;
     state.lastVideoPath = reuse.videoPath;
@@ -277,38 +357,8 @@ export class DesktopCompanionService {
     this.deps.writeState(state);
     this.emit();
   }
-}
 
-export function materializeToApplyDir(
-  applyDir: string,
-  media: GeneratedMedia,
-  kind: 'still' | 'video',
-): string {
-  fs.mkdirSync(applyDir, { recursive: true });
-  const ext = kind === 'video' ? extensionForVideo(media.mimeType) : extensionForImage(media.mimeType);
-  const filePath = path.join(applyDir, kind + '_' + Date.now() + ext);
-  fs.writeFileSync(filePath, media.buffer);
-  return filePath;
-}
-
-function extensionForImage(mime: string): string {
-  if (mime.includes('png')) return '.png';
-  if (mime.includes('webp')) return '.webp';
-  return '.jpg';
-}
-
-function extensionForVideo(mime: string): string {
-  if (mime.includes('webm')) return '.webm';
-  if (mime.includes('quicktime')) return '.mov';
-  return '.mp4';
-}
-
-export function patchSettings(
-  state: DesktopCompanionPersistedState,
-  patch: Partial<DesktopCompanionSettings>,
-): DesktopCompanionPersistedState {
-  return {
-    ...state,
-    settings: { ...state.settings, ...patch },
-  };
+  private exists(source: string): boolean {
+    return this.deps.exists(source);
+  }
 }

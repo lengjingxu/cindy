@@ -4,13 +4,15 @@ import { type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { useWallpaperSettings } from '@/hooks/useWallpaperSettings';
 
 import { useDesktopCompanionSettings } from '@/hooks/useDesktopCompanionSettings';
 
 export function DesktopCompanionSection() {
   const { t } = useTranslation();
-  const { snapshot, previewDataUrl, setEnabled, setLocationEnabled, refresh } =
+  const { snapshot, previewDataUrl, setEnabled, setLocationEnabled, setSystemEnabled, refresh } =
     useDesktopCompanionSettings();
+  const { setWallpaper } = useWallpaperSettings();
 
   if (!snapshot.supported) return null;
 
@@ -40,7 +42,15 @@ export function DesktopCompanionSection() {
 
       {snapshot.enabled && (
         <>
-          <SettingsCard className="flex items-center justify-between gap-3">
+          {snapshot.systemSupported && <SettingsCard className="flex items-center justify-between gap-3">
+            <span className="text-13 text-[var(--settings-section-sublabel)]">
+              {t('settings.agentIsland.desktopCompanion.systemLabel')}
+            </span>
+            <Switch checked={snapshot.systemEnabled}
+              onCheckedChange={(checked) => void setSystemEnabled(checked)}
+              aria-label={t('settings.agentIsland.desktopCompanion.systemLabel')} />
+          </SettingsCard>}
+          {snapshot.systemSupported && <SettingsCard className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-col gap-1">
               <p className="text-13 font-medium text-[var(--settings-section-sublabel)]">
                 {t('settings.agentIsland.desktopCompanion.locationLabel')}
@@ -54,7 +64,7 @@ export function DesktopCompanionSection() {
               onCheckedChange={(checked) => void setLocationEnabled(checked)}
               aria-label={t('settings.agentIsland.desktopCompanion.locationAria')}
             />
-          </SettingsCard>
+          </SettingsCard>}
 
           <SettingsCard className="flex flex-col gap-3">
             {previewDataUrl ? (
@@ -72,6 +82,15 @@ export function DesktopCompanionSection() {
             {errorText ? (
               <p className="text-12 leading-[1.4] text-[var(--settings-section-sublabel)]">{errorText}</p>
             ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!previewDataUrl}
+              onClick={() => setWallpaper('memory')}
+              className="self-start"
+            >
+              {t('settings.agentIsland.desktopCompanion.useInApp')}
+            </Button>
             <Button
               type="button"
               variant="secondary"

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TFunction } from 'i18next';
+import { formatCompactTimeUntilReset } from '../lib/compactQuotaCountdown';
 import {
   formatClaudeSubscriptionPlanLabel,
   formatCodexPlanLabel,
@@ -158,10 +159,28 @@ describe('TodaySpendChip dashboard routing', () => {
     expect(compact(source)).toContain(compact('todaySpend.codex.unavailableDetail'));
   });
 
+  it('caps the reset countdown at the window length right after a reset', () => {
+    const units = ((key: string) =>
+      key === 'todaySpend.unit.day' ? '天' : key === 'todaySpend.unit.hour' ? '小时' : key) as TFunction;
+    const week = 7 * 24 * 60;
+    // resetsAt 比 now + 7 天晚 30 秒 (服务端取整 / 时钟偏差): 不得向上取整成「8天」
+    const resetsAt = week * 60 + 30;
+    expect(formatCompactTimeUntilReset(resetsAt, 0, units, week)).toBe('7天');
+    expect(formatCompactTimeUntilReset(5 * 3600 + 30, 0, units, 5 * 60)).toBe('5小时');
+    // 未越界时封顶不改变向上取整口径
+    expect(formatCompactTimeUntilReset(6 * 86400 + 60, 0, units, week)).toBe('7天');
+    expect(formatCompactTimeUntilReset(5 * 86400 + 60, 0, units, week)).toBe('6天');
+    // 窗口长度未知时不封顶
+    expect(formatCompactTimeUntilReset(25 * 86400, 0, units)).toBe('25天');
+  });
+
   it('ticks the reset countdown per second in the last minute and rolls remaining % up after a reset', () => {
     // 最后一分钟秒级倒计时: formatCompactTimeUntilReset 落到秒单位, tick 节奏由
     // computeCountdownTickDelayMs 决定 (setTimeout 链, 非固定 interval)
-    expect(compact(source)).toContain(compact("t('todaySpend.unit.second')"));
+    const seconds = ((key: string) => key === 'todaySpend.unit.second' ? '秒' : key) as TFunction;
+    expect(formatCompactTimeUntilReset(61, 20_000, seconds)).toBe('41秒');
+    expect(formatCompactTimeUntilReset(61, 21_000, seconds)).toBe('40秒');
+    expect(formatCompactTimeUntilReset(61, 61_000, seconds)).toBeNull();
     expect(compact(source)).toContain(
       compact('computeCountdownTickDelayMs(chipResetsAtMsList, Date.now())'),
     );
@@ -177,7 +196,7 @@ describe('TodaySpendChip dashboard routing', () => {
     expect(compact(source)).toContain(
       compact("import { QuotaResetConfetti } from './QuotaResetConfetti';"),
     );
-    expect(compact(source)).toContain(compact('if (celebrating && !prevCelebratingRef.current)'));
+    expect(compact(source)).toContain(compact('const key = quotaFullCelebrations.observe('));
     expect(compact(source)).toContain(compact('segmentElsRef.current[window.key] = el;'));
     expect(compact(source)).toContain(compact('?? chipRef.current;'));
     expect(compact(source)).toContain(compact('<QuotaResetConfetti'));

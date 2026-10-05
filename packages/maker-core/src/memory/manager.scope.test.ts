@@ -66,6 +66,108 @@ function trackingSqlite() {
 }
 
 describe('MakerMemoryManager · owner scope guard (#2341)', () => {
+  it.each(['resetAll', 'resetDigests'] as const)(
+    '%s preserves unopened legacy Bot memory until lazy Home migration',
+    async (resetMethod) => {
+      const botScope = buildBotMemoryScopeKey('bot-not-opened');
+      // A normal project's sanitized path matches the legacy Bot name shape.
+      const projectScope = path.join(path.sep, 'bot', 'proj', '0123456789abcdef');
+      const deps = {
+        basePath: rootA,
+        resolveBasePath: () => rootA,
+        ownerScopeKey: () => 'cloud:abc:1',
+        sqliteFactory: trackingSqlite().factory,
+        agents: {},
+        logger: noopLogger,
+        initialEnabled: true,
+      };
+      const legacyManager = new MakerMemoryManager(deps);
+      try {
+        for (const scope of [botScope, projectScope]) {
+          await legacyManager.write(scope, {
+            type: 'user', name: 'keep', title: 'Preference',
+            description: 'Durable preference', body: 'Keep this preference.',
+          });
+          await legacyManager.write(scope, {
+            type: 'digest', name: 'summary', title: 'Summary',
+            description: 'Compaction summary', body: 'Keep this Bot summary.',
+          });
+        }
+      } finally {
+        legacyManager.dispose();
+      }
+      const legacyDir = path.join(rootA, 'maker-memory', memoryScopeDirName(botScope));
+      const homeMemory = path.join(rootA, 'bots', 'bot-not-opened', 'memories');
+      const manager = new MakerMemoryManager({
+        ...deps,
+        isIndependentScope: (scope) => scope === botScope,
+        resolveStorageDir: (scope) => scope === botScope ? homeMemory : null,
+      });
+      try {
+        expect(existsSync(homeMemory)).toBe(false);
+        expect(await manager[resetMethod]()).toEqual({ removedCount: 1 });
+        expect(existsSync(path.join(legacyDir, 'user_keep.md'))).toBe(true);
+        expect(existsSync(path.join(legacyDir, 'digest_summary.md'))).toBe(true);
+        const projectDir = path.join(rootA, 'maker-memory', memoryScopeDirName(projectScope));
+        expect(existsSync(path.join(projectDir, 'digest_summary.md'))).toBe(false);
+        expect(existsSync(path.join(projectDir, 'user_keep.md'))).toBe(resetMethod === 'resetDigests');
+
+        const migrated = await manager.getStore(botScope);
+        expect((await migrated.list()).map((record) => record.filename)).toEqual([
+          'digest_summary.md', 'user_keep.md',
+        ]);
+        expect((await migrated.read('user_keep.md')).body.trim()).toBe('Keep this preference.');
+        expect(await migrated.getIndex()).toContain('user_keep.md');
+        expect(existsSync(path.join(homeMemory, 'user_keep.md'))).toBe(true);
+      } finally {
+        manager.dispose();
+      }
+    },
+  );
+
+  it.each(['resetAll', 'resetDigests'] as const)(
+    '%s refuses ambiguous directory ownership without reporting a successful clear',
+    async (resetMethod) => {
+      const scope = path.join(path.sep, 'bot-project-0123456789abcdef');
+      const deps = {
+        basePath: rootA, sqliteFactory: trackingSqlite().factory,
+        ownerScopeKey: () => 'cloud:abc:1',
+        agents: {}, logger: noopLogger, initialEnabled: true,
+      };
+      const writer = new MakerMemoryManager(deps);
+      try {
+        await writer.write(scope, {
+          type: 'digest', name: 'summary', title: 'Summary',
+          description: 'Project summary', body: 'Project data.',
+        });
+      } finally {
+        writer.dispose();
+      }
+      const dir = path.join(rootA, 'maker-memory', memoryScopeDirName(scope));
+      const metaPath = path.join(dir, 'meta.json');
+      const originalMeta = await readFile(metaPath, 'utf8');
+      const manager = new MakerMemoryManager(deps);
+      try {
+        // Reuse the directory under test: an extra project could be removed
+        // before or after the ambiguous entry depending on filesystem order.
+        const previouslyOpen = resetMethod === 'resetAll' ? await manager.getStore(scope) : null;
+        for (const metadata of [null, '{broken', JSON.stringify({ absPath: buildBotMemoryScopeKey('wrong-bot') })]) {
+          if (metadata === null) await rm(metaPath);
+          else await writeFile(metaPath, metadata, 'utf8');
+          await expect(manager[resetMethod]()).rejects.toThrow(/cannot determine memory scope/);
+          expect(existsSync(path.join(dir, 'digest_summary.md'))).toBe(true);
+          if (previouslyOpen) await expect(previouslyOpen.list()).rejects.toThrow(/memory was reset/);
+        }
+        // Recovering authoritative metadata restores the normal clear path.
+        await writeFile(metaPath, originalMeta, 'utf8');
+        expect(await manager[resetMethod]()).toEqual({ removedCount: 1 });
+        expect(existsSync(path.join(dir, 'digest_summary.md'))).toBe(false);
+      } finally {
+        manager.dispose();
+      }
+    },
+  );
+
   it('keeps an independent Bot store available in Bot Home and copies legacy data', async () => {
     const botScope = buildBotMemoryScopeKey('bot-a');
     const legacyManager = new MakerMemoryManager({
@@ -307,6 +409,32 @@ describe('MakerMemoryManager · owner scope guard (#2341)', () => {
   });
 
   // ── 异步竞态 (review #2388 P1) ──────────────────────────────────────────
+
+  it.each([false, true])('listScopes rejects an account switch during directory IO (hasScope=%s)', async (hasScope) => {
+    if (hasScope) {
+      await mkdir(memoryDirFor(rootA), { recursive: true });
+      await writeFile(path.join(memoryDirFor(rootA), 'meta.json'), JSON.stringify({ absPath: WORKDIR }));
+    }
+    let currentRoot = rootA;
+    let currentScope = 'cloud:old:1';
+    const manager = new MakerMemoryManager({
+      basePath: rootA,
+      resolveBasePath: () => currentRoot,
+      ownerScopeKey: () => currentScope,
+      sqliteFactory: () => { throw new Error('listScopes must not open sqlite'); },
+      agents: {},
+      logger: noopLogger,
+    });
+    try {
+      const pending = manager.listScopes();
+      currentRoot = rootB;
+      currentScope = 'cloud:new:2';
+      await expect(pending).rejects.toThrow(/memory:not-ready/);
+      expect(await manager.listScopes()).toEqual([]);
+    } finally {
+      manager.dispose();
+    }
+  });
 
   it('getStore 异步 init 期间 owner 切换 → 抛 not-ready 且旧 store 不入池', async () => {
     let currentRoot = rootA;

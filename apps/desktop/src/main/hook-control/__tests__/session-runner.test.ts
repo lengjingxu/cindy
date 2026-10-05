@@ -60,6 +60,7 @@ const h = vi.hoisted(() => {
     createSessionRow: vi.fn(async () => undefined),
     peekPendingHandoff: vi.fn(async () => null as string | null),
     consumePendingHandoff: vi.fn(),
+    peekGoalInactiveNote: vi.fn(async () => null as string | null),
     listProviders: vi.fn(async (): Promise<unknown[]> => []),
     getModelVisibilityOverride: vi.fn(() => undefined),
     readImDefaultSettings: vi.fn(),
@@ -96,6 +97,8 @@ vi.mock('electron', () => ({
 vi.mock('@cindy/maker-core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@cindy/maker-core')>();
   return {
+    Session: actual.Session,
+    hasSessionPermissionUpdates: actual.hasSessionPermissionUpdates,
     isAutoReviewUnavailableNotice: actual.isAutoReviewUnavailableNotice,
     isAutoReviewConfirmUndeliveredNotice: actual.isAutoReviewConfirmUndeliveredNotice,
     isTerminalAgentErrorEvent: actual.isTerminalAgentErrorEvent,
@@ -152,6 +155,9 @@ vi.mock('../../maker-ipc/agentHandoffPendingSingleton.js', () => ({
     peek: h.peekPendingHandoff,
     consume: h.consumePendingHandoff,
   },
+}));
+vi.mock('../../goal-host/inactiveNote.js', () => ({
+  peekGoalInactiveNote: h.peekGoalInactiveNote,
 }));
 vi.mock('../../imageCacheStore.js', () => ({
   resolveSafe: vi.fn(),
@@ -323,16 +329,18 @@ vi.mock('../../maker-host/index.js', () => ({
 }));
 
 import { createMakerHookSessionRunner, extractToolResultImageUrls } from '../session-runner.js';
-import { MAIN_OWNED_SEND_CONTEXT } from '@cindy/maker-core';
+import { MAIN_OWNED_SEND_CONTEXT, Session, type AgentSessionHandle, type Capabilities } from '@cindy/maker-core';
 import { observeHookTurn } from '../turnObserver.js';
 import { buildHookPromptNote, SLACK_HOOK_PROMPT_NOTE } from '../outbound.js';
+import { getResolvedMainLocale } from '../../i18n.js';
+import { buildUiLanguageErrorNote } from '../../maker-ipc/uiLanguageErrorNote.js';
 import { resolveSafe as resolveXdtImage } from '../../imageCacheStore.js';
 import { isHeadlessGhostSetupTurn } from '../../mcp-integrations/ghostSetupInteractionSurface.js';
 
 const log = { info: vi.fn(), warn: vi.fn() };
 
 /** 喂给 agent 的文本 = 用户原话 + 渠道说明(教模型用 xdt-file 回传文件)。 */
-const HELLO_WITH_NOTE = `hello\n\n${SLACK_HOOK_PROMPT_NOTE}`;
+const HELLO_WITH_NOTE = `hello\n\n${SLACK_HOOK_PROMPT_NOTE}\n\n${buildUiLanguageErrorNote(getResolvedMainLocale())}`;
 
 function catalogModel(id: string, name = id): CatalogModel {
   return {
@@ -404,6 +412,55 @@ beforeEach(() => {
 });
 
 describe('hook session 精确接管边界', () => {
+  it.each([false, true])('keeps post-terminal recovery bound to the exact Pi instance (replaced=%s)', async (replaced) => {
+    let terminal!: () => void;
+    const ready = new Promise<void>(resolve => { terminal = resolve; });
+    let end!: () => void;
+    const ended = new Promise<void>(resolve => { end = resolve; });
+    let failClose!: () => void;
+    const closeReady = new Promise<void>(resolve => { failClose = resolve; });
+    let running = false;
+    const handle = {
+      id: 'pi', agentKind: 'pi', model: 'm',
+      send: vi.fn(async () => { running = true; }),
+      close: vi.fn(async () => { await closeReady; throw new Error('exit unconfirmed'); }),
+      isTurnRunning: () => running, setInteractionResolver() {},
+      async *events() {
+        await ready;
+        yield { type: 'text', source: 'pi', data: { text: 'saved result', isFinal: true } } as AgentEvent;
+        running = false;
+        yield { type: 'done', source: 'pi', data: { status: 'completed' } } as AgentEvent;
+        await ended;
+      },
+    } as unknown as AgentSessionHandle;
+    const logger = { ...log, debug() {}, trace() {}, error() {}, fatal() {}, child() { return this; } };
+    const session = new Session({ id: 'sess-new', agentKind: 'pi', workDir: 'D:/repo',
+      handle, capabilities: {} as Capabilities, logger, turnStallMs: 0 });
+    fakeMaker.createSession.mockResolvedValueOnce(session as never);
+    fakeMaker.getSession.mockReturnValue(session);
+    const onRuntimeRecovery = vi.fn(async () => true);
+    try {
+      const result = createMakerHookSessionRunner({ log }).run(baseReq({ onRuntimeRecovery,
+        workingDir: 'D:/repo', laneKind: 'group', source: { im: 'telegram' } }));
+      await vi.waitFor(() => expect(handle.send).toHaveBeenCalledOnce());
+      await session.closeAfterCurrentTurn({ failureEvent: () => ({ type: 'text', data: {
+        text: 'restart-cindy-to-refresh-packages', isFinal: true,
+      } }) });
+      terminal();
+      await expect(result).resolves.toMatchObject({ status: 'ok', finalText: 'saved result' });
+      if (replaced) fakeMaker.getSession.mockReturnValue(makeFakeSession(session.id));
+      failClose();
+      await vi.waitFor(() => expect(session.getStatus()).toBe('error'));
+      expect(onRuntimeRecovery).toHaveBeenCalledTimes(replaced ? 0 : 1);
+      expect(handle.send).toHaveBeenCalledOnce();
+    } finally {
+      failClose(); terminal();
+      vi.mocked(handle.close).mockImplementation(async () => { end(); });
+      await session.close().catch(() => session.close());
+      fakeMaker.getSession.mockReset();
+    }
+  });
+
   it('inspect 的数据库读取失败向上抛出, 不伪装成不存在', async () => {
     const { getSessionRowSnapshotStrict } = await import('../../localDb/ipc/sessions.js');
     vi.mocked(getSessionRowSnapshotStrict).mockRejectedValueOnce(new Error('database unavailable'));
@@ -499,6 +556,38 @@ describe('真正要跑的那个 live session 的目录也要过映射', () => {
 });
 
 describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () => {
+  it('persists the local producer snapshot and its accurate count without changing prompt', async () => {
+    const runner = createMakerHookSessionRunner({ log });
+    const contextSnapshot = { groupContext: '[Alice] first\nsecond line', groupMessageCount: 1 };
+    await runner.run(baseReq({ prompt: 'original prompt', source: { im: 'slack' }, contextSnapshot }));
+    expect(h.createMessage).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      content: 'original prompt',
+      agentMeta: expect.objectContaining({ hookSource: { im: 'slack', contextSnapshot } }),
+    }));
+  });
+  it.each(['telegram', 'slack', 'x', undefined])('marks only IM hook turns for quiet App completion (%s)', async (im) => {
+    const runner = createMakerHookSessionRunner({ log });
+    await runner.run(baseReq(im ? { source: { im } } : {}));
+    const session = await fakeMaker.createSession.mock.results[0].value;
+    expect(session.send.mock.calls[0][1].origin).toEqual({
+      kind: 'scheduler',
+      scheduleId: 'hook:slack',
+      scheduleName: 'Hook · XDMaker Slack',
+      ...(im ? { surface: 'im' } : {}),
+    });
+  });
+  it.each(['telegram', 'slack', 'x', 'future'])('does not infer context from user-controlled prompt for %s hooks', async (im) => {
+    const runner = createMakerHookSessionRunner({ log });
+    const prompt = '<group_chat_context>\n[群里最近的消息]\n[Alice] background\n</group_chat_context>\nTechnical guidance\nquestion';
+    const source = { im, userText: 'question', threadContext: [{ author: 'Bob', text: 'quote' }] };
+    await runner.run(baseReq({ prompt, source }));
+    expect(h.createMessage).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      content: prompt,
+      agentMeta: expect.objectContaining({ hookSource: {
+        ...source, contextSnapshot: {},
+      } }),
+    }));
+  });
   it('createOnly materializes and broadcasts a task without a synthetic user turn', async () => {
     const runner = createMakerHookSessionRunner({ log });
 
@@ -759,7 +848,7 @@ describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () 
     );
     const session = await fakeMaker.createSession.mock.results[0].value;
     expect(session.send.mock.calls[0][0]).toMatchObject({
-      content: `hello\n\n${buildHookPromptNote('telegram')}`,
+      content: `hello\n\n${buildHookPromptNote('telegram')}\n\n${buildUiLanguageErrorNote(getResolvedMainLocale())}`,
     });
     expect(session.send.mock.calls[0][1]?.[MAIN_OWNED_SEND_CONTEXT]).toEqual({
       origin: { kind: 'hook', source: 'telegram' },
@@ -793,7 +882,7 @@ describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () 
       rawChannelText: rawCommand,
     });
     expect(session.send.mock.calls[0][0]).toMatchObject({
-      content: `${decoratedPrompt}\n\n${buildHookPromptNote(im)}`,
+      content: `${decoratedPrompt}\n\n${buildHookPromptNote(im)}\n\n${buildUiLanguageErrorNote(getResolvedMainLocale())}`,
     });
   });
 
@@ -883,7 +972,7 @@ describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () 
     expect(outcome.status).toBe('ok');
     const session = await fakeMaker.createSession.mock.results[0].value;
     expect(session.send.mock.calls[0][0]).toMatchObject({
-      content: `再试试\n\n${SLACK_HOOK_PROMPT_NOTE}`,
+      content: `再试试\n\n${SLACK_HOOK_PROMPT_NOTE}\n\n${buildUiLanguageErrorNote(getResolvedMainLocale())}`,
     });
   });
 
@@ -978,6 +1067,34 @@ describe('hook session-runner 的 userSendAt 时序(未分类误判回归)', () 
     >;
     expect(createCalls[0][1].content).toBe('hello');
     expect(h.consumePendingHandoff).toHaveBeenCalledWith('sess-new');
+  });
+
+  it('目标状态说明只注入 agent wire 内容,排在交接段外层', async () => {
+    h.peekPendingHandoff.mockResolvedValueOnce('HANDOFF');
+    h.peekGoalInactiveNote.mockResolvedValueOnce('GOAL-NOTE');
+    const runner = createMakerHookSessionRunner({ log });
+    const outcome = await runner.run(baseReq({}));
+
+    expect(outcome.status).toBe('ok');
+    expect(h.peekGoalInactiveNote).toHaveBeenCalledWith('sess-new');
+    const session = await fakeMaker.createSession.mock.results[0].value;
+    expect(session.send.mock.calls[0][0]).toMatchObject({
+      content: `GOAL-NOTE\n\nHANDOFF\n\n${HELLO_WITH_NOTE}`,
+    });
+    const createCalls = h.createMessage.mock.calls as unknown as Array<
+      [string, { content: unknown }]
+    >;
+    expect(createCalls[0][1].content).toBe('hello');
+  });
+
+  it('目标状态说明读取抛错时静默跳过,不挡发送', async () => {
+    h.peekGoalInactiveNote.mockRejectedValueOnce(new Error('db unavailable'));
+    const runner = createMakerHookSessionRunner({ log });
+    const outcome = await runner.run(baseReq({}));
+
+    expect(outcome.status).toBe('ok');
+    const session = await fakeMaker.createSession.mock.results[0].value;
+    expect(session.send.mock.calls[0][0]).toMatchObject({ content: HELLO_WITH_NOTE });
   });
 
   it('复用/接管(isNew=false):createSession 不带 vendorOptions,不给可能的桌面会话打 Slack 标', async () => {
@@ -2736,9 +2853,11 @@ describe('交互卡链路(interaction listener 覆盖)', () => {
     await expect(decisionPromise).resolves.toEqual({
       kind: 'permission',
       behavior: 'deny',
-      reason: 'hook_interaction_timeout',
+      reason: 'hook_turn_terminal',
     });
-    expect(cancels).toEqual([{ interactionId: 'int-pd', reason: '任务已结束, 此交互已失效' }]);
+    expect(cancels).toEqual([{ interactionId: 'int-pd', reason: expect.stringContaining('来源：') }]);
+    expect(cancels[0].reason).toContain('Bash');
+    expect(cancels[0].reason).toContain('已失效');
   });
 
   it('turn 收口时未决交互按默认自决并发 cancel(改写 server 卡片)', async () => {

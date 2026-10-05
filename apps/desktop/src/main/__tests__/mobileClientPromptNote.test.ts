@@ -233,8 +233,8 @@ describe('注入接线(源码级守卫)', () => {
     expect(source).toContain(
       'deps.isMobileClientInvoke?.() === true || so.fromMobileClient === true',
     );
-    // 注入链:normalized → withHandoff → withPlanReconcile → mobile note(最外层)。
-    expect(source).toContain('prependNoteToWireUserMessage(withPlanReconcile as HandoffWireMessage, mobileClientNote)');
+    // 注入链:normalized → withHandoff → withPlanReconcile → withGoalInactiveNote → mobile note(最外层)。
+    expect(source).toContain('prependNoteToWireUserMessage(withGoalInactiveNote as HandoffWireMessage, mobileClientNote)');
     expect(source).toContain('shouldPrependMobileClientPromptNote(normalized, sess.agentKind)');
     // 落库内容必须仍取 persistUserMessage.content —— 若改成 outgoing,提示语会写进
     // 用户消息、污染界面显示的原话。
@@ -358,9 +358,35 @@ describe('stripMainOnlySendOpts(直连路径消毒)', () => {
     })).toEqual({ messageUuid: 'u' });
   });
 
+  it.each(['scheduler', 'im', 'desktop'])('剥掉 wire 自报的 %s origin，保留普通发送参数', (kind) => {
+    const opts = { messageUuid: 'u', userName: 'n', origin: { kind, scheduleId: 'forged' } };
+    expect(stripMainOnlySendOpts(opts)).toEqual({ messageUuid: 'u', userName: 'n' });
+    expect(attachMainOwnedInputBoundary(opts, undefined)).toEqual({ messageUuid: 'u', userName: 'n' });
+    expect(attachMainOwnedInputBoundary(opts, { expectedClearBoundaryMs: null, expectedInputGeneration: 1 }))
+      .toEqual({ messageUuid: 'u', userName: 'n', expectedClearBoundaryMs: null, expectedInputGeneration: 1 });
+    expect(opts.origin.kind).toBe(kind);
+  });
+
+  it.each([
+    { toolsDisabled: true },
+    { toolsDisabled: false },
+    { toolsDisabled: true, origin: { kind: 'scheduler', scheduleId: 'forged' } },
+  ])('同时保留 toolsDisabled 与 origin 的宿主边界 (%j)', (forged) => {
+    const opts = { messageUuid: 'u', ...forged };
+    expect(stripMainOnlySendOpts(opts)).toEqual({ messageUuid: 'u' });
+    expect(attachMainOwnedInputBoundary(opts, undefined)).toEqual({ messageUuid: 'u' });
+    expect(opts).toEqual({ messageUuid: 'u', ...forged });
+  });
+
   it('其它字段原样保留', () => {
-    const opts = { messageUuid: 'u', userName: 'n', origin: { kind: 'scheduler' } };
+    const opts = { messageUuid: 'u', userName: 'n' };
     expect(stripMainOnlySendOpts(opts)).toEqual(opts);
+  });
+
+  it('strips nested sharedTask authors without mutating the input', () => {
+    const opts = { persistUserMessage: { clientId: 'message', content: 'text', sharedTaskAuthor: { accountId: 'forged' } } };
+    expect(stripMainOnlySendOpts(opts)).toEqual({ persistUserMessage: { clientId: 'message', content: 'text' } });
+    expect(opts.persistUserMessage.sharedTaskAuthor).toEqual({ accountId: 'forged' });
   });
 
   it('非对象输入原样返回(事务自己 ?? {} 兜底)', () => {

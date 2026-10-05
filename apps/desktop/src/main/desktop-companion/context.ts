@@ -24,7 +24,7 @@ export function sanitizeSceneText(raw: string, maxChars = 40): string {
     .replace(URL_RE, ' ')
     .replace(EMAIL_RE, ' ')
     .replace(PATH_RE, ' ')
-    .replace(/[\u0000-\u001F]/g, ' ')
+    .replace(/\p{Cc}/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (cleaned.length <= maxChars) return cleaned;

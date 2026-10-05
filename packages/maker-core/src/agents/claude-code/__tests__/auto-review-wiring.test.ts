@@ -1,3 +1,4 @@
+import { AUTO_REVIEW_DELEGATED_CONTINUATION, AUTO_REVIEW_USER_INTENT } from '../../base-agent.js';
 /**
  * Auto-review 接线集成测试:官方 Claude OAuth 在没有 host MCP 时保留原生 Auto classifier；
  * 一旦有 host MCP 或使用第三方路由,映射到 SDK default，让 canUseTool 走 Cindy 当前模型轻量 fallback。
@@ -40,6 +41,30 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 import { ClaudeCodeAgent } from '../index.js';
+
+it.each(['ask', 'auto', 'bypassPermissions'] as const)(
+  'enforces a text-only turn at PreToolUse in %s and clears it on the next send',
+  async (mode) => {
+    const { handle } = await startSession(mode);
+    try {
+      await handle.send({ type: 'user', content: 'Give a short greeting.' }, { toolsDisabled: true });
+      const hooks = sdkMock.query.mock.calls.at(-1)![0].options.hooks.PreToolUse
+        .flatMap((group: { hooks: Array<(...args: unknown[]) => Promise<unknown>> }) => group.hooks);
+      for (const toolName of ['Read', 'Bash', 'Write', 'AskUserQuestion', 'mcp__cindy_memory__memory_read']) {
+        const input = { hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: {} };
+        const results = await Promise.all(hooks.map((hook: (...args: unknown[]) => Promise<unknown>) => hook(input, 'tool-id', { signal: new AbortController().signal })));
+        expect(results).toContainEqual(expect.objectContaining({ hookSpecificOutput: expect.objectContaining({ permissionDecision: 'deny' }) }));
+      }
+      await expect(handle.send({ type: 'user', content: 'Too-early next request.' })).rejects.toThrow('tool policy');
+      await handle.abort();
+      await handle.send({ type: 'user', content: 'Normal user request.' });
+      const results = await Promise.all(hooks.map((hook: (...args: unknown[]) => Promise<unknown>) => hook(
+        { hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: {} }, 'tool-id', { signal: new AbortController().signal },
+      )));
+      expect(results).not.toContainEqual(expect.objectContaining({ hookSpecificOutput: expect.objectContaining({ permissionDecision: 'deny' }) }));
+    } finally { await handle.close(); }
+  },
+);
 
 const tempDirs: string[] = [];
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -1251,8 +1276,8 @@ describe('Auto review for progressive MCP operations', () => {
     });
     await canUseTool('mcp__cindy__ghost_call', { action: 'send' }, { toolUseID: 'raw-channel' });
     const intent = reviewedRequest(reviewAutoPermissionAction).userIntent;
-    expect(intent).toContain('Do not send.');
-    expect(intent).not.toContain('SEND THE REPORT');
+    expect(JSON.stringify(intent)).toContain('Do not send.');
+    expect(JSON.stringify(intent)).not.toContain('SEND THE REPORT');
     await handle.close();
   });
   it.each(['prompt', 'prompt-each-time'] as const)('uses AI three-way decisions for policy %s', async (policy) => {
@@ -1274,4 +1299,16 @@ describe('Auto review for progressive MCP operations', () => {
       await handle.close();
     }
   });
+});
+
+it.each(['Do not publish.', ''])('keeps live Claude intent %j over stale continuation history', async restriction => {
+ const {handle,canUseTool,reviewAutoPermissionAction}=await startSession('auto',{mcpProviderNames:['cindy'],mcpToolApprovalPolicy:()=> 'prompt',reviewVerdict:'block'});
+ try {
+  await handle.send({type:'user',content:'Publish the release.'});
+  await handle.steer!({type:'user',content:restriction});
+  await handle.steer!({type:'user',content:'Lead continuation'}, {[AUTO_REVIEW_DELEGATED_CONTINUATION]:true,[AUTO_REVIEW_USER_INTENT]:'Publish the release.'});
+  await canUseTool('mcp__cindy__ghost_call',{action:'publish'},{toolUseID:'live-continuation'});
+  const intent=reviewedRequest(reviewAutoPermissionAction).userIntent;
+  if(restriction) expect(JSON.stringify(intent)).toContain(restriction); else expect(intent).toBe('');
+ } finally {await handle.close();}
 });
