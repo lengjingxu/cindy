@@ -11,8 +11,11 @@ import {
   fetchDeviceModelPricing,
   getCachedDeviceApiKeyStatus,
   getCachedDeviceModelPricing,
+  getDeviceApiKeyStatusGen,
   getDeviceModelPricingGen,
+  refreshDeviceApiKeyStatus,
   refreshDeviceModelPricing,
+  subscribeDeviceApiKeyStatusGen,
   subscribeDeviceModelPricingGen,
 } from '@/device-link/deviceModelMetaCache';
 
@@ -119,5 +122,18 @@ describe('deviceModelMetaCache', () => {
     subscribeDeviceModelPricingGen('devA', () => seen.push('devA'));
     evictDeviceModelMeta('devB');
     expect(seen).toEqual([]);
+  });
+
+  it('key presence 缓存有独立代际命名空间', () => {
+    const base = getDeviceApiKeyStatusGen('devA');
+    const seen: number[] = [];
+    const unsubscribe = subscribeDeviceApiKeyStatusGen('devA', () => {
+      seen.push(getDeviceApiKeyStatusGen('devA'));
+    });
+    evictDeviceModelMeta('devA');
+    expect(getDeviceApiKeyStatusGen('devA')).toBe(base + 1);
+    unsubscribe();
+    evictDeviceModelMeta('devA');
+    expect(seen).toEqual([base + 1]);
   });
 });

@@ -127,6 +127,7 @@ const keyStatusCache = createDeviceCache<DeviceApiKeyStatus>();
 // 「缓存属旧连接」并强制刷新。只在采信成功路径记录;失败保持旧代次,下次
 // effect 重跑仍判定 reconnected → 重试。
 const pricingFetchEpoch = new Map<string, number>();
+const keyStatusFetchEpoch = new Map<string, number>();
 
 /** 读单价表缓存命中(同步),供 hook 初始化 state 用。undefined = 未拉过。 */
 export function getCachedDeviceModelPricing(
@@ -202,6 +203,39 @@ export function subscribeDeviceModelPricingGen(
   return pricingCache.subscribeGen(deviceId, listener);
 }
 
+/** 读 key presence 缓存代际;evict/clearAll 自增。hook 用它拒绝晚到的旧结果。 */
+export function getDeviceApiKeyStatusGen(deviceId: string): number {
+  return keyStatusCache.getGen(deviceId);
+}
+
+/** 记录/读取 key presence 缓存所属连接代次;hook 据此判定重连后缓存命中需强制刷新。 */
+export function markDeviceApiKeyStatusFetchEpoch(deviceId: string, epoch: number): void {
+  keyStatusFetchEpoch.set(deviceId, epoch);
+}
+
+export function getDeviceApiKeyStatusFetchEpoch(deviceId: string): number | undefined {
+  return keyStatusFetchEpoch.get(deviceId);
+}
+
+/** 强制刷新 key presence:忽略缓存命中(重连后缓存可能属旧连接代际),仍与在途去重。 */
+export function refreshDeviceApiKeyStatus(
+  deviceId: string,
+  fetcher: () => Promise<{ present: boolean }>,
+): Promise<DeviceApiKeyStatus | undefined> {
+  return keyStatusCache.refresh(deviceId, async () => {
+    const res = await fetcher();
+    return res?.present === true ? 'present' : 'absent';
+  });
+}
+
+/** 订阅 key presence 缓存代际变更(evict/clearAll);挂载中的 hook 据此清展示并重拉。 */
+export function subscribeDeviceApiKeyStatusGen(
+  deviceId: string,
+  listener: () => void,
+): () => void {
+  return keyStatusCache.subscribeGen(deviceId, listener);
+}
+
 /** device-link:被控设备切换 / 下线时驱逐其模型元信息缓存(与 evictDeviceProviders 同时机)。 */
 export function evictDeviceModelMeta(deviceId: string): void {
   pricingCache.evict(deviceId);
@@ -213,4 +247,5 @@ export function clearAllDeviceModelMeta(): void {
   pricingCache.clearAll();
   keyStatusCache.clearAll();
   pricingFetchEpoch.clear();
+  keyStatusFetchEpoch.clear();
 }
