@@ -6636,11 +6636,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('maker:memory:hub:index-preview', workdir),
     memoryHubEntryWrite: (
       workdir: string,
-      opts: { type: string; name: string; title: string; description: string; body: string; mode?: string },
+      opts: { type?: string; name?: string; filename?: string; expectedUpdatedAt?: string; title: string; description: string; body: string; mode?: string },
     ): Promise<{ ok: true; filename: string }> =>
       ipcRenderer.invoke('maker:memory:hub:entry-write', workdir, opts),
-    memoryHubEntryDelete: (workdir: string, filename: string): Promise<{ ok: true }> =>
-      ipcRenderer.invoke('maker:memory:hub:entry-delete', workdir, filename),
+    memoryHubEntryDelete: (workdir: string, filename: string, expectedUpdatedAt: string): Promise<{ ok: true }> =>
+      ipcRenderer.invoke('maker:memory:hub:entry-delete', workdir, filename, expectedUpdatedAt),
     memoryHubTrashList: (workdir: string): Promise<{ entries: Array<{ filename: string; type: string; title: string; description: string; deletedAt: string; sizeBytes: number }> }> =>
       ipcRenderer.invoke('maker:memory:hub:trash-list', workdir),
     memoryHubRestore: (workdir: string, filename: string): Promise<{ ok: true; filename: string }> =>

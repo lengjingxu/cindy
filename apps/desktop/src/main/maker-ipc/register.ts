@@ -580,6 +580,7 @@ import {
 } from '../maker-host/pi-package-mutation-grant.js';
 import { readXaiSubscriptionUsageSnapshotForDeviceLink, readClaudeSubscriptionUsageSnapshotForDeviceLink } from './usage.js';
 import { requireEnum, requireObject, requireString, throwIpcError } from '../utils/ipcValidate.js';
+import { deleteMemoryHubEntry, restoreMemoryHubEntry, writeMemoryHubEntry } from './memoryHubMutations.js';
 import { applyPersistedCindyMakeMarker } from './cindyMakeSessionStart.js';
 import { CINDY_MAKE_SESSION_SOURCE } from '../../shared/cindyMakeSession.js';
 import { isIpcError, type IpcErrorCode } from '../../shared/ipc-errors.js';
@@ -17430,10 +17431,14 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   }
 
   function mapMemoryHubError(err: unknown): never {
-    if (err instanceof MemoryError && err.code === 'not-ready') {
-      throwIpcError('MAKER_MEMORY_NOT_READY', 'maker memory not ready');
+    if (isIpcError(err)) throw err;
+    if (err instanceof MemoryError) {
+      if (err.code === 'not-ready') throwIpcError('MAKER_MEMORY_NOT_READY', 'maker memory not ready');
+      if (err.code === 'version-conflict') throwIpcError('PRECONDITION_FAILED', 'memory changed since it was opened');
+      if (err.code === 'already-exists') throwIpcError('ALREADY_EXISTS', 'a memory with this filename already exists');
+      if (err.code === 'not-found') throwIpcError('NOT_FOUND', 'memory entry no longer exists');
     }
-    throwIpcError('INTERNAL', err instanceof Error ? err.message : String(err));
+    throwIpcError('INTERNAL', 'memory operation failed');
   }
 
   ipcMain.handle(MAKER_INVOKE.MEMORY_HUB_SCOPES, async (e) => {
@@ -17531,19 +17536,9 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     async (e, workdir: unknown, opts: unknown) => {
       assertTrustedAppRendererEvent(e);
       const scopeKey = requireString(workdir, 'workdir');
-      const writeOpts = opts as { type: string; name: string; title: string; description: string; body: string; mode?: string };
-      if (!writeOpts || typeof writeOpts !== 'object') throwIpcError('INVALID_PARAMS', 'opts required');
       try {
         const store = await requireMemoryHubManager().getStore(scopeKey);
-        const result = await store.write({
-          type: writeOpts.type as Parameters<typeof store.write>[0]['type'],
-          name: writeOpts.name,
-          title: writeOpts.title,
-          description: writeOpts.description,
-          body: writeOpts.body,
-          mode: (writeOpts.mode as 'create' | 'update' | 'append') ?? 'create',
-        });
-        return result;
+        return await writeMemoryHubEntry(store, opts);
       } catch (err) {
         mapMemoryHubError(err);
       }
@@ -17552,14 +17547,13 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
 
   ipcMain.handle(
     MAKER_INVOKE.MEMORY_HUB_ENTRY_DELETE,
-    async (e, workdir: unknown, filename: unknown) => {
+    async (e, workdir: unknown, filename: unknown, expectedUpdatedAt: unknown) => {
       assertTrustedAppRendererEvent(e);
       const scopeKey = requireString(workdir, 'workdir');
       const entryFilename = requireString(filename, 'filename');
       try {
         const store = await requireMemoryHubManager().getStore(scopeKey);
-        await store.softDelete(entryFilename);
-        return { ok: true };
+        return await deleteMemoryHubEntry(store, entryFilename, expectedUpdatedAt);
       } catch (err) {
         mapMemoryHubError(err);
       }
@@ -17588,7 +17582,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       const entryFilename = requireString(filename, 'filename');
       try {
         const store = await requireMemoryHubManager().getStore(scopeKey);
-        return await store.restore(entryFilename);
+        return await restoreMemoryHubEntry(store, entryFilename);
       } catch (err) {
         mapMemoryHubError(err);
       }

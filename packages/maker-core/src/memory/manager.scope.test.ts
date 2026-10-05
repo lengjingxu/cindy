@@ -7,7 +7,7 @@
  *  - 无 resolveBasePath/ownerScopeKey 的静态 basePath 宿主行为不变。
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, promises as fsAsync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -266,6 +266,25 @@ describe('MakerMemoryManager · owner scope guard (#2341)', () => {
     expect(existsSync(memoryDirFor(rootA))).toBe(true);
     expect(sqlite.closes).toHaveLength(0);
     manager.dispose();
+  });
+
+  it('rejects scope data when the account changes while reading metadata', async () => {
+    let currentScope = 'owner-a';
+    const manager = new MakerMemoryManager({
+      basePath: rootA, resolveBasePath: () => rootA,
+      ownerScopeKey: () => currentScope,
+      sqliteFactory: trackingSqlite().factory, agents: {}, logger: noopLogger,
+    });
+    await mkdir(memoryDirFor(rootA), { recursive: true });
+    await writeFile(path.join(memoryDirFor(rootA), 'meta.json'), JSON.stringify({ absPath: WORKDIR }));
+    const read = fsAsync.readFile.bind(fsAsync);
+    const spy = vi.spyOn(fsAsync, 'readFile').mockImplementationOnce(async (...args: Parameters<typeof fsAsync.readFile>) => {
+      const result = await read(...args);
+      currentScope = 'owner-b';
+      return result;
+    });
+    try { await expect(manager.listScopes()).rejects.toThrow(/memory:not-ready/); }
+    finally { spy.mockRestore(); manager.dispose(); }
   });
 
   it('listScopes 只读取 maker-memory 下的 scope 目录', async () => {

@@ -470,6 +470,7 @@ export class MakerMemoryManager {
    */
   async listScopes(): Promise<MemoryScopeInfo[]> {
     this.ensureOwnerScope();
+    const scopeAtEntry = this.activeScopeKey;
     const root = this.resolvedBasePath;
     if (!root) {
       throw new MemoryError('not-ready', 'owner scope unresolved; refusing to list scopes');
@@ -482,9 +483,11 @@ export class MakerMemoryManager {
         .map((entry) => entry.name)
         .sort();
     } catch (err) {
+      this.assertScopeUnchanged(scopeAtEntry);
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw new MemoryError('io-error', `list memory scopes failed: ${(err as Error).message}`);
     }
+    this.assertScopeUnchanged(scopeAtEntry);
     const scopes: MemoryScopeInfo[] = [];
     for (const dirName of dirNames.sort().filter((name) => !name.startsWith('.'))) {
       const kind: MemoryScopeInfo['kind'] = isRemoteScopeDirName(dirName) ? 'remote' : 'local';
@@ -496,6 +499,7 @@ export class MakerMemoryManager {
       } catch {
         // meta 缺失或损坏: 目录仍列出, 只是拿不到原始路径展示
       }
+      this.assertScopeUnchanged(scopeAtEntry);
       scopes.push({
         dirName,
         kind,
@@ -503,6 +507,7 @@ export class MakerMemoryManager {
         displayPath,
       });
     }
+    this.assertScopeUnchanged(scopeAtEntry);
     return scopes;
   }
 
