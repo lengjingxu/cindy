@@ -750,8 +750,11 @@ export class RsbWindowController {
 
   // ── 超时与恢复 ────────────────────────────────────────────────────
 
-  private scheduleOpenFallback(win: BrowserWindow): void {
+  private scheduleOpenFallback(win: BrowserWindow, resetExtension = true): void {
     this.clearOpenTimeout();
+    // 顺延是自我 re-arm,不得重置标志;外部重新打开(reload、新 open 周期)则给新一轮
+    // 一次顺延机会,晚到的自动化等待器仍能等满自身期限。
+    if (resetExtension) this.openFallbackExtended = false;
     this.openTimeout = setTimeout(() => {
       this.openTimeout = null;
       if (win !== this.winRef || win.isDestroyed() || !this.pendingOpen) return;
@@ -760,14 +763,15 @@ export class RsbWindowController {
       // 恢复额度耗尽才放弃。仅 shell 就绪、内容未到时仍展示 Loading 壳。
       if (!this.rendererReady) {
         // 自动化/宿主 waiter(ready 握手、宿主会话)各自有界等待并假定窗口存活:
-        // 首次超时若有 waiter 在场,顺延一个周期再失效,避免提前拆窗把有界等待
-        // 拒成 'closed before ready';顺延只发生一次,等待器超时后窗口仍会被回收。
+        // 超时若有 waiter 在场则顺延一个周期再失效,避免提前拆窗把有界等待拒成
+        // 'closed before ready';每次外部重新打开可重置一次,持续有 waiter 时窗口
+        // 存活期仍以最长 waiter 期限为界,不会无限顺延。
         if (
           !this.openFallbackExtended
           && (this.readyWaiters.length > 0 || this.hostWaiters.length > 0)
         ) {
           this.openFallbackExtended = true;
-          this.scheduleOpenFallback(win);
+          this.scheduleOpenFallback(win, false);
           return;
         }
         this.invalidateWindow(win, 'renderer readiness timed out');

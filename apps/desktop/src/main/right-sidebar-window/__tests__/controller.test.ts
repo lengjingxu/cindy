@@ -746,6 +746,26 @@ describe('userInitiated:false', () => {
     expect(win.focus).not.toHaveBeenCalled();
   });
 
+  it('late automation waiter keeps the window alive until its own deadline', async () => {
+    const h = makeHarness({ detached: true });
+    const first = h.controller.ensureOpenForAutomation();
+    const firstSettled = first.catch(() => 'rejected');
+
+    vi.advanceTimersByTime(5000); // 首次超时:waiter1 在场 → 顺延
+    expect(h.windows[0].isDestroyed()).toBe(false);
+
+    const second = h.controller.ensureOpenForAutomation(); // 6s:新 waiter(期限 14s),重排 fallback 到 11s
+    const secondSettled = second.catch(() => 'rejected');
+    vi.advanceTimersByTime(5000); // 11s fallback:新 waiter 在场 → 再次顺延
+    expect(h.windows[0].isDestroyed()).toBe(false);
+
+    vi.advanceTimersByTime(3000); // 14s:waiter 按自身期限拒绝,窗口未被提前拆掉
+    await expect(secondSettled).resolves.toBe('rejected');
+
+    vi.advanceTimersByTime(2000); // 16s:waiters 已空 → 作废回收,不无限顺延
+    expect(h.windows[0].isDestroyed()).toBe(true);
+  });
+
   it('not-ready window: later user open upgrades pending show to focused', () => {
     const h = makeHarness();
     h.controller.open({ userInitiated: false });
@@ -1745,10 +1765,10 @@ describe('crash recovery', () => {
     expect(h.windows).toHaveLength(2);
 
     // 恢复出的 win2 先正常就绪(基线:shell 超时未就绪的窗口会被作废回收,
-    // 活下来的窗口都走健康路径);随后等稳定期重置恢复额度,再验第二次崩溃能重建。
+    // 活下来的窗口都走健康路径);open() 会清零恢复额度并取消稳定期计时器,
+    // 必须等稳定期自然过期后再崩溃,才能真实验证额度重置(greptile P2)。
     const win2 = h.windows[1];
     markReady(h.controller, win2);
-    h.controller.open();
     vi.advanceTimersByTime(30_000);
 
     win2.emitWebContentsEvent('render-process-gone', {}, { reason: 'crashed' });
