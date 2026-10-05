@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStorage } from './storage.js';
 import { MakerMemoryStore } from './store.js';
 import Database from 'better-sqlite3';
+import { MemoryError } from './types.js';
 import type { Logger } from '../interfaces/logger.js';
 
 let dir: string;
@@ -102,6 +103,9 @@ describe('conditional memory mutations', () => {
       expect(saved.body).toBe('uniquememorykeyword');
       expect(await store.search('uniquememorykeyword')).toEqual([expect.objectContaining({ filename: legacy })]);
       expect(await store.getIndex()).toContain(`[${legacy}] New title`);
+      expect(await store.history(legacy)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ op: 'update', title: 'New title' }),
+      ]));
       await store.delete(legacy, saved.frontmatter.updatedAt);
       expect(await store.search('uniquememorykeyword')).toEqual([]);
       expect((await store.read(filename)).body).toBe('Original');
@@ -115,4 +119,73 @@ describe('conditional memory mutations', () => {
     await storage.write({ ...seed, mode: 'update', body: 'Recovered' });
     expect((await storage.read(filename)).body).toBe('Recovered');
   });
+
+  it('moves soft-deleted content into the trash and restores the index and FTS', async () => {
+    const db = new Database(':memory:');
+    const logger: Logger = { trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {}, child() { return logger; } };
+    const store = new MakerMemoryStore({ storageDir: dir, absWorkdir: dir, db, logger });
+    try {
+      await store.softDelete(filename);
+      await expect(store.read(filename)).rejects.toMatchObject({ code: 'not-found' });
+      expect(await store.listTrash()).toEqual([expect.objectContaining({ filename, title: seed.title })]);
+      expect(await store.search('Original')).toEqual([]);
+      await store.restore(filename);
+      expect((await store.read(filename)).body).toBe(seed.body);
+      expect(await store.listTrash()).toEqual([]);
+      expect(await store.getIndex()).toContain(filename);
+      expect(await store.search('Original')).toEqual([expect.objectContaining({ filename })]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('preserves both versions when restoration meets an existing shard', async () => {
+    const original = await fs.readFile(path.join(dir, filename), 'utf8');
+    await storage.softDelete(filename);
+    await storage.write({ ...seed, body: 'New version' });
+    await expect(storage.restore(filename)).rejects.toMatchObject({ code: 'already-exists' });
+    expect((await storage.read(filename)).body).toBe('New version');
+    expect(await fs.readFile(path.join(dir, '.trash', filename), 'utf8')).toBe(original);
+  });
+
+  it('serializes restoration with a concurrent tool update across storage instances', async () => {
+    await storage.softDelete(filename);
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const link = fs.link.bind(fs);
+    vi.spyOn(fs, 'link').mockImplementationOnce(async (...args: Parameters<typeof fs.link>) => {
+      entered();
+      await gate;
+      return link(...args);
+    });
+    const restored = storage.restore(filename);
+    await started;
+    const writer = new MemoryStorage(dir);
+    const updated = writer.write({ ...seed, mode: 'update', body: 'Later update' });
+    release();
+    await Promise.all([restored, updated]);
+    expect((await storage.read(filename)).body).toBe('Later update');
+  });
+
+  it.each(['listTrash', 'history', 'recentEvents', 'insights', 'recommendations'] as const)(
+    '%s rejects an account switch across asynchronous initialization', async (method) => {
+      const db = new Database(':memory:');
+      let active = true;
+      const logger: Logger = { trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {}, child() { return logger; } };
+      const store = new MakerMemoryStore({
+        storageDir: dir, absWorkdir: dir, db, logger,
+        scopeCheck: () => { if (!active) throw new MemoryError('not-ready', 'account changed'); },
+      });
+      try {
+        await store.init();
+        const pending = method === 'history' ? store.history(filename) : store[method]();
+        active = false;
+        await expect(pending).rejects.toMatchObject({ code: 'not-ready' });
+      } finally {
+        db.close();
+      }
+    },
+  );
 });

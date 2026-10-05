@@ -1643,6 +1643,9 @@ export class AgentIslandService {
       // 开关尚未同步时没有上一帧可比:首次出现的设备任务保留静音,等第一次真正 publish。
       this.clearStreamingPreviewPublishTimer();
       this.clearPublishTimer();
+      // Input devices (Passport, keyboards) read activity from the main process,
+      // so they must not wait for the renderer to sync the island UI settings.
+      this.notifySessionActivityConsumer(this.buildSessionActivityPayload());
       return;
     }
     if (!this.enabled) {

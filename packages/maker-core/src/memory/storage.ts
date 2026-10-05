@@ -36,10 +36,11 @@ import {
   type WriteOptions,
   type WriteResult,
   type WriteWarningDetail,
+  type MemoryTrashEntry,
 } from './types.js';
 
 const INDEX_FILENAME = 'MEMORY.md';
-const META_FILENAME = 'meta.json';
+export const META_FILENAME = 'meta.json';
 const SHARD_EXT = '.md';
 const SLUG_REGEX = /^[a-z0-9_-]+$/;
 
@@ -133,6 +134,14 @@ export function memoryScopeDirName(scopeKey: string): string {
   const hostSegment = scopeKey.slice(SSH_SCOPE_KEY_PREFIX.length).split(':', 1)[0] ?? '';
   const digest = createHash('sha256').update(scopeKey, 'utf8').digest('hex').slice(0, 16);
   return `ssh-${sanitizeWorkdir(hostSegment).slice(0, 24)}-${digest}`;
+}
+
+/** 远端 scope 目录名特征: `ssh-<host 片段>-<sha256 前 16 hex>` (见 memoryScopeDirName)。 */
+const REMOTE_SCOPE_DIR_NAME_RE = /^ssh-.+-[0-9a-f]{16}$/;
+
+/** 判断落盘目录名是否远端 scope (Memory Hub 的展示 / 还原策略按此分叉)。 */
+export function isRemoteScopeDirName(dirName: string): boolean {
+  return REMOTE_SCOPE_DIR_NAME_RE.test(dirName);
 }
 
 /** filename = `<type>_<slug>.md`; slug 误带 `<type>_` 前缀会被拒绝 (见 validateNoTypePrefix) */
@@ -506,6 +515,73 @@ export class MemoryStorage {
    *   ## feedback
    *   ...
    */
+
+  // ── P2: 回收站 ──────────────────────────────────────────────────────────
+
+  async softDelete(filename: string): Promise<void> {
+    await this.moveShard(filename, this.dir, path.join(this.dir, '.trash'));
+  }
+
+  private moveShard(filename: string, sourceDir: string, targetDir: string): Promise<WriteResult> {
+    return this.mutate(async () => {
+      this.assertSafeFilename(filename);
+      this.beforeFileWrite?.();
+      await fs.mkdir(targetDir, { recursive: true });
+      this.beforeFileWrite?.();
+      const source = path.join(sourceDir, filename);
+      try {
+        // Exclusive creation preserves both versions when a same-name shard exists.
+        await fs.link(source, path.join(targetDir, filename));
+      } catch (e) {
+        if (isENOENT(e)) throw new MemoryError('not-found', `${filename} 不存在`);
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST')
+          throw new MemoryError('already-exists', `${filename} 已存在`);
+        throw new MemoryError('io-error', `move memory shard failed: ${(e as Error).message}`);
+      }
+      this.guardAfterMutation();
+      await fs.unlink(source);
+      this.guardAfterMutation();
+      await this.rebuildIndex();
+      this.beforeFileWrite?.();
+      return { ok: true, filename };
+    });
+  }
+
+  /** P2: 列出 .trash/ 下的已删除条目 */
+  async listTrash(): Promise<MemoryTrashEntry[]> {
+    const trashDir = path.join(this.dir, '.trash');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(trashDir);
+    } catch {
+      return [];
+    }
+    const results: MemoryTrashEntry[] = [];
+    for (const filename of entries.filter((f) => f.endsWith('.md')).sort()) {
+      try {
+        const fullPath = path.join(trashDir, filename);
+        const stat = await fs.stat(fullPath);
+        const raw = await fs.readFile(fullPath, 'utf8');
+        const parsed = parseRawShard(raw, filename);
+        results.push({
+          filename,
+          type: parsed.frontmatter.type,
+          title: parsed.frontmatter.title,
+          description: parsed.frontmatter.description,
+          deletedAt: (stat.mtime ?? new Date()).toISOString(),
+          sizeBytes: stat.size,
+        });
+      } catch {
+        // skip corrupt trash files
+      }
+    }
+    return results;
+  }
+
+  /** P2: 从 .trash/ 恢复条目到主目录 */
+  async restore(filename: string): Promise<WriteResult> {
+    return this.moveShard(filename, path.join(this.dir, '.trash'), this.dir);
+  }
   async rebuildIndex(): Promise<void> {
     try {
       await this.rebuildIndexInner();

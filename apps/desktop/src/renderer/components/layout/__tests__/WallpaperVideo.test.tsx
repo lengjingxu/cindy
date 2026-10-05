@@ -140,8 +140,10 @@ describe('dynamic wallpaper lifecycle', () => {
     const standard = document.querySelector('video')!;
     fireEvent.playing(standard);
     state.tier = 'hd';
-    rerender(<WallpaperVideo wallpaperId="cindy-window" motion="dynamic" />);
-    await waitFor(() => expect(document.querySelector('video')!.src).toContain('-hd.mp4'));
+    // Await the download update and passive decoder cleanup together.
+    await act(async () => {
+      rerender(<WallpaperVideo wallpaperId="cindy-window" motion="dynamic" />);
+    });
     const hd = document.querySelector('video')!;
     expect(hd.src).toContain('cindy-window-hd.mp4');
     expect(document.querySelectorAll('video')).toHaveLength(1);

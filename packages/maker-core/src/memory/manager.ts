@@ -24,12 +24,14 @@
 
 import * as path from 'node:path';
 import * as fsSync from 'node:fs';
+import { promises as fs } from 'node:fs';
 import type Database from 'better-sqlite3';
 
 import { MakerMemoryStore, memoryScopeDirName, parseFilename } from './store.js';
-import { parseBotMemoryScopeKey } from './storage.js';
+import { parseBotMemoryScopeKey, isRemoteScopeDirName, META_FILENAME } from './storage.js';
 import {
   MemoryError,
+  type MemoryScopeInfo,
   type MemoryConfig,
   type WriteOptions,
 } from './types.js';
@@ -479,6 +481,55 @@ export class MakerMemoryManager {
     this.enabled = false;
     this.logger.info('maker memory disabled (native memory unchanged)');
     return { effective: 'next-session' };
+  }
+
+  /**
+   * 列出当前 owner 根下全部记忆作用域目录 (Memory Hub P1 只读入口)。
+   * scopeKey 仅在能精确还原时给出: local 读目录内 meta.json 的 absPath;
+   * remote 的完整 ssh key 未落盘, 保持 null (UI 仅展示, 不可打开)。
+   * 只读 fs 操作, 不触碰 store 池, 不受 enabled 开关影响。
+   */
+  async listScopes(): Promise<MemoryScopeInfo[]> {
+    this.ensureOwnerScope();
+    const scopeAtEntry = this.activeScopeKey;
+    const root = this.resolvedBasePath;
+    if (!root) {
+      throw new MemoryError('not-ready', 'owner scope unresolved; refusing to list scopes');
+    }
+    const memoryRoot = path.join(root, MEMORY_SUBDIR);
+    let dirNames: string[];
+    try {
+      dirNames = (await fs.readdir(memoryRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => entry.name)
+        .sort();
+    } catch (err) {
+      this.assertScopeUnchanged(scopeAtEntry);
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw new MemoryError('io-error', `list memory scopes failed: ${(err as Error).message}`);
+    }
+    this.assertScopeUnchanged(scopeAtEntry);
+    const scopes: MemoryScopeInfo[] = [];
+    for (const dirName of dirNames.sort().filter((name) => !name.startsWith('.'))) {
+      const kind: MemoryScopeInfo['kind'] = isRemoteScopeDirName(dirName) ? 'remote' : 'local';
+      let displayPath: string | null = null;
+      try {
+        const raw = await fs.readFile(path.join(memoryRoot, dirName, META_FILENAME), 'utf8');
+        const meta = JSON.parse(raw) as { absPath?: unknown };
+        displayPath = typeof meta.absPath === 'string' && meta.absPath !== '' ? meta.absPath : null;
+      } catch {
+        // meta 缺失或损坏: 目录仍列出, 只是拿不到原始路径展示
+      }
+      this.assertScopeUnchanged(scopeAtEntry);
+      scopes.push({
+        dirName,
+        kind,
+        scopeKey: kind === 'local' ? displayPath : null,
+        displayPath,
+      });
+    }
+    this.assertScopeUnchanged(scopeAtEntry);
+    return scopes;
   }
 
   // ── Store 实例池 ─────────────────────────────────────────────────────────

@@ -548,7 +548,7 @@ function HostForm({
                   <code
                     className="flex-1 text-12 truncate rounded-md px-2 py-1.5"
                     style={{
-                      backgroundColor: 'var(--surface-chip, #f5f5f5)',
+                      backgroundColor: 'var(--surface-chip)',
                       color: 'var(--settings-section-title)',
                       fontFamily: 'var(--app-font-code, var(--app-font-code-default))',
                     }}
@@ -633,7 +633,7 @@ function HostForm({
                   <code
                     className="flex-1 text-12 truncate rounded-md px-2 py-1.5"
                     style={{
-                      backgroundColor: 'var(--surface-chip, #f5f5f5)',
+                      backgroundColor: 'var(--surface-chip)',
                       color: 'var(--settings-section-title)',
                       fontFamily: 'var(--app-font-code, var(--app-font-code-default))',
                     }}

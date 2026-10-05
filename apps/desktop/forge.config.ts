@@ -1445,6 +1445,19 @@ function buildWindowsInputHelper(
   fs.copyFileSync(path.join(source, 'target', target, 'release', name), path.join(dest, name));
 }
 
+function buildMacPassportHelper(platform: ForgePlatform, arch: ForgeArch): void {
+  if (process.platform !== 'darwin' || !isMacForgePlatform(platform)) return;
+  const src = path.join(__dirname, 'native', 'passport', 'passport.swift');
+  const dir = path.join(__dirname, 'resources', 'tools', 'passport');
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = path.join(dir, 'cindy-passport');
+  buildSwiftHelperForForgeArch(src, dest, arch, 'macos12.0',
+    ['-framework', 'AppKit', '-framework', 'CoreBluetooth',
+      '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__info_plist',
+      '-Xlinker', path.join(path.dirname(src), 'Info.plist')], 'Passport BLE helper');
+  fs.chmodSync(dest, 0o755);
+}
+
 function buildMacXboxGamepadHelper(platform: ForgePlatform, arch: ForgeArch): void {
   if (process.platform !== 'darwin' || !isMacForgePlatform(platform)) return;
   const src = path.join(__dirname, 'native', 'xbox-gamepad', 'macos-xbox-gamepad-helper.swift');
@@ -1678,6 +1691,7 @@ function buildMacDesktopCompanionHelper(platform: ForgePlatform, arch: ForgeArch
   console.log('[forge:prePackage] macOS desktop companion helper (' + swiftArchLabel(arch, MACOS_DESKTOP_COMPANION_HELPER_DEPLOYMENT_TARGET) + ') -> ' + dest + ' (' + sizeMb + ' MB)');
 }
 
+
 function buildMacComputerPermissionGuideHelper(platform: ForgePlatform, arch: ForgeArch): void {
   if (process.platform !== 'darwin' || !isMacForgePlatform(platform)) return;
   const src = path.join(
@@ -1904,6 +1918,7 @@ const config: ForgeConfig = {
     //
     //   Windows / Linux 完全忽略此字段。
     extendInfo: {
+      NSBluetoothAlwaysUsageDescription: 'Connect your Cindy Passport to display task status.',
       NSMicrophoneUsageDescription: 'This app needs access to the microphone for voice input.',
       NSLocationWhenInUseUsageDescription: 'Cindy uses your approximate location to match desktop scenes to the city you are in.',
       NSAudioCaptureUsageDescription: 'Share computer audio with your connected remote desktop.',
@@ -1974,6 +1989,7 @@ const config: ForgeConfig = {
     // helper bundles also need the usage description for macOS TCC to register
     // the packaged app correctly in Privacy & Security > Microphone.
     extendHelperInfo: {
+      NSBluetoothAlwaysUsageDescription: 'Connect your Cindy Passport to display task status.',
       NSMicrophoneUsageDescription: 'This app needs access to the microphone for voice input.',
       NSLocationWhenInUseUsageDescription: 'Cindy uses your approximate location to match desktop scenes to the city you are in.',
       NSAudioCaptureUsageDescription: 'Share computer audio with your connected remote desktop.',
@@ -2044,6 +2060,7 @@ const config: ForgeConfig = {
       buildMacIOSSimulatorHelper(platform, arch);
       buildMacVoiceInputTextInsertionHelper(platform, arch);
       buildMacXboxGamepadHelper(platform, arch);
+      buildMacPassportHelper(platform, arch);
       buildWindowsGamepadHelper(platform, arch);
       buildWindowsAtomicRenameHelper(platform, arch);
       buildWindowsTaskbarAddon(platform, arch);
