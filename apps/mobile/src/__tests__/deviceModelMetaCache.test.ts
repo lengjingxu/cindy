@@ -11,6 +11,8 @@ import {
   fetchDeviceModelPricing,
   getCachedDeviceApiKeyStatus,
   getCachedDeviceModelPricing,
+  getDeviceModelPricingGen,
+  subscribeDeviceModelPricingGen,
 } from '@/device-link/deviceModelMetaCache';
 
 const PRICING = { 'gpt-5.5': { inputUsdPerMtok: 3, outputUsdPerMtok: 15 } };
@@ -73,5 +75,28 @@ describe('deviceModelMetaCache', () => {
     clearAllDeviceModelMeta();
     expect(getCachedDeviceApiKeyStatus('devA')).toBeUndefined();
     expect(getCachedDeviceModelPricing('devB')).toBeUndefined();
+  });
+
+  it('代际:evict/clearAll 自增并通知订阅者,退订后不再通知', () => {
+    // 代际是模块级累计的(前面用例已驱动过 devA),只断言相对增量。
+    const base = getDeviceModelPricingGen('devA');
+    const seen: number[] = [];
+    const unsubscribe = subscribeDeviceModelPricingGen('devA', () => {
+      seen.push(getDeviceModelPricingGen('devA'));
+    });
+    evictDeviceModelMeta('devA');
+    evictDeviceModelMeta('devA');
+    clearAllDeviceModelMeta();
+    expect(getDeviceModelPricingGen('devA')).toBe(base + 3);
+    unsubscribe();
+    evictDeviceModelMeta('devA');
+    expect(seen).toEqual([base + 1, base + 2, base + 3]);
+  });
+
+  it('代际订阅只收本设备的通知', () => {
+    const seen: string[] = [];
+    subscribeDeviceModelPricingGen('devA', () => seen.push('devA'));
+    evictDeviceModelMeta('devB');
+    expect(seen).toEqual([]);
   });
 });

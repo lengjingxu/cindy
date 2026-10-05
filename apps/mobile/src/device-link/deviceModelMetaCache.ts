@@ -20,12 +20,21 @@ interface DeviceCache<T> {
   fetch(deviceId: string, fetcher: () => Promise<T>): Promise<T | undefined>;
   evict(deviceId: string): void;
   clearAll(): void;
+  /** 当前代际;evict/clearAll 自增。消费方用它拒绝晚到的旧结果。 */
+  getGen(deviceId: string): number;
+  /** 订阅该设备的代际变更(evict/clearAll);返回退订函数。 */
+  subscribeGen(deviceId: string, listener: () => void): () => void;
 }
 
 function createDeviceCache<T>(): DeviceCache<T> {
   const cache = new Map<string, T>();
   const inflight = new Map<string, Promise<T | undefined>>();
   const deviceGen = new Map<string, number>();
+  const genListeners = new Map<string, Set<() => void>>();
+
+  const notifyGen = (deviceId: string): void => {
+    for (const listener of genListeners.get(deviceId) ?? []) listener();
+  };
 
   return {
     get: (deviceId) => cache.get(deviceId),
@@ -58,14 +67,31 @@ function createDeviceCache<T>(): DeviceCache<T> {
       cache.delete(deviceId);
       inflight.delete(deviceId);
       deviceGen.set(deviceId, (deviceGen.get(deviceId) ?? 0) + 1);
+      notifyGen(deviceId);
     },
     clearAll() {
-      const ids = new Set<string>([...cache.keys(), ...inflight.keys(), ...deviceGen.keys()]);
+      const ids = new Set<string>([
+        ...cache.keys(),
+        ...inflight.keys(),
+        ...deviceGen.keys(),
+        ...genListeners.keys(),
+      ]);
       for (const id of ids) {
         deviceGen.set(id, (deviceGen.get(id) ?? 0) + 1);
       }
       cache.clear();
       inflight.clear();
+      for (const id of genListeners.keys()) notifyGen(id);
+    },
+    getGen: (deviceId) => deviceGen.get(deviceId) ?? 0,
+    subscribeGen(deviceId, listener) {
+      const bucket = genListeners.get(deviceId) ?? new Set<() => void>();
+      bucket.add(listener);
+      genListeners.set(deviceId, bucket);
+      return () => {
+        bucket.delete(listener);
+        if (bucket.size === 0) genListeners.delete(deviceId);
+      };
     },
   };
 }
@@ -109,6 +135,19 @@ export function fetchDeviceApiKeyStatus(
     const res = await fetcher();
     return res?.present === true ? 'present' : 'absent';
   });
+}
+
+/** 读单价表缓存代际;evict/clearAll 自增。hook 用它拒绝晚到的旧结果。 */
+export function getDeviceModelPricingGen(deviceId: string): number {
+  return pricingCache.getGen(deviceId);
+}
+
+/** 订阅单价表缓存代际变更(evict/clearAll);挂载中的 hook 据此清展示并重拉。 */
+export function subscribeDeviceModelPricingGen(
+  deviceId: string,
+  listener: () => void,
+): () => void {
+  return pricingCache.subscribeGen(deviceId, listener);
 }
 
 /** device-link:被控设备切换 / 下线时驱逐其模型元信息缓存(与 evictDeviceProviders 同时机)。 */

@@ -14,8 +14,11 @@ import {
   fetchDeviceModelPricing,
   getCachedDeviceApiKeyStatus,
   getCachedDeviceModelPricing,
+  getDeviceModelPricingGen,
+  subscribeDeviceModelPricingGen,
   type DeviceApiKeyStatus,
 } from './deviceModelMetaCache';
+import { useDeviceLink } from './DeviceLinkContext';
 import { useMobileMakerTransport } from './useMobileMakerTransport';
 
 export type { DeviceApiKeyStatus } from './deviceModelMetaCache';
@@ -23,6 +26,10 @@ export type { DeviceApiKeyStatus } from './deviceModelMetaCache';
 /** 被控端视角的模型单价表;null = 还没拿到 / 拉不到(消费方隐藏价格)。 */
 export function useDeviceModelPricing(deviceId?: string): MobileModelPricingMap | null {
   const maker = useMobileMakerTransport(deviceId ?? '');
+  // 连接代际:被控端重连/恢复时 +1,而 maker.invoke 跨重连稳定,仅依赖 [deviceId, maker]
+  // 的 effect 不会因重连重跑;纳入依赖后,离线驱逐产生的 cache-miss 在重连时自然重拉
+  // (对齐 useDeviceProviders 的 connectionEpoch 接线)。
+  const { connectionEpoch } = useDeviceLink();
   const [pricing, setPricing] = useState<MobileModelPricingMap | null>(
     deviceId ? getCachedDeviceModelPricing(deviceId) ?? null : null,
   );
@@ -32,20 +39,35 @@ export function useDeviceModelPricing(deviceId?: string): MobileModelPricingMap 
       setPricing(null);
       return;
     }
-    const cached = getCachedDeviceModelPricing(deviceId);
-    if (cached !== undefined) {
-      setPricing(cached);
-      return;
-    }
     let cancelled = false;
-    setPricing(null);
-    void fetchDeviceModelPricing(deviceId, () => maker.getModelPricing()).then((res) => {
-      if (!cancelled) setPricing(res ?? null);
+    // cache-miss 拉取:以发起时的缓存代际为凭,仅当代际未变(未被 evict/clearAll 作废)
+    // 才采纳结果——evict 后更早出发的在途请求仍会 resolve 旧值,不得覆盖新拉取。
+    const pull = (): void => {
+      const cached = getCachedDeviceModelPricing(deviceId);
+      if (cached !== undefined) {
+        setPricing(cached);
+        return;
+      }
+      setPricing(null);
+      const startGen = getDeviceModelPricingGen(deviceId);
+      void fetchDeviceModelPricing(deviceId, () => maker.getModelPricing()).then((res) => {
+        if (!cancelled && getDeviceModelPricingGen(deviceId) === startGen) {
+          setPricing(res ?? null);
+        }
+      });
+    };
+    pull();
+    // 失效订阅:离线驱逐 / 登出切号清空缓存而页面仍挂载时,清展示并按 cache-miss
+    // 重拉;重拉在离线中失败维持降级值(null,不缓存),重连由 connectionEpoch 依赖再触发。
+    const unsubscribeGen = subscribeDeviceModelPricingGen(deviceId, () => {
+      if (cancelled) return;
+      pull();
     });
     return () => {
       cancelled = true;
+      unsubscribeGen();
     };
-  }, [deviceId, maker]);
+  }, [connectionEpoch, deviceId, maker]);
 
   return pricing;
 }
