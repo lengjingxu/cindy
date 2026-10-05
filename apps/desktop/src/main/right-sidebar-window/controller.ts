@@ -135,6 +135,7 @@ export class RsbWindowController {
   private visible = false;
   private pendingOpen = false;
   private pendingOpenShouldFocus = true;
+  private openFallbackExtended = false;
   private disposed = false;
   private readyWaiters: Array<{
     resolve: () => void;
@@ -730,6 +731,7 @@ export class RsbWindowController {
     this.visible = false;
     this.pendingOpen = false;
     this.pendingOpenShouldFocus = true;
+    this.openFallbackExtended = false;
     this.destroyingWindow = false;
     this.clearPinnedSession();
 
@@ -753,11 +755,23 @@ export class RsbWindowController {
     this.openTimeout = setTimeout(() => {
       this.openTimeout = null;
       if (win !== this.winRef || win.isDestroyed() || !this.pendingOpen) return;
-      // renderer shell 未就绪时仍展示(loadURL 在 BrowserWindow 创建时就开始了,
-      // 5s 足够 Electron 完成 HTML 加载和 React 根挂载);即使只有 Loading 壳也是
-      // 可辨识的反馈,比永久不给用户任何反应好。
-      if (!this.rendererReady && !this.visible) {
-        this.deps.log.warn('right-sidebar open timed out before renderer-ready');
+      // 窗口规则 §3.1:超时只能展示已挂载的 Loading 壳。shell(rendererReady)未就绪
+      // 时展示可能是空白窗口;按资源用量窗口基线作废缓存并走有界恢复(重建重开),
+      // 恢复额度耗尽才放弃。仅 shell 就绪、内容未到时仍展示 Loading 壳。
+      if (!this.rendererReady) {
+        // 自动化/宿主 waiter(ready 握手、宿主会话)各自有界等待并假定窗口存活:
+        // 首次超时若有 waiter 在场,顺延一个周期再失效,避免提前拆窗把有界等待
+        // 拒成 'closed before ready';顺延只发生一次,等待器超时后窗口仍会被回收。
+        if (
+          !this.openFallbackExtended
+          && (this.readyWaiters.length > 0 || this.hostWaiters.length > 0)
+        ) {
+          this.openFallbackExtended = true;
+          this.scheduleOpenFallback(win);
+          return;
+        }
+        this.invalidateWindow(win, 'renderer readiness timed out');
+        return;
       }
       if (!this.visible) this.showWindow(win, this.pendingOpenShouldFocus);
     }, DEFAULT_OPEN_TIMEOUT_MS);

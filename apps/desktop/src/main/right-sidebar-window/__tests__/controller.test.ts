@@ -712,13 +712,35 @@ describe('userInitiated:false', () => {
     expect(win.focus).not.toHaveBeenCalled();
   });
 
-  it('not-ready window: automated open fallback shows without focusing', () => {
+  it('not-ready window: open fallback invalidates and rebuilds with bounded recovery', () => {
     const h = makeHarness();
     h.controller.open({ userInitiated: false });
-    const win = h.windows[0];
+    const win1 = h.windows[0];
 
     vi.advanceTimersByTime(5000);
 
+    // 窗口规则 §3.1:shell 未就绪不得展示空白窗口;作废缓存并重建重开(有界恢复)。
+    expect(win1.isDestroyed()).toBe(true);
+    expect(h.windows).toHaveLength(2);
+    expect(h.windows[1].show).not.toHaveBeenCalled();
+    expect(h.windows[1].showInactive).not.toHaveBeenCalled();
+
+    // 恢复额度耗尽:重建窗口再次超时后不再重建,也不展示。
+    vi.advanceTimersByTime(5000);
+    expect(h.windows).toHaveLength(2);
+    expect(h.windows[1].show).not.toHaveBeenCalled();
+    expect(h.windows[1].showInactive).not.toHaveBeenCalled();
+  });
+
+  it('renderer-ready but presentation-pending: open fallback shows the mounted shell', () => {
+    const h = makeHarness();
+    h.controller.open({ userInitiated: false });
+    const win = h.windows[0];
+    h.controller.markRendererReady(win.webContents as unknown as WebContents);
+
+    vi.advanceTimersByTime(5000);
+
+    // 仅 shell 就绪、内容未到:展示已挂载的 Loading 壳(基线允许)。
     expect(win.showInactive).toHaveBeenCalledTimes(1);
     expect(win.show).not.toHaveBeenCalled();
     expect(win.focus).not.toHaveBeenCalled();
@@ -1722,13 +1744,13 @@ describe('crash recovery', () => {
     vi.advanceTimersByTime(10);
     expect(h.windows).toHaveLength(2);
 
-    // Wait for stability period
-    vi.advanceTimersByTime(30_000);
-
-    // Recovery creates win2; need to open (request visibility) before second crash.
+    // 恢复出的 win2 先正常就绪(基线:shell 超时未就绪的窗口会被作废回收,
+    // 活下来的窗口都走健康路径);随后等稳定期重置恢复额度,再验第二次崩溃能重建。
     const win2 = h.windows[1];
     markReady(h.controller, win2);
     h.controller.open();
+    vi.advanceTimersByTime(30_000);
+
     win2.emitWebContentsEvent('render-process-gone', {}, { reason: 'crashed' });
     vi.advanceTimersByTime(10);
     expect(h.windows).toHaveLength(3); // recovery quota reset allows third window
