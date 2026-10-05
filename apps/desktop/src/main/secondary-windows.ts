@@ -93,22 +93,21 @@ export function installExternalLinkGuards(win: BrowserWindow): void {
 }
 
 /**
- * 副窗主框加载失败时销毁窗口,避免「永不展示的僵尸窗口」(#5450 R02):
+ * 副窗首次展示前主框加载失败时销毁窗口,避免「永不展示的僵尸窗口」(#5450 R02):
  * did-finish-load / ready-to-show 在加载失败时不会到来,调用方已按「已打开」上报,
  * 用户什么都看不到。销毁是单次窗口的有界终点;'closed' 监听负责清理副窗 set。
  */
 export function destroySecondaryWindowOnLoadFailure(
   win: BrowserWindow,
   sessionId: string,
-  failure: { errorCode: number; errorDescription: string; isMainFrame: boolean },
+  failure: { errorCode: number; errorDescription: string; isMainFrame: boolean; hasShown?: boolean },
 ): void {
   // -3(ABORTED)是后续加载取代前一次(或窗口关闭中断加载)的正常路径;子框失败
   // 由页面自身处理,不升级成整窗销毁。
-  if (!failure.isMainFrame || failure.errorCode === -3) return;
+  if (failure.hasShown || !failure.isMainFrame || failure.errorCode === -3 || failure.errorDescription === 'ERR_ABORTED') return;
   log.warn('secondary window load failed; destroying', {
     sessionId,
     errorCode: failure.errorCode,
-    errorDescription: failure.errorDescription,
   });
   if (!win.isDestroyed()) win.destroy();
 }
@@ -226,6 +225,7 @@ export function openSessionInNewWindow(
   };
   // 主框加载失败(网络/dev server 抖动/文件缺失)时销毁窗口:否则 did-finish-load
   // 与 ready-to-show 都不会到来,窗口永久隐藏而调用方已按「已打开」上报。
+  // 已展示过的窗口保留给用户重试,不因 reload 失败销毁。
   // -3(ABORTED)是后续加载取代前一次的正常路径,不算失败。
   win.webContents.on(
     'did-fail-load',
@@ -234,6 +234,7 @@ export function openSessionInNewWindow(
         errorCode,
         errorDescription,
         isMainFrame,
+        hasShown: shown,
       });
     },
   );
@@ -271,10 +272,12 @@ export function openSessionInNewWindow(
         hash,
       });
   void load.catch((error: unknown) => {
+    const failure = error && typeof error === 'object' ? error as { errno?: unknown; code?: unknown } : null;
     destroySecondaryWindowOnLoadFailure(win, sessionId, {
-      errorCode: -1,
-      errorDescription: `load promise rejected: ${String(error)}`,
+      errorCode: typeof failure?.errno === 'number' ? failure.errno : -1,
+      errorDescription: failure?.code === 'ERR_ABORTED' ? 'ERR_ABORTED' : 'load promise rejected',
       isMainFrame: true,
+      hasShown: shown,
     });
   });
 

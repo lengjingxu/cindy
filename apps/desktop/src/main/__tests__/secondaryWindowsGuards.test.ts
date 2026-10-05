@@ -128,6 +128,22 @@ describe('destroySecondaryWindowOnLoadFailure — 加载失败销毁窗口', () 
     expect(win.destroy).not.toHaveBeenCalled();
   });
 
+  it('保留已经展示过的窗口,包括暂时隐藏后的 reload 失败', () => {
+    const win = fakeWin();
+    destroySecondaryWindowOnLoadFailure(win as never, sessionId, {
+      errorCode: -105, errorDescription: 'ERR_NAME_NOT_RESOLVED', isMainFrame: true, hasShown: true,
+    });
+    expect(win.destroy).not.toHaveBeenCalled();
+  });
+
+  it('Promise 只提供 ERR_ABORTED 字符串时也不销毁窗口', () => {
+    const win = fakeWin();
+    destroySecondaryWindowOnLoadFailure(win as never, sessionId, {
+      errorCode: -1, errorDescription: 'ERR_ABORTED', isMainFrame: true,
+    });
+    expect(win.destroy).not.toHaveBeenCalled();
+  });
+
   it('窗口已销毁时不重复处理', () => {
     const win = fakeWin();
     win.isDestroyed.mockReturnValue(true);
