@@ -1359,6 +1359,25 @@
         "secret-chime": "シークレットチャイム",
         "custom": "ローカルファイル…",
         "customSelected": "ローカルファイル: {{name}}"
+      },
+      "desktopCompanion": {
+        "title": "メモリ壁紙",
+        "enableLabel": "メモリから生成",
+        "enableHint": "最近のタスク・メモリのタイトル・時間帯を画面の小さなディテールに反映し、1時間ごとに更新を確認します。生成には設定済みの画像モデルを使用します。",
+        "enableAria": "メモリ壁紙の生成を有効化",
+        "locationLabel": "現在地を使用",
+        "locationHint": "システムに位置情報を要求し、おおよその都市の窓の景色を描きます。オフにすると時間帯のみ表現します。",
+        "locationAria": "デスクトップ位置情報を切り替え",
+        "previewAlt": "現在のデスクトップ",
+        "lastTopic": "現在：{{topic}}",
+        "empty": "オンにすると最初のデスクトップを生成します",
+        "updateNow": "今すぐ更新",
+        "updating": "生成中…",
+        "needImageModel": "先に設定で参照画像対応の画像モデルを構成してください",
+        "needVideoModel": "先に設定で動画モデルを構成してください",
+        "failed": "今回の更新は完了しませんでした。モデル設定またはシステム権限を確認して再試行してください。",
+        "systemLabel": "macOS のシステム壁紙にも設定",
+        "useInApp": "Cindy の壁紙に使用"
       }
     },
     "language": {
