@@ -54,7 +54,12 @@ export async function transcribeRecordedPcm(
     check();
     for (let offset = 0; offset < pcm.byteLength; offset += 3200) {
       check();
-      provider.appendAudio(pcm.slice(offset, offset + 3200));
+      const chunk = pcm.slice(offset, offset + 3200);
+      provider.appendAudio(chunk);
+      // Realtime ASR expects microphone-paced PCM, including the final partial
+      // chunk. A completed BLE recording must not be burst into session.finish.
+      await new Promise<void>((resolve) => setTimeout(resolve, chunk.byteLength / 32));
+      check();
     }
     await provider.flushAudio();
     check();
