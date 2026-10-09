@@ -90,6 +90,7 @@ CREATE TABLE sessions (
   source TEXT NOT NULL DEFAULT 'desktop',
   im_bot_context_id TEXT,
   im_user_id TEXT,
+  im_default_route TEXT,
   remote_host_id TEXT,
   active_turn_started_at INTEGER,
   last_turn_ended_at INTEGER,
@@ -104,6 +105,20 @@ CREATE TABLE sessions (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE shared_task_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+  shared_task_id TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  terminal INTEGER NOT NULL,
+  snapshot TEXT,
+  recorded_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX shared_task_events_revision_idx
+  ON shared_task_events (shared_task_id, kind, revision);
+CREATE INDEX shared_task_events_session_idx
+  ON shared_task_events (session_id, id);
 CREATE TABLE orca_teams (
   id TEXT PRIMARY KEY,
   lead_session_id TEXT NOT NULL,
@@ -226,6 +241,21 @@ interface TestSessionRow {
 }
 
 describe('db worker tx handlers', () => {
+  it.each([false, true])('persists bounded authority through the real worker transport (inline=%s)', async useInlineWorker => {
+    await withClient(async client => {
+      await seedSession(client, 'authority');
+      const initial = await client.tx('authorization.readProjection', { sessionId: 'authority', leadId: 'authority' });
+      await client.exec('INSERT INTO messages(id,client_id,session_id,role,content,created_at,agent_meta) VALUES (?,?,?,?,?,?,?)',
+        ['authority-user', 'authority-user', 'authority', 'user', JSON.stringify({ text: 'Do not publish' }), 100,
+          JSON.stringify({ delivery: 'turn', autoReviewUserText: 'Do not publish' })]);
+      const next = await client.tx('authorization.readProjection', { sessionId: 'authority', leadId: 'authority' });
+      expect(next.sessionIntent).toBe('Do not publish');
+      expect(next.reviewIntent).toBe('Do not publish');
+      expect(next.revision).toBeGreaterThan(initial.revision);
+      await client.exec('UPDATE sessions SET cleared_at=? WHERE id=?', [100, 'authority']);
+      expect((await client.tx('authorization.readProjection', { sessionId: 'authority', leadId: 'authority' })).sessionIntent).toBe('');
+    }, { useInlineWorker, authorityProjection: true });
+  });
   beforeAll(async () => {
     workerBundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xdt-db-tx-worker-'));
     workerScriptPath = await buildDbWorkerBundle(path.join(workerBundleDir, 'build'));
@@ -932,6 +962,74 @@ describe('db worker tx handlers', () => {
     });
   });
 
+  it.each([false, true])('stages message publication without exposing live history or list changes (inline=%s)', async useInlineWorker => {
+    await withClient(async client => {
+      await seedSession(client, 's1');
+      await client.exec("UPDATE sessions SET list_preview='keep', list_message_count=7 WHERE id='s1'");
+      const args = { id: 'staged', clientId: 'private', sessionId: 's1', role: 'assistant', content: 'private result',
+        toolUseId: null, agentMeta: null, agentKind: null, createdAt: 100, guarded: false };
+      await expect(client.tx('message.insert', { ...args, publication: 'stage' })).resolves.toEqual({ changes: 1 });
+      await expect(client.queryOne('SELECT COUNT(*) AS count FROM messages')).resolves.toEqual({ count: 0 });
+      await expect(client.queryOne("SELECT list_preview, list_message_count FROM sessions WHERE id='s1'"))
+        .resolves.toEqual({ list_preview: 'keep', list_message_count: 7 });
+      await expect(client.tx('message.insert', { ...args, publication: 'publish' })).resolves.toEqual({ changes: 1 });
+      await expect(client.queryOne('SELECT client_id, content, rewind_at FROM messages'))
+        .resolves.toEqual({ client_id: 'private', content: 'private result', rewind_at: null });
+      await expect(client.queryOne("SELECT list_preview, list_message_count FROM sessions WHERE id='s1'"))
+        .resolves.toEqual({ list_preview: null, list_message_count: null });
+      await expect(client.tx('message.insert', { ...args, publication: 'publish' })).resolves.toEqual({ changes: 0 });
+    }, { useInlineWorker });
+  });
+
+  it.each([false, true])('rolls back only the exact published row and invalidates cached projections (inline=%s)', async useInlineWorker => {
+    await withClient(async client => {
+      await seedSession(client, 's1');
+      const args = { id: 'published', clientId: 'private', sessionId: 's1', role: 'assistant', content: 'private result',
+        toolUseId: null, agentMeta: null, agentKind: null, createdAt: 100, guarded: false };
+      await client.tx('message.insert', { ...args, publication: 'stage' });
+      await client.tx('message.insert', { ...args, publication: 'publish' });
+      // An unrelated row and a changed payload are outside this rollback's authority.
+      await client.tx('message.insert', { ...args, id: 'other', clientId: 'other' });
+      for (const mismatch of [{ id: 'old-id' }, { sessionId: 'other-session' }, { clientId: 'old-key' },
+        { role: 'user' }, { content: 'old body' }, { toolUseId: 'old-tool' }, { agentMeta: '{}' },
+        { agentKind: 'pi' }, { createdAt: 99 }]) {
+        await expect(client.tx('message.insert', { ...args, ...mismatch, publication: 'rollback' }))
+          .resolves.toEqual({ changes: 0 });
+      }
+      await client.exec("UPDATE sessions SET list_preview='private result', list_message_count=2 WHERE id='s1'");
+      await expect(client.tx('message.insert', { ...args, publication: 'rollback' })).resolves.toEqual({ changes: 1 });
+      await expect(client.query('SELECT id FROM messages')).resolves.toEqual([{ id: 'other' }]);
+      await expect(client.queryOne("SELECT list_preview, list_message_count FROM sessions WHERE id='s1'"))
+        .resolves.toEqual({ list_preview: null, list_message_count: null });
+      await expect(client.tx('message.insert', { ...args, publication: 'rollback' })).resolves.toEqual({ changes: 0 });
+      await client.tx('message.insert', { ...args, id: 'replacement' });
+      await expect(client.tx('message.insert', { ...args, publication: 'rollback' })).resolves.toEqual({ changes: 0 });
+      await expect(client.queryOne("SELECT id FROM messages WHERE client_id='private'"))
+        .resolves.toEqual({ id: 'replacement' });
+    }, { useInlineWorker });
+  });
+
+  it.each([false, true])('drops abandoned publication stages on worker restart without phantom history (inline=%s)', async useInlineWorker => {
+    await withClient(async (client, reopen) => {
+      await seedSession(client, 's1');
+      const args = { id: 'abandoned', clientId: 'private', sessionId: 's1', role: 'assistant', content: 'never published',
+        toolUseId: null, agentMeta: null, agentKind: null, createdAt: 100, guarded: false };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await client.tx('message.insert', { ...args, id: 'abandoned-' + attempt, publication: 'stage' });
+      }
+      await expect(client.queryOne('SELECT COUNT(*) AS count FROM messages')).resolves.toEqual({ count: 0 });
+      const restarted = await reopen();
+      await expect(restarted.queryOne('SELECT COUNT(*) AS count FROM messages')).resolves.toEqual({ count: 0 });
+      await expect(restarted.queryOne("SELECT COUNT(*) AS count FROM sqlite_temp_master WHERE name='cindy_pending_message_publications'"))
+        .resolves.toEqual({ count: 0 });
+      await expect(restarted.tx('message.insert', { ...args, id: 'abandoned-0', publication: 'publish' })).resolves.toEqual({ changes: 0 });
+      await restarted.tx('message.insert', { ...args, publication: 'stage' });
+      await expect(restarted.tx('message.insert', { ...args, publication: 'publish' })).resolves.toEqual({ changes: 1 });
+      await expect(restarted.queryOne('SELECT COUNT(*) AS count FROM messages')).resolves.toEqual({ count: 1 });
+      await expect(restarted.queryOne('SELECT COUNT(*) AS count FROM temp.cindy_pending_message_publications')).resolves.toEqual({ count: 0 });
+    }, { useInlineWorker });
+  });
+
   it.each([false, true])(
     'message.insert invalidates list projection in the same transaction (inline=%s)',
     async (useInlineWorker) => {
@@ -1194,6 +1292,34 @@ describe('db worker tx handlers', () => {
       expect(rows[1]!.agent_meta).toBe(foreignMeta);
       expect(rows[3]!.agent_meta).toBe(droppedMeta);
     }, { useInlineWorker });
+    },
+  );
+
+  it.each([false, true])(
+    'rewind.commit refuses to mutate when the /clear generation has changed (inline=%s)',
+    async (useInlineWorker) => {
+      await withClient(async (client) => {
+        await seedSession(client, 's1');
+        await client.exec(
+          'INSERT INTO messages (id, client_id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)',
+          ['m1', 'c1', 's1', 'user', 'before', 100, 'm2', 'c2', 's1', 'user', 'after-clear', 400],
+        );
+        await client.exec('UPDATE sessions SET cleared_at = ? WHERE id = ?', [250, 's1']);
+
+        await expect(
+          client.tx('rewind.commit', {
+            sessionId: 's1',
+            targetCreatedAt: 100,
+            expectedClearedAt: null,
+            now: 999,
+          }),
+        ).rejects.toThrow(/CLEAR_GENERATION_CHANGED|clear-boundary changed/i);
+
+        await expect(client.query('SELECT id, rewind_at FROM messages ORDER BY id')).resolves.toEqual([
+          { id: 'm1', rewind_at: null },
+          { id: 'm2', rewind_at: null },
+        ]);
+      }, { useInlineWorker });
     },
   );
 
@@ -1765,6 +1891,34 @@ describe('db worker tx handlers', () => {
             { id: 'bot', status: 'active' },
             { id: 'regular', status: 'active' },
           ]);
+        },
+        { useInlineWorker },
+      );
+    },
+  );
+
+  it.each([false, true])(
+    'sessions.setTerminalStatus commits the local-close fence atomically (inline=%s)',
+    async (useInlineWorker) => {
+      await withClient(
+        async (client) => {
+          await seedSession(client, 'terminal');
+          await client.exec(
+            `INSERT INTO shared_task_events (shared_task_id, session_id, revision, kind, terminal, snapshot, recorded_at)
+             VALUES (?, ?, 1, 'authority', 0, ?, ?)`,
+            ['share-terminal', 'terminal', JSON.stringify({ sharedTaskId: 'share-terminal' }), Date.now()],
+          );
+          await expect(client.tx('sessions.setTerminalStatus', {
+            sessionId: 'terminal',
+            status: 'archived',
+          })).resolves.toEqual(expect.objectContaining({ sessionId: 'terminal', status: 'archived' }));
+          await expect(client.query('SELECT status FROM sessions WHERE id = ?', ['terminal']))
+            .resolves.toEqual([{ status: 'archived' }]);
+          await expect(client.query(
+            `SELECT terminal FROM shared_task_events
+             WHERE shared_task_id = ? AND kind = 'local-close' AND revision = 0`,
+            ['share-terminal'],
+          )).resolves.toEqual([{ terminal: 1 }]);
         },
         { useInlineWorker },
       );
@@ -2820,6 +2974,11 @@ describe('db worker tx handlers', () => {
            channel, bot_context_id, user_id, scope_key, target_session_id, attached_at
          ) VALUES ('telegram', 'bot', 'user', '', 'telegram-old', 100)`,
       );
+      await client.exec(
+        `INSERT INTO shared_task_events (
+           shared_task_id, session_id, revision, kind, terminal, recorded_at
+         ) VALUES ('shared-old', 'telegram-old', 1, 'authority', 0, 400)`,
+      );
 
       const result = await client.tx('im.rotateSession', {
         previousSessionId: 'telegram-old',
@@ -2841,6 +3000,7 @@ describe('db worker tx handlers', () => {
           fastMode: false,
           agentKind: 'pi',
           providerId: 'xai',
+          imDefaultRoute: 'default-route-record',
           source: 'telegram',
           imBotContextId: 'bot',
           imUserId: 'user',
@@ -2851,7 +3011,7 @@ describe('db worker tx handlers', () => {
       expect(result).toEqual({ previousStatus: 'active' });
       await expect(
         client.query(
-          `SELECT id, status, im_bot_context_id, im_user_id
+          `SELECT id, status, im_bot_context_id, im_user_id, im_default_route
            FROM sessions WHERE id IN ('telegram-old', 'telegram-new') ORDER BY id`,
         ),
       ).resolves.toEqual([
@@ -2860,15 +3020,40 @@ describe('db worker tx handlers', () => {
           status: 'active',
           im_bot_context_id: 'bot',
           im_user_id: 'user',
+          im_default_route: 'default-route-record',
         },
         {
           id: 'telegram-old',
           status: 'archived',
           im_bot_context_id: null,
           im_user_id: null,
+          im_default_route: null,
         },
       ]);
       await expect(client.query('SELECT * FROM im_bindings')).resolves.toEqual([]);
+      await expect(
+        client.query(
+          `SELECT shared_task_id, session_id, revision, kind, terminal, recorded_at
+             FROM shared_task_events ORDER BY id`,
+        ),
+      ).resolves.toEqual([
+        {
+          shared_task_id: 'shared-old',
+          session_id: 'telegram-old',
+          revision: 1,
+          kind: 'authority',
+          terminal: 0,
+          recorded_at: 400,
+        },
+        {
+          shared_task_id: 'shared-old',
+          session_id: 'telegram-old',
+          revision: 0,
+          kind: 'local-close',
+          terminal: 1,
+          recorded_at: 500,
+        },
+      ]);
     });
   });
 
@@ -3487,8 +3672,8 @@ describe('db worker tx handlers', () => {
 });
 
 async function withClient(
-  fn: (client: DbClient) => Promise<void>,
-  opts: { useInlineWorker?: boolean } = {},
+  fn: (client: DbClient, reopen: () => Promise<DbClient>) => Promise<void>,
+  opts: { useInlineWorker?: boolean; authorityProjection?: boolean } = {},
 ): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'xdt-db-tx-'));
   const drizzleDir = path.join(dir, 'drizzle');
@@ -3496,6 +3681,15 @@ async function withClient(
   fs.mkdirSync(drizzleDir);
   fs.writeFileSync(path.join(drizzleDir, '0000_init.sql'), INIT_SQL, 'utf-8');
   createMigratedTxDb(dbPath);
+  if (opts.authorityProjection) {
+    const db = new Database(dbPath);
+    try {
+      db.exec(fs.readFileSync(path.resolve('drizzle/0122_auto_review_projections.sql'), 'utf8'));
+      const module = { exports: {} as { run?: (db: Database.Database) => void } };
+      new Function('module', fs.readFileSync(path.resolve('drizzle/scripts/0122_auto_review_projections.ts'), 'utf8'))(module);
+      module.exports.run!(db);
+    } finally { db.close(); }
+  }
   let client: DbClient | undefined;
   try {
     client = await createDbClient({
@@ -3505,7 +3699,15 @@ async function withClient(
       betterSqliteModulePath: require.resolve('better-sqlite3'),
       ...(opts.useInlineWorker ? { useInlineWorker: true } : { workerScriptPath }),
     });
-    await fn(client);
+    await fn(client, async () => {
+      await client!.dispose();
+      client = await createDbClient({
+        userId: 'test-user', dbPath, drizzleDir,
+        betterSqliteModulePath: require.resolve('better-sqlite3'),
+        ...(opts.useInlineWorker ? { useInlineWorker: true } : { workerScriptPath }),
+      });
+      return client;
+    });
   } finally {
     if (client) {
       await client.dispose();
