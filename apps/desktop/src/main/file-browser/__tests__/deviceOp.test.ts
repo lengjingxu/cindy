@@ -22,8 +22,31 @@ import type { SharedTaskPeerCapture } from '../../device-link/sharedTaskDispatch
 import { assertSharedTaskInvoke } from '../../device-link/sharedTaskDispatch.js';
 import { fetchChatFile } from '../chat-file.js';
 
-const shared = vi.hoisted(() => ({ capture: undefined as SharedTaskPeerCapture | undefined, snapshot: vi.fn() }));
-vi.mock('../../device-link/invoke-context.js', () => ({ getDeviceLinkInvokeContext: () => ({ sharedTask: shared.capture }) }));
+const shared = vi.hoisted(() => ({
+  capture: undefined as SharedTaskPeerCapture | undefined,
+  controllerDeviceId: undefined as string | null | undefined,
+  snapshot: vi.fn(),
+}));
+vi.mock('../../device-link/invoke-context.js', () => ({
+  getDeviceLinkInvokeContext: () =>
+    shared.controllerDeviceId === null ? null : { controllerDeviceId: shared.controllerDeviceId, sharedTask: shared.capture },
+  runDeviceLinkInvokeContext: async (context: { controllerDeviceId?: string; sharedTask?: SharedTaskPeerCapture }, fn: () => unknown) => {
+    const prev = shared.controllerDeviceId;
+    const prevCapture = shared.capture;
+    shared.controllerDeviceId = context.controllerDeviceId;
+    shared.capture = context.sharedTask
+      ? {
+          ...(shared.capture ?? {
+            author: { sharedTaskId: 'share', sessionId: 'task', memberId: 'member', accountId: 'guest', displayName: 'Guest' },
+          }),
+          ...context.sharedTask,
+          isCurrent: () => true,
+          authorize: () => true,
+        }
+      : undefined;
+    try { return await fn(); } finally { shared.controllerDeviceId = prev; shared.capture = prevCapture; }
+  },
+}));
 vi.mock('../../localDb/ipc/sessions.js', () => ({ getSessionFsSnapshot: shared.snapshot }));
 vi.mock('../../cindy-media/blobStore.js', () => ({ parseBlobUrl: () => null }));
 vi.mock('../../cindy-media/ledger.js', () => ({ sessionCanRead: vi.fn() }));
@@ -986,16 +1009,16 @@ describe('file-browser device-op', () => {
         handleRemoteOp({ op: 'exportDirStart', workdir, relPath: 'src/a.ts' }),
       ),
     ).toEqual({ ok: false, message: 'not a directory' });
-    expect(
-      await runDeviceLinkInvokeContext(
+    await expect(
+      runDeviceLinkInvokeContext(
         {
           controllerDeviceId: 'guest',
           channel: 'file-browser:remote-op',
-          sharedTask: {} as never,
+          sharedTask: { author: { sharedTaskId: 'share', sessionId: 'task', memberId: 'member', accountId: 'guest', displayName: 'Guest' }, isCurrent: () => true, authorize: () => true } as never,
         },
         () => handleRemoteOp({ op: 'exportDirStart', workdir, relPath: 'src' }),
       ),
-    ).toEqual({ ok: false, message: 'REMOTE_UNSUPPORTED' });
+    ).rejects.toThrow('PERMISSION_DENIED');
     // 工作目录本身(relPath 为空)也可导出。
     expect(
       await asController(() => handleRemoteOp({ op: 'exportDirStart', workdir, relPath: '' })),
