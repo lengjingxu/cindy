@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, ImagePlus } from 'lucide-react';
-import { useState } from 'react';
+import { RotateCcw, ImagePlus, Film } from 'lucide-react';
+import { useEffect, useCallback, useState } from 'react';
 import { extractIpcError } from '@/utils/ipcError';
 
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import { getBuiltinWallpaperBackground, isSceneWallpaper } from '@/lib/wallpaper
 import {
   APPEARANCE_LIMITS,
   DEFAULT_APPEARANCE_SETTINGS,
+  isCustomWallpaperVideo,
   type WallpaperId,
 } from '@/../shared/appearanceSettings';
 
@@ -33,14 +34,33 @@ export function WallpaperSection() {
   const {
     wallpaperId,
     wallpaperOverlay,
+    wallpaperVisibility,
+    wallpaperBlur,
+    visibility,
     wallpaperMotion,
     customWallpaperUrl,
+    playbackFailed,
     setWallpaper,
-    setOverlay,
+    setVisibility,
+    setBlur,
+    previewBlur,
     setMotion,
     resetWallpaper,
   } = useWallpaperSettings();
-  const chooseImage = async () => {
+  // The shared slider restores its starting value during cancellation. Clear
+  // that temporary preview after its handler, returning to the latest saved value.
+  const cancelBlurPreview = useCallback(() => {
+    queueMicrotask(() => previewBlur(null));
+  }, [previewBlur]);
+  useEffect(() => {
+    window.addEventListener('blur', cancelBlurPreview);
+    return () => {
+      window.removeEventListener('blur', cancelBlurPreview);
+      previewBlur(null);
+    };
+  }, [cancelBlurPreview, previewBlur]);
+  const customVideo = isCustomWallpaperVideo(customWallpaperUrl);
+  const chooseWallpaper = async () => {
     setBusy(true);
     setError('');
     try {
@@ -58,7 +78,7 @@ export function WallpaperSection() {
       setBusy(false);
     }
   };
-  const removeImage = async () => {
+  const removeWallpaper = async () => {
     setBusy(true);
     setError('');
     try {
@@ -98,6 +118,8 @@ export function WallpaperSection() {
             busy ||
             (wallpaperId === DEFAULT_APPEARANCE_SETTINGS.wallpaperId &&
               wallpaperOverlay === DEFAULT_APPEARANCE_SETTINGS.wallpaperOverlay &&
+              wallpaperVisibility == null &&
+              wallpaperBlur == null &&
               wallpaperMotion === DEFAULT_APPEARANCE_SETTINGS.wallpaperMotion)
           }
         >
@@ -113,9 +135,10 @@ export function WallpaperSection() {
       >
         {[...WALLPAPER_OPTIONS, { id: 'custom' as const }].map((option) => {
           const selected = wallpaperId === option.id;
-          const background = option.id === 'memory' && previewDataUrl
-            ? `url("${previewDataUrl}")`
-            : option.id === 'custom' && customWallpaperUrl
+          const background =
+            option.id === 'memory' && previewDataUrl
+              ? `url("${previewDataUrl}")`
+              : option.id === 'custom' && customWallpaperUrl && !customVideo
               ? `url("${customWallpaperUrl}")`
               : getBuiltinWallpaperBackground(option.id);
           return (
@@ -130,7 +153,7 @@ export function WallpaperSection() {
                 option.id === 'memory'
                   ? (void setEnabled(true), setWallpaper('memory'))
                   : option.id === 'custom' && !customWallpaperUrl
-                  ? void chooseImage()
+                  ? void chooseWallpaper()
                   : setWallpaper(option.id)
               }
               className={cn(
@@ -152,6 +175,11 @@ export function WallpaperSection() {
                   backgroundSize: 'cover',
                 }}
               >
+                {option.id === 'custom' && customVideo ? (
+                  <span className="absolute inset-0 flex items-center justify-center text-[var(--settings-section-sublabel)]">
+                    <Film size={22} aria-hidden="true" />
+                  </span>
+                ) : null}
                 {option.id === 'custom' && !customWallpaperUrl ? (
                   <span className="absolute inset-0 flex items-center justify-center text-[var(--settings-section-sublabel)]">
                     <ImagePlus size={22} aria-hidden="true" />
@@ -183,7 +211,7 @@ export function WallpaperSection() {
           variant="secondary"
           type="button"
           disabled={busy}
-          onClick={() => void chooseImage()}
+          onClick={() => void chooseWallpaper()}
         >
           <ImagePlus size={14} aria-hidden="true" />
           {t(
@@ -195,7 +223,7 @@ export function WallpaperSection() {
             variant="secondary"
             type="button"
             disabled={busy}
-            onClick={() => void removeImage()}
+            onClick={() => void removeWallpaper()}
           >
             {t('settings.appearance.wallpaper.customRemove')}
           </Button>
@@ -204,16 +232,16 @@ export function WallpaperSection() {
           {t('settings.appearance.wallpaper.customHint')}
         </p>
       </div>
-      {error && (
+      {(error || (wallpaperId === 'custom' && playbackFailed)) && (
         <p role="alert" className="text-12 text-[var(--text-primary)]">
-          {error}
+          {error || t('settings.appearance.wallpaper.customPlaybackFailed')}
         </p>
       )}
 
       <div className="h-px bg-[var(--settings-input-border)]" />
 
       <div className="flex flex-col gap-3">
-        {isSceneWallpaper(wallpaperId) && (
+        {(isSceneWallpaper(wallpaperId) || (wallpaperId === 'custom' && customVideo)) && (
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-13 font-medium text-[var(--settings-section-sublabel)]">
@@ -236,22 +264,57 @@ export function WallpaperSection() {
         )}
         <div className="flex items-center gap-3">
           <span className="shrink-0 text-12 text-[var(--settings-section-sublabel)]">
-            {t('settings.appearance.wallpaper.overlayLabel')}
+            {t('settings.appearance.wallpaper.visibilityLabel')}
           </span>
           <Slider
-            min={APPEARANCE_LIMITS.wallpaperOverlay.min}
-            max={APPEARANCE_LIMITS.wallpaperOverlay.max}
-            step={APPEARANCE_LIMITS.wallpaperOverlay.step}
-            value={[wallpaperOverlay]}
+            min={APPEARANCE_LIMITS.wallpaperVisibility.min}
+            max={APPEARANCE_LIMITS.wallpaperVisibility.max}
+            step={APPEARANCE_LIMITS.wallpaperVisibility.step}
+            value={[visibility]}
             onValueChange={([value]) => {
-              if (typeof value === 'number') setOverlay(value);
+              if (typeof value === 'number') setVisibility(value);
             }}
-            aria-label={t('settings.appearance.wallpaper.overlayAria')}
+            aria-label={t('settings.appearance.wallpaper.visibilityLabel')}
+            aria-describedby="wallpaper-visibility-hint"
           />
           <span className="w-10 shrink-0 text-right font-mono text-12 text-[var(--settings-section-sublabel)]">
-            {Math.round(wallpaperOverlay * 100)}%
+            {Math.round(visibility * 100)}%
           </span>
         </div>
+        <p
+          id="wallpaper-visibility-hint"
+          className="text-12 text-[var(--settings-section-sublabel)]"
+        >
+          {t('settings.appearance.wallpaper.visibilityHint')}
+        </p>
+        <div className="flex items-center gap-3">
+          <span className="shrink-0 text-12 text-[var(--settings-section-sublabel)]">
+            {t('settings.appearance.wallpaper.blurLabel')}
+          </span>
+          <Slider
+            min={APPEARANCE_LIMITS.wallpaperBlur.min}
+            max={APPEARANCE_LIMITS.wallpaperBlur.max}
+            step={APPEARANCE_LIMITS.wallpaperBlur.step}
+            value={[wallpaperBlur ?? 0]}
+            disabled={wallpaperId === 'none'}
+            onValueChange={([value]) => {
+              if (typeof value === 'number') previewBlur(value);
+            }}
+            onValueCommit={([value]) => {
+              if (typeof value === 'number') setBlur(value);
+            }}
+            onPointerCancel={cancelBlurPreview}
+            onLostPointerCapture={cancelBlurPreview}
+            aria-label={t('settings.appearance.wallpaper.blurLabel')}
+            aria-describedby="wallpaper-blur-hint"
+          />
+          <span className="w-10 shrink-0 text-right font-mono text-12 text-[var(--settings-section-sublabel)]">
+            {wallpaperBlur ?? 0}
+          </span>
+        </div>
+        <p id="wallpaper-blur-hint" className="text-12 text-[var(--settings-section-sublabel)]">
+          {t('settings.appearance.wallpaper.blurHint')}
+        </p>
       </div>
       <DesktopCompanionSection />
     </div>

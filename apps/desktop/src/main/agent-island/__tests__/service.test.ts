@@ -524,6 +524,12 @@ describe('Agent Island expanded content height', () => {
 });
 
 describe('AgentIslandService native publishing', () => {
+  beforeEach(async () => {
+    // Load after the outer mock setup, outside the first behavior test's budget.
+    // Cold Vite transforms can otherwise consume its entire 5-second timeout.
+    await import('../service.js');
+  });
+
   it('keeps compact activity broadcasting alive in headless mode', async () => {
     const { AgentIslandService } = await import('../service.js');
     const service = new AgentIslandService({
@@ -560,7 +566,9 @@ describe('AgentIslandService native publishing', () => {
         compactDetail: 'check logs',
       }),
     );
-  });
+    // 首个动态 import('../service.js') 在高并行 worker 下可能超过 vitest 默认 5s，
+    // 显式放宽本用例的超时(用例本身是纯同步断言，不是真长跑)。
+  }, 20_000);
 
   it('exposes the canonical snapshot and emits per-session transition edges', async () => {
     const { AgentIslandService } = await import('../service.js');
@@ -909,6 +917,7 @@ describe('AgentIslandService native publishing', () => {
 
       service.setEnabled(false);
       service.handleUserPrompt({ sessionId: 's1', agentKind: 'codex' }, 'run tests');
+      service.handleAgentEvent({ sessionId: 's1', agentKind: 'codex' }, textEvent('Tests pass.', true));
       service.handleAgentEvent({ sessionId: 's1', agentKind: 'codex' }, doneEvent());
       const sessions = (
         service as unknown as { state: { sessions: Map<string, unknown>; remoteUnreadTerminals: Map<string, unknown> } }
@@ -954,6 +963,7 @@ describe('AgentIslandService native publishing', () => {
 
       service.setEnabled(true);
       service.handleUserPrompt({ sessionId: 's1', agentKind: 'codex' }, 'run tests');
+      service.handleAgentEvent({ sessionId: 's1', agentKind: 'codex' }, textEvent('Tests pass.', true));
       service.handleAgentEvent({ sessionId: 's1', agentKind: 'codex' }, doneEvent());
       expect(publish.mock.calls.at(-1)?.[0]).toMatchObject({
         totalCount: 1,
@@ -1149,6 +1159,34 @@ describe('AgentIslandService native publishing', () => {
       expect.objectContaining({
         sessionId: 's1',
         attention: false,
+      }),
+    );
+  });
+
+  it('relays the last reply as the completion summary for other devices', async () => {
+    const { AgentIslandService } = await import('../service.js');
+    const service = new AgentIslandService({
+      getMainWindow: () => null,
+      nativeHost: {
+        failed: false,
+        headless: true,
+        publish: () => true,
+        suspend: () => undefined,
+      },
+    });
+    service.setEnabled(false);
+    const meta = { sessionId: 'summary', agentKind: 'codex' as const };
+
+    service.handleUserPrompt(meta, 'fix the login bug');
+    service.handleAgentEvent(meta, textEvent('Login is fixed.', true));
+    service.handleAgentEvent(meta, doneEvent());
+
+    expect(mocks.tapWindowBroadcast).toHaveBeenLastCalledWith(
+      SESSION_ACTIVITY_CHANNEL,
+      expect.objectContaining({
+        sessionId: 'summary',
+        phase: 'completed',
+        compactDetail: 'Login is fixed.',
       }),
     );
   });
