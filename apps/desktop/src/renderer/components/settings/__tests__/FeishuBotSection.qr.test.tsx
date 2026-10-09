@@ -79,7 +79,7 @@ describe('FeishuBotSection QR setup', () => {
 
   it('uses QR authorization instead of a manual key form', () => {
     mockRegistration({});
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     expect(screen.getByRole('button', { name: 'settings.feishuBot.qr.generate' })).toBeTruthy();
     expect(screen.queryByLabelText('settings.feishuBot.appIdLabel')).toBeNull();
@@ -88,7 +88,7 @@ describe('FeishuBotSection QR setup', () => {
 
   it('starts authorization from the primary action', () => {
     mockRegistration({});
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'settings.feishuBot.qr.generate' }));
     expect(beginRegistration).toHaveBeenCalledOnce();
@@ -101,7 +101,7 @@ describe('FeishuBotSection QR setup', () => {
       userCode: 'ABCD-1234',
       secondsLeft: 240,
     });
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     expect(screen.getByAltText('settings.feishuBot.qr.qrAlt')).toBeTruthy();
     expect(
@@ -119,7 +119,7 @@ describe('FeishuBotSection QR setup', () => {
     const openExternal = vi.fn(async () => ({ ok: true }));
     (window as unknown as { electronAPI?: unknown }).electronAPI = { openExternal };
     mockRegistration({});
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     fireEvent.click(
       screen.getByRole('button', { name: 'settings.feishuBot.cardActionHintAction' }),
@@ -135,7 +135,7 @@ describe('FeishuBotSection QR setup', () => {
       allowStrangerChats: true,
     };
     mockRegistration({});
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     expect(screen.getByText('settings.feishuBot.connected.noteStrangersAllowed')).toBeTruthy();
     expect(screen.queryByText('settings.feishuBot.connected.note')).toBeNull();
@@ -148,7 +148,7 @@ describe('FeishuBotSection QR setup', () => {
       status: 'connected',
     };
     mockRegistration({});
-    render(<FeishuBotSection expanded onToggle={vi.fn()} showLark />);
+    render(<FeishuBotSection expanded onToggle={vi.fn()} preferredService={'lark'} />);
 
     expect(screen.getByText('settings.feishuBot.connected.note')).toBeTruthy();
     expect(screen.queryByText('settings.feishuBot.connected.noteStrangersAllowed')).toBeNull();

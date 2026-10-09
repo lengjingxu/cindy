@@ -58,11 +58,13 @@ function maskTail(value: string): string {
 export function FeishuBotSection({
   expanded,
   onToggle,
-  showLark,
+  preferredService,
+  searchActivation,
 }: {
   expanded: boolean;
   onToggle: () => void;
-  showLark: boolean;
+  preferredService?: FeishuBotService | null;
+  searchActivation?: number;
 }) {
   const {
     service,
@@ -71,6 +73,7 @@ export function FeishuBotSection({
     status,
     errorMessage,
     hasSavedCreds,
+    hasLoadedState,
     ownerOpenId,
     allowStrangerChats,
     isClearing,
@@ -84,15 +87,12 @@ export function FeishuBotSection({
   const { t } = useTranslation();
 
   const showSavedCredentialsCard = shouldShowSavedCredentialsCard(hasSavedCreds);
-  // 已保存的 Lark 凭证仍允许查看和清除，身份限制只影响新的配置入口。
-  const configurableService = showLark || hasSavedCreds ? service : 'feishu';
-  const registration = useFeishuBotRegistration(configurableService);
+  // 渠道说明: 群 lane 用真实群 id + 缓存的群名(拉不到或超时就只写 id), 发言人只有
+  const registration = useFeishuBotRegistration(service);
 
   useEffect(() => {
-    if (!showLark && !hasSavedCreds && service === 'lark') {
-      setService('feishu');
-    }
-  }, [hasSavedCreds, service, setService, showLark]);
+    if (hasLoadedState && !hasSavedCreds && preferredService) setService(preferredService);
+  }, [hasLoadedState, hasSavedCreds, preferredService, searchActivation, setService]);
 
   const handleClearClick = useCallback(async () => {
     const confirmed = await confirm({
@@ -156,9 +156,9 @@ export function FeishuBotSection({
         />
       ) : (
         <FeishuBotQrConfig
-          service={configurableService}
+          service={service}
           setService={setService}
-          showLark={showLark}
+          showLark
           errorMessage={errorMessage}
           registration={registration}
         />
