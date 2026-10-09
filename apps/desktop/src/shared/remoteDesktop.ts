@@ -31,7 +31,17 @@ export const DESKTOP_LOCAL = {
 export interface DesktopHostCommand {
   iceServers?: DesktopIceServer[];
   id: string;
-  op: 'offer' | 'stop' | 'capture-reset' | 'ice' | 'prepare' | 'frame';
+  op:
+    | 'offer'
+    | 'stop'
+    | 'capture-reset'
+    | 'display-hold'
+    | 'display-swap'
+    | 'viewer-hidden'
+    | 'background-viewing'
+    | 'ice'
+    | 'prepare'
+    | 'frame';
   /** Local-only: retain the system-selected Wayland stream for this lease. */
   portalCapture?: boolean;
   attemptId?: string;
@@ -43,6 +53,11 @@ export interface DesktopHostCommand {
   /** Local-only output monitor, enabled only by the main process audio grant. */
   nativeAudio?: boolean;
   cursorOverlay?: boolean;
+  /** viewer-hidden: stop sending video while the viewer is hidden. */
+  hidden?: boolean;
+  /** offer / background-viewing: the viewer is view-only in the background
+   * (phone picture-in-picture), so the encoder uses the saver ceilings. */
+  background?: boolean;
   lease?: string;
   sourceId?: string;
   sdp?: string;
@@ -56,6 +71,9 @@ export interface DesktopLocalState {
 }
 export type DesktopHostReply =
   | string
+  /** display-swap: true only when native capture kept a live stream;
+   * viewer-hidden: true once the video encoder applied the change. */
+  | boolean
   | RemoteDesktopIceReply
   | {
       error:
