@@ -1578,6 +1578,9 @@ export async function createMessage(
      * final "is this still current?" check is actually meaningful.
      */
     shouldBroadcast?: () => boolean;
+    /** Host-only admission guard, checked before and after the publication transaction.
+     * Must be repeatable. A failed final check rolls back this exact row before delivery hooks. */
+    beforePublish?: () => Promise<void>;
     /**
      * Optional clear-boundary compare-and-set for optimistic user sends.  The
      * insert is accepted only while the session still has this exact
@@ -1618,6 +1621,7 @@ export async function createMessage(
     if (existing.length > 0) return messageToCamel(existing[0]);
   }
 
+  if (guarded && opts?.beforePublish) throw new Error('Publication guard cannot be combined with optimistic input');
   const id = createId();
   const now = Date.now();
   const visibleCreatedAt =
@@ -1625,20 +1629,48 @@ export async function createMessage(
       ? Math.max(body.createdAt ?? now, expected + 1)
       : (body.createdAt ?? now);
   const insertRow = messageCreateToRow(id, sessionId, body, visibleCreatedAt);
+  const insertArgs = {
+    id: insertRow.id,
+    clientId: insertRow.clientId,
+    sessionId,
+    role: insertRow.role,
+    content: insertRow.content,
+    toolUseId: insertRow.toolUseId ?? null,
+    agentMeta: insertRow.agentMeta ?? null,
+    agentKind: insertRow.agentKind ?? null,
+    createdAt: insertRow.createdAt,
+    guarded,
+    expectedClearBoundaryMs: guarded ? (expected ?? null) : undefined,
+  };
   try {
-    const inserted = await dbClient.tx('message.insert', {
-      id: insertRow.id,
-      clientId: insertRow.clientId,
-      sessionId,
-      role: insertRow.role,
-      content: insertRow.content,
-      toolUseId: insertRow.toolUseId ?? null,
-      agentMeta: insertRow.agentMeta ?? null,
-      agentKind: insertRow.agentKind ?? null,
-      createdAt: insertRow.createdAt,
-      guarded,
-      expectedClearBoundaryMs: guarded ? (expected ?? null) : undefined,
+    const inserted = await dbClient.tx('message.insert', { ...insertArgs,
+      ...(opts?.beforePublish ? { publication: 'stage' as const } : {}),
     });
+    if (opts?.beforePublish) {
+      await opts.beforePublish();
+      try {
+        const published = await dbClient.tx('message.insert', { ...insertArgs, publication: 'publish' });
+        if (published.changes !== 1) throw new Error('Message publication lost its pending row');
+      } catch (error) {
+        // The worker can commit before its receipt is lost. Recover only this
+        // exact publication, then run the same delivery/indexing hooks below.
+        const [committed] = await db.select().from(messages)
+          .where(and(eq(messages.id, id), eq(messages.sessionId, sessionId), eq(messages.clientId, body.clientId)))
+          .limit(1);
+        if (!committed || committed.role !== insertArgs.role || committed.content !== insertArgs.content
+          || committed.toolUseId !== insertArgs.toolUseId || committed.agentMeta !== insertArgs.agentMeta
+          || committed.agentKind !== insertArgs.agentKind || committed.createdAt !== insertArgs.createdAt
+          || committed.rewindAt !== null) throw error;
+      }
+      // Keep this outside the lost-receipt recovery: a failed authorization
+      // check must never be mistaken for a successful committed publication.
+      try {
+        await opts.beforePublish();
+      } catch (error) {
+        await dbClient.tx('message.insert', { ...insertArgs, publication: 'rollback' });
+        throw error;
+      }
+    }
     if (guarded && inserted.changes === 0) {
       const [existingAfterGuard] = await db
         .select()
@@ -1670,6 +1702,10 @@ export async function createMessage(
       throw new Error('Message insert skipped without a clear-boundary change');
     }
   } catch (err) {
+    if (opts?.beforePublish) {
+      await dbClient.tx('message.insert', { ...insertArgs, publication: 'discard' });
+      throw err;
+    }
     const after = await db
       .select()
       .from(messages)
@@ -2487,7 +2523,7 @@ export async function findForkParentSessionId(sessionId: string): Promise<string
 
 /**
  * session-agent-switch:读取交接素材——本会话未被 rewind、晚于 /clear 边界的
- * 最近 limit 行(时间正序返回),只取交接需要的最小投影。
+ * 最近 limit 行(时间正序返回),只取交接需要的最小投影；null 读取边界内完整历史。
  *
  * `after`(Phase 2 增量交接):只取严格晚于该水位线(createdAt + rowid 决序,
  * 与 findPendingAgentHandoff 同 tie-break 口径)的行——即目标引擎停泊
@@ -2495,7 +2531,7 @@ export async function findForkParentSessionId(sessionId: string): Promise<string
  */
 export async function listMessagesForAgentHandoff(
   sessionId: string,
-  limit = 400,
+  limit: number | null = 400,
   after?: { createdAt: number; rowid: number },
   role?: 'user' | 'authorization',
 ): Promise<
@@ -2532,12 +2568,13 @@ export async function listMessagesForAgentHandoff(
       ELSE ${messages.createdAt} END ELSE ${messages.createdAt} END`;
   // Scheduled executions are not owner messages. Exclude them before LIMIT so
   // a long-running heartbeat cannot push its authorizing request out of history.
+  // Empty human receipts can reset resource authorization; only protected typed continuations are skipped.
   // Keep malformed/unknown rows: restoration must still invalidate ambiguous consent.
   const notScheduledExecution = sql`CASE WHEN ${messages.role} = 'user'
     AND json_valid(${messages.agentMeta}) THEN CASE
-      WHEN json_extract(${messages.agentMeta}, '$.autoReviewUserText.kind') = 'scheduled-continuation'
+      WHEN json_extract(${messages.agentMeta}, '$.autoReviewUserText.kind') IN ('scheduled-continuation', 'delegated-continuation')
       THEN 0 ELSE 1 END ELSE 1 END`;
-  const rows = await db
+  const query = db
     .select({
       rowid: messageRowid,
       clientId: messages.clientId,
@@ -2553,8 +2590,10 @@ export async function listMessagesForAgentHandoff(
         role === 'authorization' ? and(inArray(messages.role, ['user', 'ask_user', 'plan_review']), notScheduledExecution)
           : role ? eq(messages.role, role) : undefined),
     )
-    .orderBy(desc(role === 'authorization' ? authorityTime : messages.createdAt), desc(messageRowid))
-    .limit(limit);
+    .orderBy(desc(role === 'authorization' ? authorityTime : messages.createdAt), desc(messageRowid));
+  // Authority replay must start at the clear/rewind boundary: the shared intent
+  // budget is stateful, so an arbitrary row suffix has a different projection.
+  const rows = await (limit === null ? query : query.limit(limit));
   rows.reverse();
   return rows
     .map((r) => {

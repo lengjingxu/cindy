@@ -1,6 +1,7 @@
 import type { TaskTagRequest, TaskTagResult } from '@cindy/maker-shared';
 
 export type DbTxName =
+  | 'authorization.readProjection'
   | 'taskTags.execute'
   | 'codex.importMessages'
   | 'claude.importMessages'
@@ -407,6 +408,8 @@ export interface MessageInsertArgs {
   createdAt: number;
   guarded: boolean;
   expectedClearBoundaryMs?: number | null;
+  /** Host-only publication; stages belong to a connection-local TEMP table. */
+  publication?: 'stage' | 'publish' | 'discard' | 'rollback';
 }
 
 export interface MessageUpdateContentArgs {
@@ -856,6 +859,7 @@ export interface BotGroupsMessageRow {
   clientId: string | null;
   planId?: string | null;
   filesJson?: string;
+  attachmentsJson?: string;
   createdAt: number;
 }
 
@@ -865,6 +869,8 @@ export interface BotGroupsCreatePlanArgs {
     id: string;
     groupId: string;
     requestText: string;
+    /** The request's attachments, handed to every step. */
+    attachmentsJson?: string;
     organizerBotId: string;
     organizerName: string;
   };
@@ -1300,6 +1306,7 @@ export type SkillUsageApplyMutationArgs =
   | { kind: 'promote'; analyzerVersion: string };
 
 export type DbTxArgsByName = {
+  'authorization.readProjection': { sessionId: string; leadId: string };
   'codex.importMessages': CodexImportMessagesArgs;
   'claude.importMessages': ClaudeImportMessagesArgs;
   'rewind.commit': RewindCommitArgs;
@@ -1384,6 +1391,7 @@ export type DbTxArgsByName = {
 };
 
 export type DbTxResultByName = {
+  'authorization.readProjection': import('../../autoReviewProjection.js').StoredAutoReviewProjection;
   'codex.importMessages': { changed: number };
   'claude.importMessages': { changed: number };
   'rewind.commit': undefined;
