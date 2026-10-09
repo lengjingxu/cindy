@@ -19,6 +19,7 @@ import {
  */
 
 export type ComposerSuggestionActionId =
+  | 'retry-plugins'
   | 'attach-files'
   | 'new-goal'
   | 'plan-mode'
@@ -175,7 +176,7 @@ export function buildComposerSuggestionEntries(
       ) continue;
       entries.push({ kind: 'action', action });
     }
-    for (const type of ['browser-tab', 'agent'] as const) {
+    for (const type of ['bot', 'browser-tab', 'agent'] as const) {
       let count = 0;
       for (const item of input.resources) {
         if (item.type !== type) continue;

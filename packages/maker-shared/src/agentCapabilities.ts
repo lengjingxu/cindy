@@ -6,6 +6,8 @@ export interface MobileModelOption {
   effortDisplayNames: Record<string, string>;
   defaultEffort: string | null;
   supportsFastMode: boolean;
+  /** Host-advertised catalog window when available; omitted by older Desktop versions. */
+  contextWindow?: number;
   /** 区域门控后的新任务默认标记。 */
   newSessionDefault?: ('claude-code' | 'codex' | 'pi')[];
 }
@@ -25,6 +27,10 @@ export interface MobileAgentCapabilities {
   planModeSupported: boolean;
   /** desktop host 是否支持同一会话 Claude Code / Codex pending-intent 切换；旧 host 缺省 false。 */
   supportsSessionAgentSwitch?: boolean;
+  /** host 是否支持创建 Orca Worker 时显式选择 Worker 权限；旧 host 缺省 false(不得开启协同)。 */
+  supportsOrcaWorkerPermissionMode?: boolean;
+  /** host 是否在 set-model 内执行强制模型窗口保护；旧 host 缺省 false。 */
+  supportsModelWindowSwitchGuard?: boolean;
 }
 
 export interface MobileSessionRuntimeOptions {
@@ -154,7 +160,38 @@ export function normalizeMobileAgentCapabilities(value: unknown): MobileAgentCap
     hasFastMode: value.hasFastMode === true,
     planModeSupported: isRecord(value.planMode) && value.planMode.supported === true,
     supportsSessionAgentSwitch: value.supportsSessionAgentSwitch === true,
+    supportsModelWindowSwitchGuard: value.supportsModelWindowSwitchGuard === true,
+    supportsOrcaWorkerPermissionMode: value.supportsOrcaWorkerPermissionMode === true,
   };
+}
+
+export function shouldBlockLegacyRemoteModelWindowSwitch(args: {
+  hostGuardSupported: boolean;
+  agentKind: string | null | undefined;
+  contextTokens: number | null | undefined;
+  currentContextWindow: number | null | undefined;
+  targetContextWindow: number | null | undefined;
+}): boolean {
+  if (args.hostGuardSupported) return false;
+  if (args.agentKind === 'pi') return true;
+  const { contextTokens, currentContextWindow, targetContextWindow } = args;
+  const hasKnownWindows =
+    typeof currentContextWindow === 'number' &&
+    Number.isFinite(currentContextWindow) &&
+    currentContextWindow > 0 &&
+    typeof targetContextWindow === 'number' &&
+    Number.isFinite(targetContextWindow) &&
+    targetContextWindow > 0;
+  if (!hasKnownWindows) return true;
+  if (targetContextWindow >= currentContextWindow) return false;
+  if (
+    typeof contextTokens !== 'number' ||
+    !Number.isFinite(contextTokens) ||
+    contextTokens < 0
+  ) {
+    return true;
+  }
+  return contextTokens / targetContextWindow >= 0.9;
 }
 
 export function buildSessionRuntimeOptions(
@@ -248,9 +285,12 @@ export function categorizeMobileModel(id: string): MobileModelCategory {
   // 本来就带命名空间,只认裸 id 会让整批模型掉进兜底分类。
   const tail = lower.slice(lower.lastIndexOf('/') + 1);
   if (lower.startsWith('claude-') || tail.startsWith('claude-')) return 'anthropic';
-  // 折扣路由必须判在 gpt 之前:`codex/gpt-5.5` 的尾段就是 `gpt-5.5`,顺序反了会被认成
-  // 'gpt',于是切换确认框把「GPT 折扣」模型读成「GPT」。桌面 categorize 同一处理。
-  if (lower.startsWith('codex/')) return 'gpt-budget';
+  // 折扣路由必须判在 gpt 之前:`openai-codex/gpt-*` 与 `codex/gpt-5.5` 的尾段都是 gpt-*,
+  // 顺序反了会被认成 'gpt'。与桌面 `CODEX_GATEWAY_WIRE_PREFIXES` 保持同一组前缀。
+  if (
+    (lower.startsWith('openai-codex/') && lower.length > 'openai-codex/'.length) ||
+    (lower.startsWith('codex/') && lower.length > 'codex/'.length)
+  ) return 'gpt-budget';
   if (lower.startsWith('gpt-') || tail.startsWith('gpt-')) return 'gpt';
   if (lower.startsWith('gemini-') || tail.startsWith('gemini-')) return 'google';
   return 'ungrouped';
@@ -305,6 +345,12 @@ function normalizeModelOption(value: unknown): MobileModelOption | null {
       typeof entry[1] === 'string',
     ))
     : {};
+  const contextWindow =
+    typeof value.contextWindow === 'number' &&
+    Number.isFinite(value.contextWindow) &&
+    value.contextWindow > 0
+      ? value.contextWindow
+      : undefined;
   const newSessionDefault = Array.isArray(value.newSessionDefault)
     ? [...new Set(value.newSessionDefault.filter(
       (item): item is 'claude-code' | 'codex' | 'pi' =>
@@ -321,6 +367,7 @@ function normalizeModelOption(value: unknown): MobileModelOption | null {
     effortDisplayNames,
     defaultEffort: readString(value.defaultEffort),
     supportsFastMode: value.supportsFastMode === true,
+    ...(contextWindow ? { contextWindow } : {}),
     ...(newSessionDefault.length > 0 ? { newSessionDefault } : {}),
   };
 }

@@ -14,6 +14,20 @@ import {
 } from '../modelsSyncRefresh.js';
 
 describe('parseModelsSyncPayload', () => {
+  it.each(['available', 'requires_payment'] as const)(
+    'accepts standalone speech from the opted-in v5 catalog (%s)',
+    (availability) => {
+      const model = {
+        id: 'speech-from-gateway', name: 'Gateway Speech', mode: 'audio_speech',
+        currency: 'USD', agents: [], availability,
+        inputCostPerCharacter: 0.00001, outputCostPerAudioToken: 0.00002,
+        modalities: { input: ['text'], output: ['audio'] },
+      };
+      expect(parseModelsSyncPayload({ schemaVersion: 5, accountTier: 'free', models: [model] }))
+        .toEqual({ ok: true, accountTier: 'free', models: [model] });
+    },
+  );
+
   const baseModel = {
     id: 'deepseek/deepseek-v4-pro',
     name: 'DeepSeek V4 Pro',
@@ -108,6 +122,29 @@ describe('parseModelsSyncPayload', () => {
     },
   );
 
+  it('accepts a new vendor and icon within v5 but rejects unversioned new fields', () => {
+    const futureModel = {
+      ...baseModel,
+      id: 'new-labs/new-family-9',
+      name: 'New Family 9',
+      icon: 'future-brand',
+      availability: 'available',
+      perAgent: {
+        'claude-code': { wireProtocol: 'anthropic-messages' },
+        codex: { wireProtocol: 'openai-responses' },
+      },
+    };
+    const envelope = { schemaVersion: 5, accountTier: 'paid', models: [futureModel] };
+    expect(parseModelsSyncPayload(envelope)).toMatchObject({ ok: true, models: [futureModel] });
+    const changedContract = parseModelsSyncPayload({
+      ...envelope,
+      models: [{ ...futureModel, createdAt: '2026-09-05T00:00:00Z' }],
+    });
+    expect(changedContract.ok).toBe(false);
+    if (!changedContract.ok) expect(changedContract.error).toContain('createdAt');
+    expect(envelope.models).toEqual([futureModel]);
+  });
+
   it('leaves the caller-owned last-known-good snapshot untouched on rejection', () => {
     const lastKnownGood = [{ id: 'last-known-model' }];
     const parsed = parseModelsSyncPayload({ schemaVersion: 99, models: [] });
@@ -200,6 +237,7 @@ describe('waitForModelsSyncRefresh', () => {
         baseUrl: 'https://model-access.example.com',
         timeoutMs: 20_000,
         cache: 'no-store',
+        headers: { 'X-Cindy-Model-Capabilities': 'audio_speech' },
       },
     });
     expect(Number.isFinite(XD_MODELS_SYNC_TIMEOUT_MS)).toBe(true);

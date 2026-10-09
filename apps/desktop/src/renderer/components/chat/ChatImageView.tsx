@@ -23,7 +23,8 @@
  * 走 ImageLightbox 的全局 scroll lock)。
  */
 
-import { useState } from 'react';
+import { CHAT_FOCUS_CLASS } from './chatChrome';
+import { useRef, useState } from 'react';
 import { Box, Copy, FolderOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { extractIpcError } from '@/utils/ipcError';
 import { ImageLightbox } from './ImageLightbox';
+import { useImageClipboard } from './useImageClipboard';
 import { ModelLightbox } from './ModelLightbox';
 import { ImageMissingPlaceholder } from './ImageMissingPlaceholder';
 import { useRemoteMediaUrl } from '@/hooks/useRemoteMediaUrl';
@@ -82,7 +84,7 @@ const VARIANT_STYLES: Record<
   'user-attached': {
     // F-MSG-IMG: 用户上传图固定 280×180——附件感,不抢主区域。
     style: { maxWidth: 280, maxHeight: 180 },
-    className: 'rounded-[12px] object-contain cursor-pointer hover:opacity-90 transition-opacity',
+    className: 'rounded-xl object-contain cursor-pointer hover:opacity-90 transition-opacity',
   },
   'tool-output': {
     // 沿用 MarkdownRenderer 内嵌图规则,与飞书 doc 内嵌图、其他 agent 出图保持一致。
@@ -96,7 +98,7 @@ const VARIANT_STYLES: Record<
     // 变大——消息流里只是预览,看细节走 lightbox 全屏。
     style: { maxWidth: 'min(100%, 50vw, 480px)', maxHeight: 'min(40vh, 420px)', height: 'auto' },
     className:
-      'self-start rounded-[12px] border border-[var(--msg-tool-card-border)] object-contain cursor-pointer hover:opacity-90 transition-opacity',
+      'self-start rounded-xl border border-[var(--msg-tool-card-border)] object-contain cursor-pointer hover:opacity-90 transition-opacity',
   },
 };
 
@@ -111,11 +113,16 @@ export function ChatImageView({
 }: ChatImageViewProps) {
   const { t } = useTranslation();
   // 远程会话改写到 cindy-remote-media://;本地会话原样。下游一律用 displaySrc(渲染 +
-  // gallery + lightbox + 本机操作判定),远程媒体的 reveal/copy 自然失效。
+  // gallery + lightbox + 动作判定),保留远端归属。
   const displaySrc = useRemoteMediaUrl(src, sessionId);
   // 'image' = 2D 预览图 lightbox; 'model' = `<model-viewer>` 3D lightbox。
   // 同一个 state 槽位避免两种 lightbox 同时出现 (且统一受 scroll-lock 影响)。
   const [lightboxOpen, setLightboxOpen] = useState<'image' | 'model' | null>(null);
+  const previewTriggerRef = useRef<HTMLImageElement>(null);
+  const closePreview = () => {
+    setLightboxOpen(null);
+    previewTriggerRef.current?.focus({ preventScroll: true });
+  };
   // 错误态 + 远程媒体失败自愈(退避重取,覆盖被控端物化竞态窗口)收口在
   // hook 里;本机 scheme 的失败不重试,行为与从前一致。
   const { errored, onLoadError } = useRemoteMediaErrorRetry(displaySrc);
@@ -127,36 +134,24 @@ export function ChatImageView({
   // 没响应。pending 状态显示 spinner + 抑制重复点击。
   const [modelPending, setModelPending] = useState<'open' | 'reveal' | null>(null);
 
+  const { canCopy, canReveal: canRevealInFolder, copyImage, revealImage } = useImageClipboard(displaySrc);
+
   if (errored) {
     return <ImageMissingPlaceholder filename={filename} />;
   }
 
   const { style, className } = VARIANT_STYLES[variant];
 
-  // 只有缓存到本地 (xdt-image://) 的图才能 reveal/copy 原图。
-  // base64 fallback (data:) 没有对应文件,菜单整段不渲染。
-  // 但 modelFile 路径不依赖本地缓存的预览图 — fileId 直接打到 mivo 后端拉
-  // 模型,所以只要有 modelFile 菜单就可用。
-  const canRevealInFolder =
-    displaySrc.startsWith('xdt-image://') || displaySrc.startsWith('cindy-media://');
-  const showMenu = modelFile !== undefined || canRevealInFolder;
+  const showMenu = modelFile !== undefined || canCopy || canRevealInFolder;
 
   async function handleCopyImage(): Promise<void> {
-    const res = await window.electronAPI.copyMediaToClipboard({ url: displaySrc });
-    if (res.success) {
-      toast.success(t('chat.media.imageCopied'));
-    } else {
-      toast.error(res.error ?? t('chat.media.copyFailed'));
-    }
     setMenuPos(null);
+    await copyImage();
   }
 
   async function handleRevealInFolder(): Promise<void> {
-    const res = await window.electronAPI.showItemInFolder({ url: displaySrc });
-    if (!res.success) {
-      toast.error(res.error ?? t('chat.media.openFolderFailed'));
-    }
     setMenuPos(null);
+    await revealImage();
   }
 
   async function handleModelAction(action: 'open' | 'reveal'): Promise<void> {
@@ -191,10 +186,19 @@ export function ChatImageView({
   return (
     <>
       <img
+        ref={previewTriggerRef}
         src={displaySrc}
         alt={filename}
         style={style}
-        className={cn(className)}
+        className={cn(className, CHAT_FOCUS_CLASS, 'motion-reduce:transition-none')}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            event.currentTarget.click();
+          }
+        }}
         draggable={false}
         // 会话内翻图的数据源:lightbox 打开后会扫描所有带此属性的图,按 DOM
         // 顺序拼成可左右翻页的列表。见 ImageLightbox.collectGallery。
@@ -279,14 +283,18 @@ export function ChatImageView({
               </>
             ) : (
               <>
-                <DropdownMenuItem onClick={handleCopyImage}>
-                  <Copy className="mr-2 h-4 w-4" />
-                  {t('chat.media.copyImage')}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleRevealInFolder}>
-                  <FolderOpen className="mr-2 h-4 w-4" />
-                  {t('chat.media.revealImage')}
-                </DropdownMenuItem>
+                {canCopy && (
+                  <DropdownMenuItem onClick={handleCopyImage}>
+                    <Copy className="mr-2 h-4 w-4" />
+                    {t('chat.media.copyImage')}
+                  </DropdownMenuItem>
+                )}
+                {canRevealInFolder && (
+                  <DropdownMenuItem onClick={handleRevealInFolder}>
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    {t('chat.media.revealImage')}
+                  </DropdownMenuItem>
+                )}
               </>
             )}
           </DropdownMenuContent>
@@ -298,18 +306,20 @@ export function ChatImageView({
           // 续画,出口是"发送到对话"生成新消息)。displaySrc !== src 说明是
           // 远程会话改写,原图在被控端拿不到,退回普通烧录图预览。
           // 单张展示:gallery 按烧录图 src 定位,换成原图后无法匹配。
+          // 原图若已被清理,lightbox 退回烧录图(annotationFallbackSrc)供查看 / 叠加新标。
           <ImageLightbox
             src={annotationSourceUrl}
             initialStrokes={annotationStrokes}
-            onClose={() => setLightboxOpen(null)}
+            annotationFallbackSrc={displaySrc}
+            onClose={closePreview}
           />
         ) : (
-          <ImageLightbox src={displaySrc} enableGallery onClose={() => setLightboxOpen(null)} />
+          <ImageLightbox src={displaySrc} enableGallery onClose={closePreview} />
         ))}
       {lightboxOpen === 'model' && modelFile && (
         <ModelLightbox
           source={{ kind: 'blob', url: modelFile.url, poster: displaySrc }}
-          onClose={() => setLightboxOpen(null)}
+          onClose={closePreview}
         />
       )}
     </>

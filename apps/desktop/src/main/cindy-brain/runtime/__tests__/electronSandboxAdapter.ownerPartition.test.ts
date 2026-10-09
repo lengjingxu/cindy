@@ -76,7 +76,7 @@ vi.mock('electron', () => ({
 vi.mock('node:fs', () => ({ createReadStream: vi.fn() }));
 vi.mock('node:fs/promises', () => ({
   default: {
-    readFile: vi.fn(),
+    readFile: vi.fn().mockResolvedValue(new Uint8Array([1])),
     stat: vi.fn().mockResolvedValue({ isFile: () => true, size: 0 }),
   },
 }));
@@ -107,6 +107,7 @@ import {
   electronSandboxAdapter,
   ensureGhostProtocolRegistered,
   setGhostAppContextProvider,
+  setGhostAgentModelsProvider,
   setGhostKvStore,
   setGhostMediaModelsProvider,
 } from '../electronSandboxAdapter';
@@ -251,6 +252,83 @@ describe('electronSandboxAdapter owner partition', () => {
     expect(appContextProvider).toHaveBeenCalledOnce();
   });
 
+  it('boot 与任意插件 HTML 响应统一允许 HTTPS 图片，其他 CSP 能力不放宽', async () => {
+    const installed = ghost('https-image-csp');
+    installed.manifest.settingsHtml = 'settings.html';
+    installed.manifest.mainView = { html: 'main-view.html' };
+    ensureGhostProtocolRegistered(installed);
+    const registered = harness.sessions.get(
+      'cindy-ghost-owner:cloud:opaque-owner-a:https-image-csp',
+    );
+
+    for (const pathname of ['/', '/panel.html', '/settings.html', '/main-view.html', '/other.html']) {
+      const response = await registered?.protocolHandler?.(
+        new Request(`cindy-ghost://https-image-csp${pathname}`),
+      );
+      const csp = response?.headers.get('content-security-policy');
+      expect(csp, pathname).toContain("img-src 'self' data: blob: https:");
+      expect(csp, pathname).toContain("default-src 'self'");
+      expect(csp, pathname).not.toContain('connect-src https:');
+      expect(csp, pathname).not.toContain('script-src https:');
+      expect(csp, pathname).not.toContain('style-src https:');
+      expect(csp, pathname).not.toContain('media-src https:');
+    }
+  });
+
+  it('插件 session 只额外放行 HTTPS image，同源资源保持放行', () => {
+    ensureGhostProtocolRegistered(ghost('https-image-network'));
+    const registered = harness.sessions.get(
+      'cindy-ghost-owner:cloud:opaque-owner-a:https-image-network',
+    );
+    const handler = registered?.beforeRequest.mock.calls[0]?.[0] as
+      | ((
+          details: { url: string; resourceType: string },
+          callback: (result: { cancel: boolean }) => void,
+        ) => void)
+      | undefined;
+    expect(handler).toBeTypeOf('function');
+
+    const isCancelled = (url: string, resourceType: string): boolean => {
+      const callback = vi.fn();
+      handler?.({ url, resourceType }, callback);
+      expect(callback).toHaveBeenCalledOnce();
+      return callback.mock.calls[0]?.[0].cancel as boolean;
+    };
+
+    expect(isCancelled('https://images.example.com/logo.png', 'image')).toBe(false);
+    expect(isCancelled('cindy-ghost://https-image-network/panel.html', 'mainFrame')).toBe(false);
+    expect(isCancelled('cindy-ghost://https-image-network/icon.png', 'image')).toBe(false);
+
+    for (const [url, resourceType] of [
+      ['http://images.example.com/logo.png', 'image'],
+      ['https://example.com/data', 'xhr'],
+      ['https://example.com/data', 'fetch'],
+      ['https://example.com/app.js', 'script'],
+      ['https://example.com/app.css', 'stylesheet'],
+      ['https://example.com/font.woff2', 'font'],
+      ['https://example.com/video.mp4', 'media'],
+      ['wss://example.com/socket', 'webSocket'],
+      ['ftp://example.com/logo.png', 'image'],
+      ['not a valid URL', 'image'],
+      ['cindy-ghost://other-ghost/icon.png', 'image'],
+    ] as const) {
+      expect(isCancelled(url, resourceType), `${resourceType} ${url}`).toBe(true);
+    }
+  });
+
+  it('重复确保同一分区不会累积网络或协议 listener', () => {
+    const installed = ghost('https-image-listener-once');
+    ensureGhostProtocolRegistered(installed);
+    ensureGhostProtocolRegistered(installed);
+
+    const registered = harness.sessions.get(
+      'cindy-ghost-owner:cloud:opaque-owner-a:https-image-listener-once',
+    );
+    expect(harness.fromPartition).toHaveBeenCalledOnce();
+    expect(registered?.beforeRequest).toHaveBeenCalledOnce();
+    expect(registered?.protocolHandle).toHaveBeenCalledOnce();
+  });
+
   it('请求已进入 handler 后切换 owner 不取消或重新检查在途 provider', async () => {
     let finishProvider!: (result: GhostMediaModelsResult) => void;
     const provider = vi.fn(
@@ -317,4 +395,52 @@ describe('electronSandboxAdapter owner partition', () => {
     ).not.toMatch(/^persist:/);
     handle.destroy();
   });
+});
+
+describe('read-only agent model directory', () => {
+  it('serves no-store metadata without accepting writes or query overrides', async () => {
+    const provider = vi.fn().mockResolvedValue({ ok: true, models: [] });
+    setGhostAgentModelsProvider(provider);
+    ensureGhostProtocolRegistered(ghost('agent-directory'));
+    const handler = harness.sessions.get('cindy-ghost-owner:cloud:opaque-owner-a:agent-directory')!.protocolHandler!;
+    for (const [url, method, status] of [
+      ['agent-directory/agent-models', 'GET', 200],
+      ['agent-directory/agent-models', 'POST', 405],
+      ['agent-directory/agent-models?owner=other', 'GET', 400],
+      ['other/agent-models', 'GET', 403],
+    ] as const) {
+      const response = await handler(new Request('cindy-ghost://' + url, { method }));
+      expect(response.status).toBe(status);
+    }
+    expect(provider).toHaveBeenCalledExactlyOnceWith('agent-directory');
+    const response = await handler(new Request('cindy-ghost://agent-directory/agent-models'));
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ ok: true, models: [] });
+    provider.mockRejectedValue(new Error('secret upstream details'));
+    const failed = await handler(new Request('cindy-ghost://agent-directory/agent-models'));
+    expect(failed.status).toBe(503);
+    expect(await failed.text()).not.toContain('secret');
+  });
+  it('does not deliver an in-flight catalog after owner changes', async () => {
+    let finish!: (value: { ok: true; models: [] }) => void;
+    setGhostAgentModelsProvider(() => new Promise(resolve => { finish = resolve; }));
+    ensureGhostProtocolRegistered(ghost('agent-owner'));
+    const handler = harness.sessions.get('cindy-ghost-owner:cloud:opaque-owner-a:agent-owner')!.protocolHandler!;
+    const pending = handler(new Request('cindy-ghost://agent-owner/agent-models'));
+    harness.activeOwner = { mode: 'cloud', dataOwnerId: 'owner-b', generation: 2 };
+    finish({ ok: true, models: [] });
+    expect((await pending).status).toBe(403);
+    expect((await handler(new Request('cindy-ghost://agent-owner/agent-models'))).status).toBe(403);
+  });
+});
+
+it('rejects failed in-flight model reads after owner changes', async () => {
+  let reject!: (error: Error) => void;
+  setGhostAgentModelsProvider(() => new Promise((_resolve, fail) => { reject = fail; }));
+  ensureGhostProtocolRegistered(ghost('agent-rejected-owner'));
+  const handler = harness.sessions.get('cindy-ghost-owner:cloud:opaque-owner-a:agent-rejected-owner')!.protocolHandler!;
+  const pending = handler(new Request('cindy-ghost://agent-rejected-owner/agent-models'));
+  harness.activeOwner = { mode: 'cloud', dataOwnerId: 'owner-b', generation: 2 };
+  reject(new Error('old visibility mirror cleared'));
+  expect((await pending).status).toBe(403);
 });

@@ -95,7 +95,10 @@ Renderer 可以负责组件渲染、交互状态、表单状态、展示数据�
    才显示冷窗口。超时只能展示已经挂载的 Loading 壳，不得展示空白窗口，也不得永久隐藏。
 3. **隐藏复用而非反复冷启动**：普通关闭转换为 `hide()`，再次打开复用同一 Renderer；
    主窗口真正销毁或应用退出时才 `destroy()`。隐藏／最小化必须暂停轮询、采样等后台重活，
-   再次显示时先展示保留快照并异步刷新。
+   再次显示时先展示保留快照并异步刷新。例外：承载实时会话的窗口（远程桌面查看器）
+   以 `pauseWhenHidden: false` 让会话跨越最小化、切换 Space 与原生全屏切换，只在用户
+   关闭窗口时结束——macOS 会把后两者及完全遮挡都报告成原生 hide；隐藏期间改由被控端
+   暂停视频（见 `protocol-compatibility.md`「远程桌面查看窗口隐藏时暂停视频」）。
 4. **隐藏时重置交互态**：必须清除焦点，并重置自绘窗口按钮、hover／pressed、确认框、
    选中项与待执行操作等瞬时状态，确保二次打开不会继承上次关闭时的视觉或交互状态。
 5. **使用真正的轻量入口**：独立窗口不得先进入完整 `App` 再在组件树内分流；使用独立的
@@ -189,6 +192,11 @@ auth-server）+ origin 命中 `setLoginCaptchaOriginResolver` 注入的 auth 端
 - 正式包不得新增远程脚本或 `'unsafe-inline'`。现有 `'unsafe-eval'` 仅为 vendored drawio
   的已知例外；新增用途必须先做安全评估，不能顺手扩大 `script-src`、`connect-src` 或
   `frame-src`。
+- 所有插件 HTML 页面统一允许 HTTPS 图片：Host 生成的 CSP 只给 `img-src` 增加 `https:`，
+  owner × plugin session 的请求闸只额外放行
+  `protocol === "https:" && resourceType === "image"`。HTTP 图片、XHR／fetch、脚本、
+  样式表、字体、媒体、WebSocket 与其它协议保持拒绝，同 ghost 的 `cindy-ghost://` 资源照常
+  放行。不得把这项图片能力扩成通用网络口子；listener 继续按 partition 幂等注册。
 - 新的本地资源通道优先使用范围受控的自定义协议，不新增 `file://` 读取路径。主 Renderer
   仍使用 `file://` 是存量架构，迁移需要单独设计和验证，不能在普通功能 PR 中顺带改动。
 - 打包必须保留现有 Fuses：关闭 RunAsNode、Node options 和 CLI inspect，开启 cookie 加密、

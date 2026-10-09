@@ -237,6 +237,9 @@ describe('feishu group thread routing', () => {
     // 新话题是空的, 群历史前缀仍按触发时所在的群主流拉取。
     expect(events[0].groupContextLane).toEqual({ chatId: 'oc_chat1', threadId: '' });
     expect(events[0].text).toBe('开个新话题');
+    // Events have stable IDs but no display names; the host uses chatId fallback.
+    expect(events[0].interactionSource).toBeUndefined();
+    expect(events[0].chatId).toBe('oc_chat1');
   });
 
   /**
@@ -296,13 +299,6 @@ describe('feishu group thread routing', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].senderId).toBe('g/oc_chat1/omt_existing');
-    expect(events[0].finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-      confirmed: true,
-    });
     expect(mocks.openThread).not.toHaveBeenCalled();
   });
 
@@ -333,20 +329,56 @@ describe('feishu group thread routing', () => {
     );
   });
 
-  it('releases the topic lease when a mention-only topic has nothing to relay', async () => {
+  it('releases the topic lease when a topic delivery has nothing to relay', async () => {
     const events = collectMessages();
     await connect();
-    const empty = groupTopicMessage('@_user_1', 'omt_existing') as {
+    // image 消息缺 image_key → 解析为空; @bot 的 mention 仍在, 能走到话题租约。
+    const empty = groupTopicImageMessage('omt_existing', 'om_empty_image') as {
       message: Record<string, unknown>;
     };
+    empty.message.content = JSON.stringify({});
     empty.message.create_time = '1788000000000';
-    empty.message.message_id = 'om_empty_mention';
 
     await mocks.eventHandlers['im.message.receive_v1'](empty);
 
     expect(events).toHaveLength(0);
     expect(mocks.openThread).not.toHaveBeenCalled();
     expect(pendingTopicLeaseCountForTest()).toBe(0);
+  });
+
+  it('纯 @bot 的话题消息仍召唤一轮，正文与召唤事实分开', async () => {
+    const events = collectMessages();
+    await connect();
+    const bare = groupTopicMessage('@_user_1', 'omt_existing') as {
+      message: Record<string, unknown>;
+    };
+    bare.message.create_time = '1788000000000';
+    bare.message.message_id = 'om_bare_mention';
+
+    await mocks.eventHandlers['im.message.receive_v1'](bare);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].senderId).toBe('g/oc_chat1/omt_existing');
+    expect(events[0]).toMatchObject({ text: '', invoked: true });
+    expect(mocks.openThread).not.toHaveBeenCalled();
+    expect(pendingTopicLeaseCountForTest()).toBe(0);
+  });
+
+  it('群主流纯 @bot 同样开话题起一轮; @ 在句尾时只剥掉 @bot', async () => {
+    const events = collectMessages();
+    await connect();
+
+    await mocks.eventHandlers['im.message.receive_v1'](
+      groupMainFlowMessage('@_user_1', 'om_bare_main'),
+    );
+    await mocks.eventHandlers['im.message.receive_v1'](
+      groupMainFlowMessage('重新想一想 @_user_1', 'om_tail_main'),
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ text: '', invoked: true });
+    expect(events[1].text).toBe('重新想一想');
+    expect(mocks.openThread).toHaveBeenCalledWith('om_bare_main');
   });
 
   it('abandons the topic lease when the account is replaced during attachment download', async () => {
@@ -578,13 +610,6 @@ describe('feishu group thread routing', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].senderId).toBe('g/oc_chat1/omt_existing');
-    expect(events[0].finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-      confirmed: true,
-    });
     expect(mocks.openThread).toHaveBeenCalledTimes(1);
     expect(mocks.recallOwnMessage).toHaveBeenCalledWith('om_bot_opener');
     expect(mocks.pushPatchableOpener).not.toHaveBeenCalled();
@@ -727,12 +752,6 @@ describe('feishu group thread routing', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.senderId).toBe('g/oc_chat1/omt_bot_committed');
-    expect(events[0]?.finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-    });
     expect(mocks.openThread).toHaveBeenCalledTimes(1);
     expect(mocks.pushPatchableOpener).toHaveBeenCalledWith(
       'g/oc_chat1/omt_bot_committed',
@@ -779,12 +798,8 @@ describe('feishu group thread routing', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.senderId).toBe('g/oc_chat1/omt_bot_recovered_committed');
-    expect(events[0]?.finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-    });
+    expect(events[0]?.interactionSource).toBeUndefined();
+    expect(events[0]?.chatId).toBe('oc_chat1');
 
     await mocks.eventHandlers['im.message.receive_v1'](topic);
 
@@ -823,13 +838,6 @@ describe('feishu group thread routing', () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.senderId).toBe('g/oc_chat1/omt_existing');
     expect(events[0]?.messageId).toBe('om_topic_after_orphan');
-    expect(events[0]?.finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-      confirmed: true,
-    });
     expect(mocks.pushPatchableOpener).not.toHaveBeenCalled();
   });
 
@@ -866,13 +874,6 @@ describe('feishu group thread routing', () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.senderId).toBe('g/oc_chat1/omt_existing');
     expect(events[0]?.messageId).toBe('om_topic_after_unconfirmed');
-    expect(events[0]?.finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-      confirmed: true,
-    });
     expect(mocks.pushPatchableOpener).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(10_000);
@@ -1198,13 +1199,6 @@ describe('feishu group thread routing', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.senderId).toBe('g/oc_chat1/omt_existing');
-    expect(events[0]?.finalReplyMirror).toEqual({
-      kind: 'parent-chat',
-      chatId: 'oc_chat1',
-      idempotencyKey: expect.any(String),
-      accountEpoch: 1,
-      confirmed: true,
-    });
     vi.useRealTimers();
   });
 });

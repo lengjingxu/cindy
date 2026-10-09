@@ -192,6 +192,24 @@ test("login-all-hifi embeds generated truth as a script-safe static literal", ()
 	assert.deepEqual(JSON.parse(match[1]), readJson("docs/design-previews/login-all-hifi/truth.json"));
 });
 
+test("login QA preview countdowns match Desktop and Mobile product constants", () => {
+	const desktopMs = Number(readText("apps/desktop/src/renderer/components/login/loginDesignTokens.ts")
+		.match(/RESEND_COUNTDOWN_MS\s*=\s*([\d_]+)/)?.[1].replaceAll("_", ""));
+	const mobileSeconds = Number(readText("apps/mobile/src/auth/loginSkinLayout.ts")
+		.match(/RESEND_COUNTDOWN_SECONDS\s*=\s*([\d_]+)/)?.[1].replaceAll("_", ""));
+	assert.ok(desktopMs > 0 && mobileSeconds > 0);
+	assert.equal(desktopMs, mobileSeconds * 1000);
+	for (const demo of ["login-flow-hifi", "login-all-hifi"]) {
+		const dir = `docs/design-previews/${demo}`;
+		const truth = readJson(`${dir}/truth.json`);
+		const block = readText(`${dir}/index.html`).match(/<script id="qa-truth"[^>]*>([\s\S]*?)<\/script>/);
+		assert.ok(block, `${demo} must embed truth`);
+		assert.deepEqual(JSON.parse(block[1].replace(/^const RAW = /, "")), truth);
+		assert.equal((truth.desk ?? truth).constants.resendCountdownMs.value, desktopMs, demo);
+		if (truth.mobile) assert.equal(truth.mobile.constants.resendSeconds.value, mobileSeconds, demo);
+	}
+});
+
 test("current locale-aware QA artifacts cover every supported locale", () => {
 	const supportedLocales = readSupportedLocales("apps/desktop/src/shared/locale.ts");
 	assert.deepEqual(
@@ -292,8 +310,10 @@ test("client CI keeps the complete two-shard unit gate on Windows", () => {
 	assert.match(shards, /^      fail-fast: false$/m);
 	assert.match(shards, /^        shard: \[1, 2\]$/m);
 	assert.match(shards, /^      XDT_UNIT_TEST_SHARD: \$\{\{ matrix\.shard \}\}\/2$/m);
-	assert.match(shards, /^        run: pnpm test:unit$/m);
-	assert.doesNotMatch(shards, /pnpm test:unit\s+--/);
+	assert.match(shards, /^        run: pnpm run test:workspaces --tier unit$/m);
+	assert.doesNotMatch(shards, /pnpm test:unit(?:\s|$)/);
+	assert.equal([...shards.matchAll(/^        run: pnpm test:runner$/gm)].length, 1);
+	assert.match(shards, /^      - name: Run Windows test runner self-tests\r?\n        if: matrix\.shard == 1\r?\n        run: pnpm test:runner$/m);
 
 	const gate = workflowJob(workflow, "windows-unit");
 	assert.ok(gate, "client CI must preserve the stable Windows unit check");
@@ -319,8 +339,10 @@ test("client CI runs Linux checks and complete unit shards in parallel behind st
 	assert.match(shards, /^      fail-fast: false$/m);
 	assert.match(shards, /^        shard: \[1, 2\]$/m);
 	assert.match(shards, /^      XDT_UNIT_TEST_SHARD: \$\{\{ matrix\.shard \}\}\/2$/m);
-	assert.match(shards, /^        run: pnpm exec node scripts\/test-workspaces\.mjs --tier unit$/m);
+	assert.match(shards, /^        run: pnpm run test:workspaces --tier unit$/m);
 	assert.doesNotMatch(shards, /pnpm test:(?:unit|runner)/);
+	assert.equal([...shards.matchAll(/--tier integration --workspace @cindy\/maker-pi-manager/g)].length, 1);
+	assert.match(shards, /^      - name: Run Pi manager integration tests\r?\n        if: matrix\.shard == 1\r?\n        run: pnpm run test:workspaces --tier integration --workspace @cindy\/maker-pi-manager$/m);
 
 	const gate = workflowJob(workflow, "verify");
 	assert.ok(gate, "client CI must preserve the stable verify check");

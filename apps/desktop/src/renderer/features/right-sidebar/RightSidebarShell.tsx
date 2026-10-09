@@ -12,7 +12,7 @@
  * Phase 3 同步:Shell 顶层 import `./plugins`,触发各 plugin 的 import-side-effect
  * 注册(`registerTabKind`)。后续新 plugin 只需在 plugins/index.ts 加一行 import。
  *
- * Phase 2 简化保留:错误打日志、所有 IPC 失败本地回滚 + log(无 toast),Phase 7 收尾接 toast。
+ * Phase 2 简化保留:错误打日志、所有 IPC 失败本地回滚 + log;Phase 7 已收尾:添加失败按错误码 toast 统一暴露(见 handleAdd)。
  *
  * sessionId / workdir 由 host 透:
  *   - sessionId 为 null = 不在 cc-agent 路由,Shell 渲染空状态,store 不工作;
@@ -31,7 +31,8 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { createLogger } from '@/lib/logger';
-import { isSecondaryWindow } from '@/lib/secondaryWindow';
+import { toast } from '@/lib/toast';
+import { mapIpcErrorToI18nKey } from '@/utils/ipcError';
 import { useAppShortcut } from '@/hooks/useAppShortcut';
 import { useMacFullscreen } from '@/hooks/useMacFullscreen';
 import { RightSidebarDetach } from '@/components/layout/RightSidebarDetach';
@@ -59,15 +60,13 @@ import type { TabKindHostContext, TabKindId, TabState } from './types';
 // getTabKind 查 registry。
 import './plugins';
 import { initRsbBrowserBridge } from './lib/rsbBrowserBridge';
-import { initIOSSimulatorFocusBridge } from './lib/iosSimulatorFocusBridge';
 import { initPopupRouter, setPopupFallbackSession } from './lib/popupRouter';
 import { TabBodyErrorBoundary } from './TabBodyErrorBoundary';
 import { useInstalledGhosts } from '@/cindy-brain/useInstalledGhosts';
 import {
-  isIOSSimulatorPluginAvailable,
   mergeAvailableTabOrder,
   projectAvailableTabs,
-} from './iosSimulatorPluginAvailability';
+} from './tabAvailability';
 
 const log = createLogger('rightSidebar.shell');
 const EMPTY_TAB_ID_SET = new Set<string>();
@@ -176,14 +175,6 @@ export function RightSidebarShell({
       : 0;
   const { t } = useTranslation();
   const installedGhosts = useInstalledGhosts();
-  const iosSimulatorPluginAvailable = useMemo(
-    // Session secondary windows do not own the Main/RSB capability family and
-    // intentionally skip the Host focus bridge. Hide (but preserve) persisted
-    // Simulator tabs there instead of exposing an authorization action that
-    // can never succeed.
-    () => !isSecondaryWindow() && isIOSSimulatorPluginAvailable(installedGhosts),
-    [installedGhosts],
-  );
 
   // RSB browser bridge (Phase 2):在 Shell 整个生命周期内只 init 一次。bridge 内部
   // 自带 idempotent guard,strict-mode 双 effect / 重复挂载都安全。bridge 绑定
@@ -193,7 +184,6 @@ export function RightSidebarShell({
   // 就断了。Shell 真的退出场景在 app quit,进程整体下线无所谓。
   useEffect(() => {
     initRsbBrowserBridge();
-    initIOSSimulatorFocusBridge();
   }, []);
 
   // 订阅当前 sessionId 桶变化 —— useSyncExternalStore 在 sessionId 变化时,
@@ -248,10 +238,10 @@ export function RightSidebarShell({
   // unknown and only converge once we actually know.
   const tabAvailability = useMemo(
     () => ({
-      iosSimulatorAvailable: iosSimulatorPluginAvailable,
+      installedGhosts: remoteHostId || deviceLinkDeviceId !== null ? [] : installedGhosts,
       subagentsAvailable: subagentsEnabled || !subagentsEligibilityKnown,
     }),
-    [iosSimulatorPluginAvailable, subagentsEligibilityKnown, subagentsEnabled],
+    [installedGhosts, remoteHostId, deviceLinkDeviceId, subagentsEligibilityKnown, subagentsEnabled],
   );
   const projectedTabs = useMemo(
     () => projectAvailableTabs(bucket.tabs, bucket.activeTabId, tabAvailability),
@@ -323,9 +313,8 @@ export function RightSidebarShell({
     };
   }, [activeTabId, bucket.hydrated, deferredMountedTabIds, sessionId, tabs]);
 
-  // If a now-hidden simulator tab owned the active marker, move the persisted
-  // marker to a visible tab (or null). The simulator tab itself remains stored
-  // and returns when the plugin is enabled again.
+  // If an unavailable tab owned the active marker, move the persisted marker
+  // to a visible tab (or null), while preserving the hidden tab state.
   //
   // Never write while Subagents eligibility is still unknown: the projection is
   // provisional during that window, so converging it would persist a decision
@@ -334,7 +323,7 @@ export function RightSidebarShell({
     if (!subagentsEligibilityKnown) return;
     if (!bucket.hydrated || !sessionId || bucket.activeTabId === activeTabId) return;
     void setActiveTab(sessionId, activeTabId).catch((err) => {
-      log.error('hidden simulator active-tab reconciliation failed', {
+      log.error('unavailable active-tab reconciliation failed', {
         sessionId,
         activeTabId,
         err,
@@ -359,11 +348,6 @@ export function RightSidebarShell({
       bucket.hydrated &&
       bucket.tabs.length > 0 &&
       tabs.length === 0 &&
-      bucket.tabs.some(
-        (tab) =>
-          (tab.kind === 'ios-simulator' && !iosSimulatorPluginAvailable) ||
-          (tab.kind === 'subagents' && subagentsEligibilityKnown && !subagentsEnabled),
-      ) &&
       prevTabCountRef.current === null;
     if (!shouldCollapse || !sessionId) {
       hiddenOnlyCollapseRef.current = null;
@@ -375,21 +359,23 @@ export function RightSidebarShell({
   }, [
     bucket.hydrated,
     bucket.tabs,
-    iosSimulatorPluginAvailable,
-    subagentsEligibilityKnown,
-    subagentsEnabled,
     onAllTabsClosed,
     sessionId,
     shellVisible,
     tabs.length,
   ]);
 
-  // 面板收束(2026-08):插件页签不再注册进右侧栏。历史会话里持久化的
-  // `ghost:*` tab 是旧形态残留,发现即静默关闭 —— 这些 kind 已无渲染方,
+  // 面板收束后不再注册的历史页签在 hydration 后静默关闭，避免显示死页签。
+  // `ghost:*`、`bot-delegations` 和 `bot-artifacts` 只作为数据库历史值保留。
+  // 这些 kind 已无渲染方,
   // 留着只会落到 PlaceholderBody 变成"敬请期待"的死页签。
   useEffect(() => {
     if (!bucket.hydrated || !sessionId) return;
-    const legacyGhostTabs = bucket.tabs.filter((tab) => tab.kind.startsWith('ghost:'));
+    const legacyGhostTabs = bucket.tabs.filter((tab) =>
+      tab.kind.startsWith('ghost:') ||
+      tab.kind === ('bot-delegations' as TabKindId) ||
+      tab.kind === ('bot-artifacts' as TabKindId),
+    );
     if (legacyGhostTabs.length === 0) return;
     void (async () => {
       for (const tab of legacyGhostTabs) {
@@ -422,10 +408,7 @@ export function RightSidebarShell({
         log.warn('handleAdd ignored: sessionId is null', { kind });
         return;
       }
-      if (kind === 'ios-simulator' && !iosSimulatorPluginAvailable) {
-        log.warn('handleAdd ignored: iOS Simulator plugin is unavailable');
-        return;
-      }
+
       if (kind === 'subagents' && !subagentsEnabled) {
         log.warn('handleAdd ignored: Subagents surface is unavailable for this harness');
         return;
@@ -442,11 +425,18 @@ export function RightSidebarShell({
         ? addOrFocusSingletonTab(sessionId, kind, initialState)
         : addTab(sessionId, kind, initialState);
       void action.catch((err) => {
-        // TODO(Phase 7): toast 暴露 RIGHT_SIDEBAR_TOO_MANY_TABS / STATE_TOO_LARGE 等错误码。
+        // 按错误码 toast:专属文案挂在全局 ipcError 命名空间(RIGHT_SIDEBAR_*),其余错误落通用 addFailed 兜底。
+        toast.error(
+          t(
+            mapIpcErrorToI18nKey(err, {
+              fallback: 'rightSidebar.tabs.addFailed',
+            }),
+          ),
+        );
         log.error('handleAdd failed', { sessionId, kind, err });
       });
     },
-    [iosSimulatorPluginAvailable, sessionId, subagentsEnabled],
+    [sessionId, subagentsEnabled, t],
   );
 
   const handleClose = useCallback(
@@ -635,7 +625,6 @@ export function RightSidebarShell({
             onCloseAll={handleCloseAll}
             pillVariant="chip"
             addButtonWrapperClassName="h-[30px]"
-            iosSimulatorAvailable={iosSimulatorPluginAvailable}
             subagentsAvailable={subagentsEnabled}
           />
           {/* 面板自属控件始终跟随面板：detach → maximize → 收起。固定唤起入口只在
@@ -690,7 +679,6 @@ export function RightSidebarShell({
           onCloseOthers={handleCloseOthers}
           onCloseAll={handleCloseAll}
           chromeWindowDrag={chromeWindowDrag}
-          iosSimulatorAvailable={iosSimulatorPluginAvailable}
           subagentsAvailable={subagentsEnabled}
         />
       )}

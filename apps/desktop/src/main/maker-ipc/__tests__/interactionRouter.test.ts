@@ -3,6 +3,7 @@ import type { InteractionDecision, InteractionRequest } from '@cindy/maker-core'
 
 import {
   beginInteractionRoute,
+  requestHostInteraction,
   installDesktopInteractionHandler,
   installInteractionLifecycleObserver,
   type InteractionHandler,
@@ -41,6 +42,35 @@ function makeSession() {
 }
 
 describe('session interaction router', () => {
+  it('routes Host download permissions through the active channel without replacing the listener', async () => {
+    const host = makeSession();
+    const desktop = vi.fn<InteractionHandler>((_request, shared) => shared!.result);
+    const remote = vi.fn(async (): Promise<InteractionDecision> => ({ kind: 'permission', behavior: 'allow' }));
+    installDesktopInteractionHandler(host.session, desktop);
+    const lease = beginInteractionRoute(host.session, {
+      route: { sessionId: host.session.id, turnId: 'turn-1', origin: { kind: 'im', channel: 'feishu' }, interactionSurface: 'channel-card' },
+      handle: remote,
+    });
+    try {
+      await expect(requestHostInteraction(host.session, permission('download-1'), new AbortController().signal))
+        .resolves.toMatchObject({ behavior: 'allow' });
+      expect(remote).toHaveBeenCalledOnce();
+      expect(desktop).toHaveBeenCalledOnce();
+      expect(host.setInteractionListener).toHaveBeenCalledOnce();
+    } finally { lease.release(); }
+  });
+
+  it('cancels the ordinary pending card when a Host permission is aborted', async () => {
+    const host = makeSession();
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    installDesktopInteractionHandler(host.session, () => new Promise(() => {}), cancel);
+    const pending = requestHostInteraction(host.session, permission('download-2'), controller.signal);
+    controller.abort();
+    await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
+    expect(cancel).toHaveBeenCalledWith('download-2', expect.objectContaining({ behavior: 'deny' }));
+  });
+
   it('owns one listener and falls back to the Desktop handler', async () => {
     const harness = makeSession();
     const desktop = vi.fn(async (): Promise<InteractionDecision> => ({
@@ -60,7 +90,7 @@ describe('session interaction router', () => {
 
   it('routes only the admitted turn to its channel surface', async () => {
     const harness = makeSession();
-    const desktop = vi.fn(async (): Promise<InteractionDecision> => ({
+    const desktop = vi.fn<InteractionHandler>(async (_request, shared) => shared ? shared.result : ({
       kind: 'permission',
       behavior: 'deny',
       reason: 'desktop',
@@ -89,7 +119,7 @@ describe('session interaction router', () => {
       reason: 'desktop',
     });
     expect(channel).toHaveBeenCalledTimes(1);
-    expect(desktop).toHaveBeenCalledTimes(1);
+    expect(desktop).toHaveBeenCalledTimes(2);
     expect(harness.setInteractionListener).toHaveBeenCalledTimes(1);
   });
 

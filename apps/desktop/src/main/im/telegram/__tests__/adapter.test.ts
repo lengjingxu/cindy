@@ -1,10 +1,75 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IMMessageEvent } from '@cindy/im';
 
 import { buildTelegramAdapter } from '../adapter';
+import { ui } from '../uiText';
+vi.mock('../behaviorStore', () => ({
+  readTelegramPersona: () => ({ botName: 'Private persona', soul: 'Private instructions' }),
+}));
 
 describe('Telegram group history access scope', () => {
   const adapter = buildTelegramAdapter({} as never, {} as never);
+
+  it('clears successful and cancelled status reactions but retains an error signal', () => {
+    expect(adapter.terminalReactionEmoji?.('done')).toBeNull();
+    expect(adapter.terminalReactionEmoji?.('aborted')).toBeNull();
+    expect(adapter.terminalReactionEmoji?.('error')).toBe('👎');
+  });
+
+  it('saves the actual quoted text but excludes persona and technical instructions', async () => {
+    const result = await adapter.prepareAgentTurnText?.({
+      senderId: '123',
+      text: 'question',
+      replyContext: { author: 'Alice', text: 'quoted text' },
+    } as IMMessageEvent);
+    expect(result?.agentText).toContain('Private instructions');
+    expect(result?.contextSnapshot).toEqual({ replyContext: '[Alice] quoted text', replyMessageCount: 1 });
+    // The same reply the model sees is the one Auto-review may use.
+    expect(result?.replyContext).toEqual({ author: 'Alice', text: 'quoted text' });
+  });
+
+  it('only lets owner-triggered group turns omit the policy in Full access', () => {
+    const groupEvent = {
+      messageId: 'm-policy',
+      speaker: { id: 'guest', name: 'Guest', isOwner: false },
+    } as unknown as IMMessageEvent;
+    const guestPolicy = adapter.turnPermissionPolicyFor?.(groupEvent);
+    const ownerPolicy = adapter.turnPermissionPolicyFor?.({
+      ...groupEvent,
+      messageId: 'm-owner-policy',
+      speaker: { id: 'owner', name: 'Owner', isOwner: true },
+    } as unknown as IMMessageEvent);
+
+    expect(guestPolicy).toMatchObject({
+      origin: { kind: 'im', channel: 'telegram', taskId: 'm-policy' },
+      confirmationSurface: 'channel',
+    });
+    expect(ownerPolicy).toBeDefined();
+    expect(adapter.turnPolicyOptionalForMode?.('bypassPermissions', guestPolicy!)).toBe(false);
+    expect(adapter.turnPolicyOptionalForMode?.('bypassPermissions', ownerPolicy!)).toBe(true);
+    expect(adapter.turnPolicyOptionalForMode?.('auto', ownerPolicy!)).toBe(false);
+    expect(adapter.turnPolicyOptionalForMode?.('ask', ownerPolicy!)).toBe(false);
+  });
+
+  it('does not attach a group confirmation policy to DMs', () => {
+    const groupEvent = {
+      messageId: 'm-policy',
+      speaker: { id: 'guest', name: 'Guest', isOwner: false },
+    } as unknown as IMMessageEvent;
+    expect(
+      adapter.turnPermissionPolicyFor?.({
+        ...groupEvent,
+        speaker: undefined,
+      } as unknown as IMMessageEvent),
+    ).toBeUndefined();
+  });
+
+  it('explains an unsupported permission mode without exposing the internal error code', () => {
+    const message = ui.error.permissionModeUnsupported;
+    expect(message).toContain('自动审批');
+    expect(message).toContain('/permission');
+    expect(message).not.toContain('TURN_PERMISSION_POLICY_UNSUPPORTED');
+  });
 
   it('keeps every group turn lane-only — owner-triggered included (injection hardening)', () => {
     const base = {
@@ -52,5 +117,21 @@ describe('Telegram group history access scope', () => {
       provider: 'telegram-personal:bot-1',
       lane: null,
     });
+  });
+
+  it('names the group in the channel note but leaves the speaker to the existing [发言人] line', async () => {
+    expect(
+      await adapter.channelNoteSourceFor?.({
+        contextId: 'bot-1',
+        senderId: 'g/-1001',
+        messageId: 'm-3',
+        chatId: '-1001',
+        text: 'hi',
+        speaker: { id: '7', name: 'Ann', isOwner: false },
+        interactionSource: { chatName: 'Dev Group', senderName: 'Ann' },
+        attachments: [],
+        unsupported: [],
+      } as never),
+    ).toEqual({ chatKind: 'group', chatId: '-1001', chatName: 'Dev Group' });
   });
 });

@@ -164,44 +164,14 @@ export interface IMUnsupportedEntry {
   label: string;
 }
 
-/**
- * Optional terminal-output mirror requested by an inbound channel event.
- *
- * Feishu uses this for its native “同时发送到群聊” thread option: the thread
- * remains the single task/Agent route, while its final answer is copied once
- * to the parent group timeline. The idempotency key is opaque to the host and
- * must be stable for the logical user send.
- */
-export interface IMFinalReplyMirror {
-  kind: 'parent-chat';
-  chatId: string;
-  idempotencyKey: string;
-  /**
-   * Feishu account generation captured at inbound. Terminal parent-chat
-   * mirrors drop if credentials rebind before the answer is copied.
-   */
-  accountEpoch: number;
-  /**
-   * Host-approved directory roots for parent-chat file copies. Missing or empty
-   * means fail-closed: the card still mirrors, local files do not.
-   */
-  allowedFileRoots?: string[];
-  /**
-   * Filesystem identity of `allowedFileRoots`, captured before Agent execution.
-   * Parent-chat file reuse must open the same pinned directory object and prove
-   * the uploaded leaf through a descriptor-relative, no-link object walk.
-   * `realPath` is an optional compatibility hint only; it never replaces that
-   * live handle proof.
-   */
-  pinnedFileRoots?: ReadonlyArray<{ dev: string; ino: string; realPath?: string }>;
-  /**
-   * Dual-delivery pairing was already confirmed at inbound. Terminal
-   * parent-chat copies must not wait on a TTL-pruned confirmation map.
-   */
-  confirmed?: boolean;
-}
-
 export interface IMMessageEvent {
+  /** Optional transport-owned display context for shared permission prompts. */
+  interactionSource?: {
+    chatName?: string;
+    threadName?: string;
+    senderName?: string;
+    messageUrl?: string;
+  };
   channelName: string;
   /** Sender open_id (or channel-equivalent stable user id). */
   senderId: string;
@@ -213,6 +183,8 @@ export interface IMMessageEvent {
   messageId: string;
   /** Plain-text payload. */
   text: string;
+  /** Explicit bot invocation survives mention stripping, even with no body. */
+  invoked?: boolean;
   /**
    * 群多人对话的发言人元数据(telegram 群 turn 提供; 其它渠道/DM 缺省)。
    * name 为平台显示名 — 不可信输入, 消费方注入 prompt 前必须消毒。
@@ -267,14 +239,13 @@ export interface IMMessageEvent {
     isBot?: boolean;
     /** 被引消息的附件数(已并入本事件 attachments;0/缺省 = 无)。 */
     attachmentCount?: number;
+    /** Referenced media that was not supplied to this turn. */
+    unavailableAttachments?: string[];
   };
+  /** Native private topic metadata. Root message id and thread id are distinct. */
+  replyThread?: { rootMessageId: string; threadId: string };
   /** Channel-specific raw event for debug. */
   raw?: unknown;
-  /**
-   * Copy this turn's complete terminal answer to another channel-native
-   * destination without changing the session/lane that runs the Agent.
-   */
-  finalReplyMirror?: IMFinalReplyMirror;
   /**
    * 群历史上下文的取数 lane, 与路由 lane(senderId)分离。仅 feishu 群主流 @
    * 开新话题时设置: 出站路由进新话题 lane, 但上下文前缀仍按触发时所在 lane
@@ -365,16 +336,8 @@ export interface StreamingTextHandle {
   replace(fullText: string): void;
   /**
    * Replace the card with `finalText` and stop throttling.
-   *
-   * `finalReplyMirror` is supplied only for the true turn terminal. Callers
-   * intentionally omit it when finalising a pre-interaction fragment, so a
-   * channel can reuse media uploaded by this exact finalisation without
-   * publishing an incomplete answer to the secondary destination.
    */
-  finalize(
-    finalText: string,
-    opts?: { finalReplyMirror?: IMFinalReplyMirror },
-  ): Promise<void>;
+  finalize(finalText: string): Promise<void>;
   /** Cancel without finalising (still leaves the last rendered text on screen). */
   close(): void;
   /**

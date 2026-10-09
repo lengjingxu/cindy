@@ -2,16 +2,36 @@ import { messageContentToPreview } from './messageNormalize.js';
 import { stripTrailingPathSeparators } from './pathText.js';
 import { presentationDate, presentationText, type PresentationLocalizer } from './presentationLocalization.js';
 import { isSyntheticTriggerText } from './syntheticTrigger.js';
-import type { RemoteSchedule, RemoteScheduleRun, RemoteScheduleRunStatus } from './scheduleTypes.js';
-import { toMillis } from './scheduleModel.js';
+import { hasPendingSessionInterruption, type SessionInterruptionState } from './sessionActivity.js';
+import type { RemoteSchedule, RemoteScheduleRun } from './scheduleTypes.js';
+import { toMillis, isUnreadScheduleRun, isUnreadFailedScheduleRun, activeScheduleFailures, classifyScheduleFailure, compareFailedScheduleRuns, type FailedScheduleRunSnapshot } from './scheduleModel.js';
 import { sessionCollaborationLabel, sessionWorktreeLabel } from './sessionIdentity.js';
 import { isDefaultDraftSessionTitle } from './sessionTitle.js';
 import { getSessionListCollapseView } from './sessionListCollapse.js';
 import { collapseWorktreeDirForGrouping } from './worktreePaths.js';
 
-export interface RemoteSessionListSessionLike {
+let sessionListCollator: Intl.Collator | undefined;
+/** Call when the host resumes after system locale/region preferences may change. */
+export function clearSessionListCollator(): void {
+  sessionListCollator = undefined;
+}
+
+/** Same default-locale ordering as localeCompare, without constructing an ICU
+ * collator for every comparison on Android/Hermes. */
+export function compareSessionListStrings(left: string, right: string): number {
+  sessionListCollator ??= new Intl.Collator();
+  return sessionListCollator.compare(left, right);
+}
+
+export interface RemoteSessionListSessionLike extends SessionInterruptionState {
+  tags?: import('./taskTags').TaskTag[];
   _count?: { messages?: number } | null;
   agentKind: 'cc' | 'codex' | string;
+  /**
+   * 远程 Agent:非空 = Agent 在同账号另一台电脑上运行(desktop sessions.agent_device_id),
+   * 任务仍在被控电脑;null / 缺省 = Agent 就在被控电脑(含旧被控端)。
+   */
+  agentDeviceId?: string | null;
   createdAt: string;
   effort?: string | null;
   fastMode?: boolean;
@@ -52,6 +72,7 @@ export type RemoteSessionListMessage = RemoteSessionListMessageLike;
 export type RemoteSessionLiveActivityPhase = 'running' | 'needs-interaction' | 'completed' | 'error';
 
 export interface RemoteSessionLiveActivity {
+  workingPhase?: string;
   sessionId: string;
   phase: RemoteSessionLiveActivityPhase;
   compactDetail: string;
@@ -109,9 +130,13 @@ export interface RemoteSessionScheduleInfo {
   scheduleId: string;
   scheduleName: string;
   scheduleStatus?: RemoteSchedule['status'];
+  /** 该 schedule 的下次自动运行时间(毫秒,宿主时钟);手动、已停止或运行中被清空时缺失。 */
+  nextFireAt?: number;
   /** 同一会话的所有已知 schedule 绑定都已 paused / expired 时为 true；缺失按 false。 */
   allSchedulesStopped?: boolean;
   unreadRunIds: string[];
+  hasUnreadFailedRun?: boolean;
+  latestFailedRun?: FailedScheduleRunSnapshot;
   unreadCount: number;
   running: boolean;
   latestRunAt: number;
@@ -383,7 +408,7 @@ function buildProjectSections(
     list.push(item);
     projectGroups.set(key, list);
   }
-  for (const [workingDir, data] of [...projectGroups].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [workingDir, data] of [...projectGroups].sort(([a], [b]) => compareSessionListStrings(a, b))) {
     sections.push({
       key: `project:${workingDir}`,
       title: projectTitle(workingDir),
@@ -517,10 +542,14 @@ function remoteSessionListItemExemptFromCollapse(
 
 /** 需关注:等待处理交互 / 自动化未读 run / live activity 请求关注。 */
 function remoteSessionListItemNeedsAttention(item: RemoteSessionListItem): boolean {
+  if (hasPendingSessionInterruption(item.session)) return true;
   if (item.pendingInteractionCount > 0) return true;
   if ((item.scheduleInfo?.unreadCount ?? 0) > 0) return true;
   const live = item.liveActivity;
-  return !!live && (live.attention === true || live.phase === 'needs-interaction' || live.phase === 'error');
+  return (
+    !!live &&
+    (live.attention === true || live.phase === 'needs-interaction' || live.phase === 'error')
+  );
 }
 
 function remoteSessionListItemIsRunning(
@@ -601,6 +630,7 @@ export function buildSessionScheduleIndex(
   const schedulesById = new Map(schedules.map((schedule) => [schedule.id, schedule]));
   const scheduleIdsBySession = new Map<string, Set<string>>();
   const index = new Map<string, RemoteSessionScheduleInfo>();
+  const activeFailures = activeScheduleFailures([...runsBySchedule.values()].flat());
   const recordScheduleBinding = (sessionId: string, scheduleId: string) => {
     const scheduleIds = scheduleIdsBySession.get(sessionId) ?? new Set<string>();
     scheduleIds.add(scheduleId);
@@ -614,6 +644,7 @@ export function buildSessionScheduleIndex(
         scheduleId: schedule.id,
         scheduleName: schedule.name || schedule.id,
         scheduleStatus: schedule.status,
+        ...nextFireAtField(schedule),
         allSchedulesStopped: false,
         unreadRunIds: [],
         unreadCount: 0,
@@ -633,16 +664,27 @@ export function buildSessionScheduleIndex(
       const firedAt = toMillis(run.firedAt);
       const existing = index.get(run.sessionId);
       const unreadRunIds = existing ? [...existing.unreadRunIds] : [];
-      if (isUnreadRunStatus(run.status) && !run.readAt) unreadRunIds.push(run.id);
+      // A recovered failure remains in history, but no longer represents an
+      // unread task result. Use the same recovery set as the in-task notice.
+      const isUnreadFailure = activeFailures.has(run.id) && isUnreadFailedScheduleRun(run);
+      if (isUnreadScheduleRun(run) && (run.status === 'success' || isUnreadFailure)) {
+        unreadRunIds.push(run.id);
+      }
+      const candidate = activeFailures.has(run.id) ? { runId: run.id, firedAt, scheduleId: run.scheduleId, failureKind: classifyScheduleFailure(run) } : undefined;
+      const latestFailedRun = candidate && (!existing?.latestFailedRun || compareFailedScheduleRuns(candidate, existing.latestFailedRun) > 0)
+        ? candidate : existing?.latestFailedRun;
       const running = (existing?.running ?? false) || run.status === 'running';
       const isLatest = !existing || firedAt >= existing.latestRunAt;
       index.set(run.sessionId, {
         scheduleId: isLatest ? scheduleId : existing.scheduleId,
-        scheduleName: isLatest ? (schedule?.name || scheduleId) : existing.scheduleName,
+        scheduleName: isLatest ? schedule?.name || scheduleId : existing.scheduleName,
         scheduleStatus: isLatest ? schedule?.status : existing.scheduleStatus,
+        ...(isLatest ? nextFireAtField(schedule) : existing.nextFireAt !== undefined ? { nextFireAt: existing.nextFireAt } : {}),
         allSchedulesStopped: false,
         unreadRunIds,
         unreadCount: unreadRunIds.length,
+        latestFailedRun,
+        hasUnreadFailedRun: existing?.hasUnreadFailedRun === true || isUnreadFailure,
         running,
         latestRunAt: Math.max(existing?.latestRunAt ?? 0, firedAt),
       });
@@ -657,6 +699,11 @@ export function buildSessionScheduleIndex(
     index.set(sessionId, { ...info, allSchedulesStopped });
   }
   return index;
+}
+
+function nextFireAtField(schedule: RemoteSchedule | undefined): { nextFireAt?: number } {
+  const nextFireAt = schedule ? toMillis(schedule.nextFireAt) : 0;
+  return nextFireAt > 0 ? { nextFireAt } : {};
 }
 
 export function buildSessionMessagePreviewIndex(
@@ -678,7 +725,9 @@ function matchesStatusFilter(
 ): boolean {
   if (filter === 'all') return session.status !== 'deleted';
   if (filter === 'waiting') {
-    return session.status !== 'deleted' && (options.pendingInteractionIndex?.get(session.id) ?? 0) > 0;
+    return (
+      session.status !== 'deleted' && (options.pendingInteractionIndex?.get(session.id) ?? 0) > 0
+    );
   }
   if (filter === 'automation') {
     return session.status !== 'deleted' && isAutomationSession(session, options.scheduleIndex);
@@ -737,7 +786,7 @@ function normalizeInlinePreview(value: string): string | null {
 function compareSessions(a: RemoteSession, b: RemoteSession): number {
   const pinnedDiff = Number(!!b.pinnedAt) - Number(!!a.pinnedAt);
   if (pinnedDiff !== 0) return pinnedDiff;
-  return lastActivity(b).localeCompare(lastActivity(a));
+  return compareSessionListStrings(lastActivity(b), lastActivity(a));
 }
 
 function normalizeSearchQuery(value: string | undefined): string {
@@ -862,7 +911,8 @@ function toAutomationGroupListItem(
   // 组行的活动时间取组内最新一条,不跟随 primary —— primary 可能是较旧的未读 / 运行中 run,
   // 用它的时间会让上游(首页项目卡 latestActivityAt、日期分桶、行右侧时间)把整组排成旧活动。
   const latestActivityAt = group.reduce(
-    (latest, item) => (item.lastActivityAt.localeCompare(latest) > 0 ? item.lastActivityAt : latest),
+    (latest, item) =>
+      compareSessionListStrings(item.lastActivityAt, latest) > 0 ? item.lastActivityAt : latest,
     primary.lastActivityAt,
   );
   return {
@@ -908,14 +958,17 @@ function toAutomationGroupListItem(
 
 /**
  * 组的 primary(收起组"点行直开"的目标,也是组行的图标 / 预览来源):
- * 待处理交互 > 运行中 > 有未读 > 最新。待处理交互最优先 —— 它在等用户行动才能推进,
- * 组行的红点也来自它,点行必须落在这条上,否则用户要的确认被藏进展开列表。
+ * 与桌面折叠组一致：未读失败优先，其余打开最新运行；等待交互仍在展开子行显示。
  */
 function pickAutomationPrimaryItem(group: readonly RemoteSessionListItem[]): RemoteSessionListItem {
-  return group.find((item) => item.pendingInteractionCount > 0)
-    ?? group.find((item) => item.scheduleInfo?.running)
-    ?? group.find((item) => (item.scheduleInfo?.unreadCount ?? 0) > 0)
-    ?? group[0];
+  return (
+    group.find(
+      (item) =>
+        hasPendingSessionInterruption(item.session) ||
+        item.scheduleInfo?.hasUnreadFailedRun ||
+        (item.liveActivity?.phase === 'error' && item.liveActivity.attention),
+    ) ?? group.reduce((a, b) => (lastActivity(b.session) > lastActivity(a.session) ? b : a))
+  );
 }
 
 function mergeScheduleInfo(group: readonly RemoteSessionListItem[]): RemoteSessionScheduleInfo | null {
@@ -928,13 +981,10 @@ function mergeScheduleInfo(group: readonly RemoteSessionListItem[]): RemoteSessi
     allSchedulesStopped: group.every((item) => item.scheduleInfo?.allSchedulesStopped === true),
     unreadRunIds,
     unreadCount: unreadRunIds.length,
+    hasUnreadFailedRun: group.some((item) => item.scheduleInfo?.hasUnreadFailedRun === true),
     running: group.some((item) => item.scheduleInfo?.running),
     latestRunAt: Math.max(...group.map((item) => item.scheduleInfo?.latestRunAt ?? 0)),
   };
-}
-
-function isUnreadRunStatus(status: RemoteScheduleRunStatus): boolean {
-  return status === 'success' || status === 'failed' || status === 'aborted' || status === 'interrupted';
 }
 
 function agentLabel(agentKind: RemoteSession['agentKind']): string {
@@ -971,11 +1021,13 @@ function isSearchablePreviewMessage(message: RemoteMessage): boolean {
   // 消息流渲染成「已自动继续」分隔卡,预览同样不能把它当用户消息展示——按文本
   // 过滤不可行(用户真发「继续」是合法消息),只认落库标记。
   if (message.role === 'user' && message.agentMeta?.autoResume === true) return false;
-  return message.role === 'user'
-    || message.role === 'assistant'
-    || message.role === 'system'
-    || message.role === 'ask_user'
-    || message.role === 'plan_review';
+  return (
+    message.role === 'user' ||
+    message.role === 'assistant' ||
+    message.role === 'system' ||
+    message.role === 'ask_user' ||
+    message.role === 'plan_review'
+  );
 }
 
 export function sessionRowMessagePreview(session: RemoteSession): string | null {

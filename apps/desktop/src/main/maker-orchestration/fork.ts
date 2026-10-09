@@ -4,20 +4,23 @@
  * 流程：读 source → 校验 target message (user / assistant) → 计算复制边界与
  *      agent 侧截断信息 → 调 SDK fork → SQLite 事务 insert + bulk copy messages。
  *
- * SDK 调用必须在事务外——SDK 失败时 DB 完全没动；DB 失败时 SDK jsonl 已落盘
+ * SDK 调用必须在事务外——确定性历史损坏可从 Cindy 消息恢复；其它失败不写 DB。
+ * DB 失败时 SDK jsonl 已落盘
  * 变成"孤儿 jsonl"，可接受（数量极少，留给后续清理脚本）。
  */
 
 import { eq, and, lt, gt, asc, desc, isNull, or, sql } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
-import { CodexResumePreparationBlockedError } from '@cindy/maker-core';
+import { CodexResumePreparationBlockedError, isCodexHistoryRecoveryRequired } from '@cindy/maker-core';
 import { CODEX_RESUME_NOT_READY_WIRE_MESSAGE } from '@cindy/maker-shared/agent-input-projection';
 
 import { getDbClient } from '../localDb/client/current';
 import { sessions, messages } from '../localDb/schema';
 import { sessionToCamel } from '../localDb/mapper';
+import { computeForkSourceMessagesDigest } from '../localDb/forkRecoverySnapshot.js';
 import { commitContextRebuild, createMessage } from '../localDb/ipc/messages.js';
 import { getMaker } from '../maker-host/index.js';
+import { inferProviderIdForModel } from '../maker-host/provider-route.js';
 import { createBusinessSessionId } from '../sessionIds.js';
 import { dbToMakerAgentKind, normalizeDbAgentKind } from '../../shared/agentKindConversion.js';
 import type { AgentMeta, Session } from '../../renderer/lib/ccAgent.types';
@@ -78,7 +81,7 @@ interface ForkNativeSource {
   nextSwitch: MessagePosition | null;
   /** false = 原生会话已因同引擎换窗失效，只复制可见历史，首次发送走交接。 */
   reuseVendorSession: boolean;
-  rebuildReason?: 'context-overflow' | 'pi-prompt-timeout';
+  rebuildReason?: 'context-overflow' | 'model-window-switch' | 'pi-prompt-timeout' | 'native-session-recovery';
 }
 
 interface ForkTimelineMessage {
@@ -97,6 +100,8 @@ interface ParsedAgentSwitchBoundary {
   fromAgentKind: DbAgentKind;
   toAgentKind?: DbAgentKind;
   fromModel: string | null;
+  fromProviderId?: string | null;
+  toProviderId?: string | null;
   fromSdkSessionId: string | null;
   handoff?: string;
 }
@@ -109,13 +114,55 @@ function parseJsonContent(content: string): unknown {
   }
 }
 
+/** 用实际复制的前缀建立交接，和子任务、恢复卡一起原子保存。 */
+function buildCodexForkRecoveryMarker(opts: {
+  source: { model: string; providerId: string | null; sdkSessionId: string | null };
+  rows: Array<Pick<ForkTimelineMessage, 'clientId' | 'role' | 'content' | 'createdAt' | 'toolUseId' | 'agentMeta' | 'agentKind'>>;
+  newMessageIds: Array<{ clientId: string }>;
+  sessionId: string;
+  now: number;
+}) {
+  return {
+    id: createId(),
+    clientId: createId(),
+    sourceMessagesDigest: computeForkSourceMessagesDigest(opts.rows.map((row) => ({
+      client_id: row.clientId, role: row.role, content: row.content,
+      tool_use_id: row.toolUseId, agent_meta: row.agentMeta, agent_kind: row.agentKind,
+      created_at: row.createdAt,
+    }))),
+    // 导入历史可能有晚于墙钟的合成时间；恢复边界必须排在复制内容之后。
+    createdAt: opts.rows.reduce((latest, row) => Math.max(latest, row.createdAt), opts.now),
+    content: JSON.stringify({
+      reason: 'native-session-recovery',
+      consumed: false,
+      sourceAgentKind: 'codex',
+      sourceModel: opts.source.model,
+      sourceProviderId: opts.source.providerId,
+      sourceSdkSessionId: opts.source.sdkSessionId,
+      sourceUserClientId: opts.newMessageIds[opts.rows.findLastIndex((row) => row.role === 'user')]?.clientId ?? null,
+      handoff: buildHandoffText(opts.rows.filter((row) => row.role !== 'error').map((row) => ({
+        role: row.role,
+        content: parseJsonContent(row.content),
+        createdAt: row.createdAt,
+        toolUseId: row.toolUseId,
+        agentMeta: row.agentMeta,
+      })), {
+        fromLabel: 'Codex',
+        toLabel: 'Codex',
+        sessionId: opts.sessionId,
+        reason: 'native-session-recovery',
+      }),
+    }),
+  };
+}
+
 async function seedForkHandoffAfterSameEngineRebuild(opts: {
   sessionId: string;
   rows: ForkTimelineMessage[];
   agentKind: DbAgentKind;
   model: string;
   providerId: string | null;
-  reason: 'context-overflow' | 'pi-prompt-timeout';
+  reason: 'context-overflow' | 'model-window-switch' | 'pi-prompt-timeout' | 'native-session-recovery';
 }): Promise<void> {
   const handoffMessages: HandoffSourceMessage[] = opts.rows
     .filter(
@@ -127,6 +174,7 @@ async function seedForkHandoffAfterSameEngineRebuild(opts: {
       content: parseJsonContent(row.content),
       createdAt: row.createdAt,
       toolUseId: row.toolUseId,
+      agentMeta: row.agentMeta,
     }));
   const lastUser = [...opts.rows].reverse().find((row) => row.role === 'user');
   const label =
@@ -159,7 +207,7 @@ async function seedForkHandoffAfterSameEngineRebuild(opts: {
 }
 
 interface ParsedContextRebuildBoundary {
-  reason: 'context-overflow' | 'pi-prompt-timeout';
+  reason: 'context-overflow' | 'model-window-switch' | 'pi-prompt-timeout' | 'native-session-recovery';
   sourceAgentKind?: DbAgentKind;
   sourceModel?: string | null;
   sourceProviderId?: string | null;
@@ -168,7 +216,12 @@ interface ParsedContextRebuildBoundary {
 function parseContextRebuildBoundary(content: string): ParsedContextRebuildBoundary | null {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    if (parsed.reason !== 'context-overflow' && parsed.reason !== 'pi-prompt-timeout') {
+    if (
+      parsed.reason !== 'context-overflow' &&
+      parsed.reason !== 'model-window-switch' &&
+      parsed.reason !== 'pi-prompt-timeout' &&
+      parsed.reason !== 'native-session-recovery'
+    ) {
       return null;
     }
     return {
@@ -193,7 +246,7 @@ function parseContextRebuildBoundary(content: string): ParsedContextRebuildBound
 
 function parseContextRebuildReason(
   content: string,
-): 'context-overflow' | 'pi-prompt-timeout' | null {
+): 'context-overflow' | 'model-window-switch' | 'pi-prompt-timeout' | 'native-session-recovery' | null {
   return parseContextRebuildBoundary(content)?.reason ?? null;
 }
 
@@ -214,12 +267,50 @@ function parseAgentSwitchBoundary(content: string): ParsedAgentSwitchBoundary | 
       fromAgentKind: parsed.fromAgentKind,
       toAgentKind,
       fromModel: typeof parsed.fromModel === 'string' ? parsed.fromModel : null,
+      ...(Object.hasOwn(parsed, 'fromProviderId')
+        ? {
+            fromProviderId:
+              typeof parsed.fromProviderId === 'string' ? parsed.fromProviderId : null,
+          }
+        : {}),
+      ...(Object.hasOwn(parsed, 'toProviderId')
+        ? {
+            toProviderId: typeof parsed.toProviderId === 'string' ? parsed.toProviderId : null,
+          }
+        : {}),
       fromSdkSessionId:
         typeof parsed.fromSdkSessionId === 'string' && parsed.fromSdkSessionId
           ? parsed.fromSdkSessionId
           : null,
       handoff: typeof parsed.handoff === 'string' && parsed.handoff ? parsed.handoff : undefined,
     };
+  } catch {
+    return null;
+  }
+}
+
+function parseCodexNativeForkAnchor(raw: string | null): {
+  sdkSessionId: string;
+  turnId: string;
+} | null {
+  if (!raw) return null;
+  try {
+    const meta = JSON.parse(raw) as Record<string, unknown>;
+    if (meta.turnCompleted !== true) return null;
+    const anchor = meta.nativeForkAnchor;
+    if (!anchor || typeof anchor !== 'object' || Array.isArray(anchor)) return null;
+    const candidate = anchor as Record<string, unknown>;
+    if (
+      candidate.agentKind !== 'codex' ||
+      candidate.kind !== 'turn' ||
+      typeof candidate.sdkSessionId !== 'string' ||
+      !candidate.sdkSessionId ||
+      typeof candidate.id !== 'string' ||
+      !candidate.id
+    ) {
+      return null;
+    }
+    return { sdkSessionId: candidate.sdkSessionId, turnId: candidate.id };
   } catch {
     return null;
   }
@@ -301,11 +392,42 @@ async function resolveForkNativeSource(
     if (!parsed?.fromSdkSessionId) {
       throw forkError('UNSUPPORTED_HISTORY', '目标消息对应的历史引擎会话不可用');
     }
+    const model = parsed.fromModel ?? source.model;
+    let providerId: string | null;
+    if (Object.hasOwn(parsed, 'fromProviderId')) {
+      providerId = parsed.fromProviderId ?? null;
+    } else {
+      const previousSwitch = await client.queryOne<{ content: string }>(
+        `SELECT content FROM messages
+          WHERE session_id = ?
+            AND role = 'agent_switch'
+            AND rewind_at IS NULL
+            AND (created_at < ? OR (created_at = ? AND rowid < ?))
+          ORDER BY created_at DESC, rowid DESC
+          LIMIT 1`,
+        positionParams,
+      );
+      const previousBoundary = previousSwitch
+        ? parseAgentSwitchBoundary(previousSwitch.content)
+        : null;
+      if (
+        previousBoundary?.toAgentKind === parsed.fromAgentKind &&
+        Object.hasOwn(previousBoundary, 'toProviderId')
+      ) {
+        providerId = previousBoundary.toProviderId ?? null;
+      } else if (parsed.fromAgentKind === normalizeDbAgentKind(source.agentKind)) {
+        providerId = source.providerId;
+      } else if (parsed.fromAgentKind === 'codex') {
+        providerId = inferProviderIdForModel(model, 'codex');
+      } else {
+        providerId = null;
+      }
+    }
     return {
       agentKind: parsed.fromAgentKind,
       sdkSessionId: parsed.fromSdkSessionId,
-      model: parsed.fromModel ?? source.model,
-      providerId: parsed.fromAgentKind === source.agentKind ? source.providerId : null,
+      model,
+      providerId,
       nextSwitch: { createdAt: nextSwitch.created_at, rowid: nextSwitch.rowid },
       reuseVendorSession: true,
     };
@@ -405,6 +527,84 @@ function resolveClaudeAssistantAnchor(
     if (resolved) return resolved;
   }
   return undefined;
+}
+
+/** resolveCodexTurnAnchor / resolveCodexForkEventTimestamp 只读这几列;rewind 复用同一套边界判定(#4421)。 */
+export type CodexNativeBoundaryRow = Pick<ForkTimelineMessage, 'role' | 'content' | 'agentMeta' | 'createdAt'>;
+
+export function resolveCodexTurnAnchor(
+  rows: CodexNativeBoundaryRow[],
+  sourceSdkSessionId: string,
+): string | undefined {
+  let timelineSdkSessionId: string | null = sourceSdkSessionId;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (row.role === 'context_rebuild') {
+      // 重建之后是新的原生线程;不能从更早片段借 turn 锚点。
+      return undefined;
+    }
+    if (row.role === 'agent_switch') {
+      timelineSdkSessionId = parseAgentSwitchBoundary(row.content)?.fromSdkSessionId ?? null;
+      continue;
+    }
+    if (row.role === 'user' && timelineSdkSessionId === sourceSdkSessionId) {
+      return undefined;
+    }
+    if (row.role !== 'assistant' || timelineSdkSessionId !== sourceSdkSessionId) continue;
+    const anchor = parseCodexNativeForkAnchor(row.agentMeta);
+    // The newest assistant in this native segment is the requested boundary.
+    // If that row predates anchors, belongs to a failed turn, or is malformed,
+    // fall back for the whole fork instead of silently truncating at an older turn.
+    return anchor?.sdkSessionId === sourceSdkSessionId ? anchor.turnId : undefined;
+  }
+  return undefined;
+}
+
+export function resolveCodexForkEventTimestamp(rows: CodexNativeBoundaryRow[]): number | undefined {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]!;
+    // A new native segment has no event to anchor yet. Never borrow time from
+    // an earlier engine or the host's handoff marker.
+    if (row.role === 'agent_switch' || row.role === 'context_rebuild' || row.role === 'user') return undefined;
+    // Error rows can be backdated to user.createdAt + 1; user persistence may
+    // precede turn/start. Only actual model/tool output proves the turn began.
+    if (['assistant', 'tool_use', 'tool_result', 'thinking'].includes(row.role)) {
+      return row.createdAt;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * rows 之内是否没有属于 sourceSdkSessionId 原生线程的 user 行,即目标是该线程的第一轮。
+ * 归属判定与 resolveCodexTurnAnchor 一致:agent_switch 之前的片段属于其 fromSdkSessionId
+ * (切回停泊线程时仍是同一条线程);最近的 context_rebuild 截断更早历史,重建前的
+ * agent_switch 不能把归属设回当前线程。
+ * 不可解析或没有 fromSdkSessionId 的 switch 视为归属不定,返回 false,调用方不得标记
+ * rewindsToNativeThreadStart(与「判定不出就明确失败」的 fail-closed 契约一致)。
+ * rows 必须完整覆盖当前时间线(/clear 之后的可见行 + context_rebuild 标记);窗口被截断时
+ * 调用方不得据此判定。
+ */
+export function isCodexNativeThreadStart(
+  rows: CodexNativeBoundaryRow[],
+  sourceSdkSessionId: string,
+): boolean {
+  let timelineSdkSessionId: string | null = sourceSdkSessionId;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i]!;
+    if (row.role === 'context_rebuild') {
+      // 重建之后是新的原生线程;更早的 agent_switch 不能把归属设回当前线程。
+      break;
+    }
+    if (row.role === 'agent_switch') {
+      const owner = parseAgentSwitchBoundary(row.content)?.fromSdkSessionId;
+      if (!owner) return false;
+      timelineSdkSessionId = owner;
+      continue;
+    }
+    if (row.role === 'user' && timelineSdkSessionId === sourceSdkSessionId) return false;
+  }
+  return true;
 }
 
 async function countCodexTailTurns(
@@ -591,6 +791,10 @@ export async function forkSessionAtMessage(
   if (source.remoteHostId) {
     throw forkError('REMOTE_NOT_SUPPORTED', '远端会话暂不支持在本地 fork');
   }
+  // Agent 在另一台电脑运行的任务：Agent 会话记录在那台，本机无法从中分叉。
+  if (source.agentDeviceId) {
+    throw forkError('REMOTE_NOT_SUPPORTED', '这个任务的 Agent 在另一台电脑运行，暂不支持分叉');
+  }
 
   // 2. 读 target message + rowid —— 同毫秒边界必须按真实插入顺序判断。
   const [target] = await db
@@ -684,6 +888,8 @@ export async function forkSessionAtMessage(
   // 到目标 user 消息。只有 Claude(cc)走 message-uuid 锚点路径。
   const usesTailTurnFork = isCodex || forkSource.agentKind === 'pi';
   let assistantUuid: string | undefined;
+  let lastTurnId: string | undefined;
+  let forkAtTimestampMs: number | undefined;
   let tailTurnsToDrop: number | undefined;
   let claudeAnchorIndex: ClaudeTranscriptAnchorIndex | null = null;
   const resetHandoffBoundaryClientId = findFirstUserAfterSwitchBoundary(
@@ -707,6 +913,10 @@ export async function forkSessionAtMessage(
       throw forkError('NO_PRIOR_ASSISTANT', '请在 AI 回复之后的提问上 fork');
     }
   } else if (forkSource.reuseVendorSession && forkSource.sdkSessionId) {
+    if (isCodex) {
+      lastTurnId = resolveCodexTurnAnchor(sourceMessages, forkSource.sdkSessionId);
+      if (!lastTurnId) forkAtTimestampMs = resolveCodexForkEventTimestamp(sourceMessages);
+    }
     tailTurnsToDrop = await countCodexTailTurns(
       sourceSessionId,
       source.sdkSessionId,
@@ -722,6 +932,10 @@ export async function forkSessionAtMessage(
   let newSdkSessionId: string | null = null;
   let uuidMap = new Map<string, string>();
   let initialContextTokens: number | undefined;
+  let usedNativeForkAnchor = false;
+  let needsHistoryRecovery = isCodex
+    && !forkSource.reuseVendorSession
+    && forkSource.rebuildReason === 'native-session-recovery';
   if (
     forkSource.reuseVendorSession &&
     forkSource.sdkSessionId &&
@@ -733,6 +947,8 @@ export async function forkSessionAtMessage(
         sourceSdkSessionId: forkSource.sdkSessionId,
         ...(isCodex ? { model: forkSource.model, providerId: forkSource.providerId } : {}),
         upToMessageId: assistantUuid,
+        ...(lastTurnId ? { lastTurnId } : {}),
+        ...(forkAtTimestampMs !== undefined ? { forkAtTimestampMs } : {}),
         ...(tailTurnsToDrop !== undefined ? { tailTurnsToDrop } : {}),
         title: newTitle,
         workingDir: source.workingDir ?? undefined,
@@ -745,19 +961,34 @@ export async function forkSessionAtMessage(
         // 错误码 + 文案,只有真 codex 失败才包装。pi 与 cc 一样裸抛原始错误(不会拿到指名道姓
         // 错对象的 "Codex 状态不可用" 提示)。改成 usesTailTurnFork 会让 pi 误报成 codex 错误。
         if (!isCodex) throw err;
+        if (isCodexHistoryRecoveryRequired(err) && (sourceMessages.length > 0 || target.role === 'user')) {
+          // 首条 user 之前的空前缀也是合法 fork；其它错误不得变成丢上下文的新任务。
+          needsHistoryRecovery = true;
+          return {
+            newSdkSessionId: null,
+            uuidMap: new Map<string, string>(),
+            initialContextTokens: undefined,
+            usedNativeForkAnchor: false,
+          };
+        }
         const detail = codexForkFailureDetail(err);
         throw forkError('CODEX_FORK_STATE_UNAVAILABLE', detail);
       });
-    ({ newSdkSessionId, uuidMap, initialContextTokens } = forkResult);
+    ({ newSdkSessionId, uuidMap, initialContextTokens, usedNativeForkAnchor = false } = forkResult);
   }
   const forkContextTokens = normalizePositiveInt(initialContextTokens);
-  const forkContextWindow = normalizePositiveInt(source.contextWindow);
+  const forkContextWindow = needsHistoryRecovery ? 0 : normalizePositiveInt(source.contextWindow);
+  const sameContextRoute = forkSource.agentKind === normalizeDbAgentKind(source.agentKind) &&
+    forkSource.model === source.model && forkSource.providerId === source.providerId;
 
   // 5. SQLite 事务：insert 新 session + bulk copy messages
   const now = Date.now();
   const newSessionId = createBusinessSessionId();
 
   const newMessageIds = sourceMessages.map(() => ({ id: createId(), clientId: createId() }));
+  const recoveryMarker = needsHistoryRecovery ? buildCodexForkRecoveryMarker({
+    source: forkSource, rows: sourceMessages, newMessageIds, sessionId: newSessionId, now,
+  }) : undefined;
   // pi 与 codex 一样:uuidMap 空、无 Claude transcript 锚点,跳过 Claude 专用的
   // synthetic uuid 补全 / parentUuid 采集(只有 Claude cc 需要)。
   const txUuidMap = usesTailTurnFork
@@ -791,6 +1022,8 @@ export async function forkSessionAtMessage(
         totalCostUsd: 0,
         contextTokens: forkContextTokens,
         contextWindow: forkContextWindow,
+        contextWindowRuntime: sameContextRoute && forkContextWindow > 0 && source.contextWindowRuntime === forkContextWindow
+          ? forkContextWindow : null,
         fastMode: forkSource.agentKind === source.agentKind ? source.fastMode : false,
         clearedAt: null,
         pinnedAt: null,
@@ -807,11 +1040,15 @@ export async function forkSessionAtMessage(
         updatedAt: now,
       },
       uuidMap: Array.from(txUuidMap.entries()),
+      ...(usedNativeForkAnchor && forkSource.sdkSessionId && newSdkSessionId
+        ? { nativeForkAnchorSessionMap: [[forkSource.sdkSessionId, newSdkSessionId]] }
+        : {}),
       ...(legacyTranscriptParentUuids.length > 0 ? { legacyTranscriptParentUuids } : {}),
       ...(toolParentUuids.length > 0 ? { toolParentUuids } : {}),
       detachAgentSwitchSessions: true,
       resetHandoffBoundaryClientId,
       newMessageIds,
+      recoveryMarker,
     });
   } catch (err) {
     // 轮 40-w4-t13 HIGH:SDK 侧已创建新 session file(forkSdkSession), DB 事务
@@ -831,7 +1068,7 @@ export async function forkSessionAtMessage(
   if (!row) {
     throw new Error('Fork session 创建后查询失败');
   }
-  if (!forkSource.reuseVendorSession && forkSource.rebuildReason) {
+  if (!needsHistoryRecovery && !forkSource.reuseVendorSession && forkSource.rebuildReason) {
     await seedForkHandoffAfterSameEngineRebuild({
       sessionId: newSessionId,
       rows: sourceMessages,
@@ -841,7 +1078,7 @@ export async function forkSessionAtMessage(
       reason: forkSource.rebuildReason,
     });
   }
-  return sessionToCamel({ ...row, messageCount: sourceMessages.length });
+  return sessionToCamel({ ...row, messageCount: sourceMessages.length + (recoveryMarker ? 1 : 0) });
 }
 
 export async function forkSessionStripEncrypted(sourceSessionId: string): Promise<Session> {
@@ -867,6 +1104,9 @@ export async function forkSessionStripEncrypted(sourceSessionId: string): Promis
       'REMOTE_NOT_SUPPORTED',
       '远端 Codex 会话暂不支持剥离 fork(rollout 在远端,本地无法剥离)',
     );
+  }
+  if (source.agentDeviceId) {
+    throw forkError('REMOTE_NOT_SUPPORTED', '这个任务的 Agent 在另一台电脑运行，暂不支持分叉');
   }
   if (!source.sdkSessionId) {
     throw forkError('SOURCE_NEVER_RAN', '原会话尚未运行，无法 fork');
@@ -943,6 +1183,9 @@ export async function forkSessionStripEncrypted(sourceSessionId: string): Promis
       remoteHostId: source.remoteHostId ?? null,
     })
     .catch((err: unknown) => {
+      if (isCodexHistoryRecoveryRequired(err) && (sourceMessages.length > 0 || source.contextTokens === 0)) {
+        return { newSdkSessionId: null, uuidMap: new Map<string, string>() };
+      }
       const detail = codexForkFailureDetail(err);
       throw forkError('CODEX_FORK_STATE_UNAVAILABLE', detail);
     });
@@ -950,6 +1193,9 @@ export async function forkSessionStripEncrypted(sourceSessionId: string): Promis
   const now = Date.now();
   const newSessionId = createBusinessSessionId();
   const newMessageIds = sourceMessages.map(() => ({ id: createId(), clientId: createId() }));
+  const recoveryMarker = newSdkSessionId === null ? buildCodexForkRecoveryMarker({
+    source, rows: sourceMessages, newMessageIds, sessionId: newSessionId, now,
+  }) : undefined;
   await getDbClient().tx('fork.session', {
     sourceSessionId,
     sourceClearedAt: source.clearedAt,
@@ -984,11 +1230,12 @@ export async function forkSessionStripEncrypted(sourceSessionId: string): Promis
     },
     uuidMap: Array.from(uuidMap.entries()),
     newMessageIds,
+    recoveryMarker,
   });
 
   const [row] = await db.select().from(sessions).where(eq(sessions.id, newSessionId));
   if (!row) {
     throw new Error('Fork session 创建后查询失败');
   }
-  return sessionToCamel({ ...row, messageCount: sourceMessages.length });
+  return sessionToCamel({ ...row, messageCount: sourceMessages.length + (recoveryMarker ? 1 : 0) });
 }

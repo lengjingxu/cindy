@@ -1,6 +1,4 @@
 import {
-  lazy,
-  Suspense,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -12,7 +10,6 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
 import type {
   AccountDeletionStatus,
   CaptchaConfig,
@@ -24,8 +21,9 @@ import { captchaRequiredActionForVerificationKind, isValidEmail } from '@cindy/a
 import { cn } from '@/lib/utils';
 import { createLogger } from '@/lib/logger';
 import { setLoginEmailCaptchaGate } from '@/lib/loginCaptchaGate';
+import { flashScrollbar } from '@/lib/scrollbarAutoHide';
 import { WindowControls } from '@/components/title-bar/WindowControls';
-import { ChromeIconButton } from '@/components/title-bar/ChromeIconButton';
+import { CredentialStoreHelpDialog } from '@/components/auth/CredentialStoreHelpDialog';
 import { useLogin } from '@/hooks/useLogin';
 import { endLoginFirstLaunchLightGate, loginFirstLaunchLightActive } from '@/hooks/useTheme';
 import { LOGIN_HANDOFF_TIMINGS, useLoginHandoff } from '@/contexts/LoginHandoffContext';
@@ -65,11 +63,14 @@ import { shouldLabelRegion } from '../../../shared/regionCode';
 import { LEGAL_LINKS } from '../../../shared/legalLinks';
 import { resolveIdentifierMethod } from '../../../shared/loginIdentifierMethod';
 import {
+  ACCOUNT_LIST,
   DRAG_BAR_HEIGHT,
   LOADING_RING,
   LOGIN_COLORS,
   LOGIN_DELETION_BUBBLE,
   LOGIN_LOCAL_MODE,
+  METHOD_ROW,
+  PANEL,
   SSO_ORG_HINT,
 } from './loginDesignTokens';
 import { PANEL_FIXED_SCALE } from './loginScale';
@@ -105,11 +106,6 @@ const REGION_PILL_KEY: Partial<Record<typeof CURRENT_CINDY_REGION, string>> = {
 };
 
 const log = createLogger('LoginPage');
-const AccountSwitcherDialog = lazy(() =>
-  import('@/components/sidebar/AccountSwitcherDialog').then((module) => ({
-    default: module.AccountSwitcherDialog,
-  })),
-);
 
 /**
  * LoginPage — 桌面登录(wave4 白底体系 + figma §4 组件库)。
@@ -128,43 +124,38 @@ export function LoginPage({
   intent?: 'sign-in' | 'add-account';
   onClose?: () => void;
 }) {
+  // AddAccountLoginPage owns initialization: a second load would race its flow reset.
   const {
     isLoading,
     errorCode,
+    retryAt,
     loginState,
     hasAccountDeletionReceipt = false,
     getAccountDeletionStatus,
     clearAccountDeletionReceipt,
-    listAccounts,
     dispatch,
     dispatchWithResult,
     clearError,
     enterLocalMode,
-  } = useLogin();
-  const { t } = useTranslation();
+  } = useLogin({ autoLoad: intent !== 'add-account' });
+  const { t, i18n } = useTranslation();
+  const [credentialHelpOpen, setCredentialHelpOpen] = useState(false);
+  const credentialStoreFailed =
+    errorCode === 'CREDENTIAL_STORE_UNAVAILABLE' ||
+    (loginState?.step === 'error' && loginState.code === 'CREDENTIAL_STORE_UNAVAILABLE');
+  const rateLimited =
+    !credentialStoreFailed &&
+    (errorCode === 'RATE_LIMITED' ||
+      (loginState?.step === 'error' && loginState.code === 'RATE_LIMITED'));
   const handoff = useLoginHandoff();
   const isAddAccount = intent === 'add-account';
-  const accountSwitcherTriggerRef = useRef<HTMLButtonElement>(null);
-  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
-  const [hasSavedAccounts, setHasSavedAccounts] = useState(false);
+  const accountListRef = useRef<HTMLDivElement>(null);
+  const accountCount = loginState?.step === 'account-selection' ? loginState.accounts.length : 0;
 
   useEffect(() => {
-    if (isAddAccount || !listAccounts) {
-      setHasSavedAccounts(false);
-      return;
-    }
-    let active = true;
-    void listAccounts()
-      .then((snapshot) => {
-        if (active) setHasSavedAccounts(snapshot.accounts.length > 0);
-      })
-      .catch(() => {
-        if (active) setHasSavedAccounts(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [isAddAccount, listAccounts]);
+    if (accountCount <= 3 || !accountListRef.current) return;
+    flashScrollbar(accountListRef.current);
+  }, [accountCount]);
 
   // 主题跟随(DESIGN.md §16.5):首次打开 Cindy → 亮色登录界面(默认);第二次起
   // → 跟随用户上一次使用的主题。首启亮色门在 bootstrap 已生效(品牌舞台首帧即
@@ -344,7 +335,8 @@ export function LoginPage({
   }, [reportLoginPanelMounted, reportLoginPanelUnmounted]);
   // 「跳过登录」常驻入口在面板内(identifier 视图 SKIP_ENTRY 文字链);footer 仅保留
   // error 步的逃生入口——登录服务不可用时用户仍能进入本地模式(既有产品保证)。
-  const showLocalModeFooter = !isAddAccount && loginState?.step === 'error';
+  const showLocalModeFooter =
+    !isAddAccount && loginState?.step === 'error' && !credentialStoreFailed;
   // 面板底部预留恒取全流程最大值(footer 124;协议行 48 被其覆盖):step 切换时
   // 面板/品牌层零跳位(规则 7,codex 审查 P1)。browser-redirect/completed 维持 0,
   // 与迁移前 main 口径一致(该两步由品牌 overlay/跳转态接管)。
@@ -392,7 +384,7 @@ export function LoginPage({
   const [ssoVerificationCode, setSsoVerificationCode] = useState('');
   const [bindingContact, setBindingContact] = useState('');
   const [bindingCode, setBindingCode] = useState('');
-  // 42s 重发倒计时(Step 3a):起算=request-code 成功返回,离开验证码步清理
+  // 60s 重发倒计时(Step 3a):起算=request-code 成功返回,离开验证码步清理
   const { remaining: resendRemaining, arm: armResendCountdown } = useResendCountdown(
     loginState?.step === 'verification-code',
   );
@@ -475,7 +467,7 @@ export function LoginPage({
     setIdentifierFormatError(null);
   }, [loginState?.step]);
 
-  // 进入 verification-code 即起算 42s(含 AuthContext 自动发码、手机号提交)。
+  // 进入 verification-code 即起算 60s(含 AuthContext 自动发码、手机号提交)。
   // 只认运行中的 step 沿,不认首帧注入(harness 直接挂验证码页仍保持可点重发)。
   // 已在验证码页的重发成功仍走 dispatchRequestCode 的 arm。
   const previousLoginStepRef = useRef(loginState?.step);
@@ -712,6 +704,9 @@ export function LoginPage({
     return (
       <>
         <LoginPanel testId="login-panel-identifier">
+          {isAddAccount && onClose ? (
+            <LoginBackButton label={t('login.back')} onClick={onClose} />
+          ) : null}
           {/* noValidate:关掉浏览器对 type="email" 的原生约束校验气泡(英文系统提示,
               不受主题控制),改由下方本地校验渲染设计稿定义的红边+红字错误态。 */}
           <form onSubmit={submitIdentifier} noValidate>
@@ -989,7 +984,7 @@ export function LoginPage({
     );
   };
 
-  /* ── verification-code(42s 重发倒计时 = 绝对 deadline 模型,双端同契约) ── */
+  /* ── verification-code(60s 重发倒计时 = 绝对 deadline 模型,双端同契约) ── */
   const renderVerification = () => {
     if (loginState?.step !== 'verification-code') return null;
     const submit = (event: FormEvent) => {
@@ -1054,6 +1049,14 @@ export function LoginPage({
   /* ── account-selection(行样式复用方式行) ── */
   const renderAccountSelection = () => {
     if (loginState?.step !== 'account-selection') return null;
+    const viewportHeight = PANEL.height - ACCOUNT_LIST.top - ACCOUNT_LIST.bottom;
+    const contentHeight = Math.max(
+      viewportHeight,
+      ACCOUNT_LIST.rowTop +
+        (loginState.accounts.length - 1) * ACCOUNT_LIST.rowStep +
+        METHOD_ROW.height +
+        ACCOUNT_LIST.bottomPadding,
+    );
     return (
       <LoginPanel testId="login-panel-account-selection">
         <LoginBackButton disabled={isLoading} label={t('login.back')} onClick={reset} />
@@ -1061,23 +1064,37 @@ export function LoginPage({
           title={t('login.chooseAccount')}
           subtitle={t('login.chooseAccountSubtitle')}
         />
-        {/* demo accountPanel 呈现仲裁:行 148/268(step 120),左 icon 统一企业默认形
-            (demo 两行均未传 icon 变体);副行 = 企业 meta / 个人身份 */}
-        {loginState.accounts.map((account, index) => (
-          <LoginMethodRow
-            key={account.id}
-            top={148 + index * 120}
-            disabled={isLoading}
-            title={account.displayName}
-            subtitle={
-              account.kind === 'org'
-                ? account.orgName || account.email || ''
-                : t('login.personalAccount')
-            }
-            logoUrl={account.kind === 'org' ? (account.orgLogoUrl ?? null) : null}
-            onClick={() => void dispatch({ type: 'select-account', accountId: account.id })}
-          />
-        ))}
+        {/* 标题区固定；身份卡片独立滚动。1–3 个身份保持原构图，更多身份不再
+            被面板的 overflow-hidden 裁掉。 */}
+        <div
+          ref={accountListRef}
+          data-testid="login-account-list"
+          className="absolute left-0 overflow-x-hidden overscroll-contain"
+          style={{
+            top: ACCOUNT_LIST.top,
+            width: PANEL.width,
+            height: viewportHeight,
+            overflowY: loginState.accounts.length > 3 ? 'auto' : 'hidden',
+          }}
+        >
+          <div className="relative" style={{ height: contentHeight }}>
+            {loginState.accounts.map((account, index) => (
+              <LoginMethodRow
+                key={account.id}
+                top={ACCOUNT_LIST.rowTop + index * ACCOUNT_LIST.rowStep}
+                disabled={isLoading}
+                title={account.displayName}
+                subtitle={
+                  account.kind === 'org'
+                    ? account.orgName || account.email || ''
+                    : t('login.personalAccount')
+                }
+                logoUrl={account.kind === 'org' ? (account.orgLogoUrl ?? null) : null}
+                onClick={() => void dispatch({ type: 'select-account', accountId: account.id })}
+              />
+            ))}
+          </div>
+        </div>
       </LoginPanel>
     );
   };
@@ -1239,28 +1256,89 @@ export function LoginPage({
         ssoOrgGroupY: false,
         node: (
           <LoginPanel testId="login-panel-preparing">
+            {isAddAccount && onClose ? (
+              <LoginBackButton label={t('login.back')} onClick={onClose} />
+            ) : null}
             <LoginTitleBlock title={t('login.preparing')} subtitle={t('login.preparingSubtitle')} />
             <LoginLoadingRing y={LOADING_RING.yPreparing} label={t('login.working')} />
           </LoginPanel>
         ),
       };
     }
-    if (loginState.step === 'error') {
+    if (loginState.step === 'error' || credentialStoreFailed || rateLimited) {
+      // A rate limit can cover a still-valid form. Dismiss only the notice:
+      // resetting main's flow would discard its ticket and require another code.
+      const resumeForm = rateLimited && loginState.step !== 'error';
+      const returnFromError = resumeForm
+        ? () => {
+            if (localModePendingRef.current) return;
+            setCredentialHelpOpen(false);
+            clearError();
+          }
+        : reset;
       return {
         ssoOrgGroupY: false,
         node: (
           <LoginPanel testId="login-panel-error">
-            <LoginTitleBlock title={t('login.unavailable')} subtitle={t('login.errors.fallback')} />
+            <LoginBackButton
+              disabled={isLoading || localModePending}
+              label={t('login.back')}
+              onClick={returnFromError}
+            />
+            <LoginTitleBlock
+              title={t(
+                credentialStoreFailed ? 'credentialStore.dialog.title' : 'login.unavailable',
+              )}
+              subtitle={
+                rateLimited
+                  ? typeof retryAt === 'number' &&
+                    Number.isFinite(retryAt) &&
+                    Math.abs(retryAt) <= 8.64e15
+                    ? t('login.rateLimit.retryAt', {
+                        time: new Date(retryAt).toLocaleString(i18n.language),
+                      })
+                    : t('login.rateLimit.unknownWait')
+                  : t(credentialStoreFailed ? 'login.savedLoginPreserved' : 'login.errors.fallback')
+              }
+            />
+            {(credentialStoreFailed || rateLimited) && (
+              <LoginTextLink
+                disabled={isLoading}
+                onClick={returnFromError}
+                testId="login-credential-recheck"
+              >
+                {t(resumeForm ? 'login.back' : 'credentialStore.recheck')}
+              </LoginTextLink>
+            )}
             <LoginPrimaryButton
               disabled={isLoading}
               loading={isLoading}
-              onClick={reset}
+              onClick={
+                credentialStoreFailed || rateLimited ? () => setCredentialHelpOpen(true) : reset
+              }
               testId="login-error-retry"
             >
-              {isLoading ? t('login.working') : t('login.retry')}
+              {isLoading
+                ? t('login.working')
+                : t(
+                    credentialStoreFailed || rateLimited
+                      ? 'credentialStore.banner.viewHelp'
+                      : 'login.retry',
+                  )}
             </LoginPrimaryButton>
             <LoginErrorText>
-              {t(`login.errors.${loginState.code}`, { defaultValue: t('login.errors.fallback') })}
+              {t(
+                `login.errors.${
+                  credentialStoreFailed
+                    ? 'CREDENTIAL_STORE_UNAVAILABLE'
+                    : loginState.step === 'error'
+                      ? loginState.code
+                      : errorCode
+                }`,
+                {
+                  defaultValue: t('login.errors.fallback'),
+                },
+              )}
             </LoginErrorText>
           </LoginPanel>
         ),
@@ -1271,11 +1349,12 @@ export function LoginPage({
         ssoOrgGroupY: false,
         node: (
           <LoginPanel testId="login-panel-browser-redirect">
+            <LoginBackButton
+              label={t('login.cancel')}
+              onClick={() => void dispatch({ type: 'cancel-browser' })}
+            />
             <LoginTitleBlock title={t('login.browserWaiting')} subtitle={loginState.label} />
             <LoginLoadingRing y={LOADING_RING.yBrowser} label={t('login.working')} />
-            <LoginPrimaryButton onClick={() => void dispatch({ type: 'cancel-browser' })}>
-              {t('login.cancel')}
-            </LoginPrimaryButton>
           </LoginPanel>
         ),
       };
@@ -1310,52 +1389,31 @@ export function LoginPage({
       ? `opacity ${LOGIN_HANDOFF_TIMINGS.panelMs}ms ${LOGIN_HANDOFF_TIMINGS.panelEasing}, transform ${LOGIN_HANDOFF_TIMINGS.panelMs}ms ${LOGIN_HANDOFF_TIMINGS.panelEasing}`
       : undefined,
   };
-  const accountSwitcherEntry =
-    !isAddAccount && hasSavedAccounts && loginState?.step !== 'browser-redirect' ? (
-      <button
-        ref={accountSwitcherTriggerRef}
-        data-testid="login-account-switcher"
-        type="button"
-        onClick={() => setAccountSwitcherOpen(true)}
-        className="select-none rounded-full border border-[var(--border-default)] bg-[var(--surface-elevated)] px-6 py-2.5 text-13 font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)]"
-        style={{ minHeight: 40 }}
+  const loginFooter = showLocalModeFooter ? (
+    <>
+      <div className="flex items-center justify-center gap-3">
+        <button
+          data-testid="login-local-mode"
+          type="button"
+          disabled={localModePending || isLoading}
+          // error 步逃生入口与面板内文字按钮同口径:过协议门(2026-07-29 拍板)
+          onClick={() => requireConsent(() => void openLocalMode(), { deferConsentPersist: true })}
+          aria-describedby="login-local-mode-description"
+          className="select-none rounded-full border border-[var(--border-default)] bg-[var(--surface-elevated)] px-6 py-2.5 text-13 font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ minHeight: 40 }}
+        >
+          {localModePending ? t('login.localModeOpening') : t('login.localModeEntry')}
+        </button>
+      </div>
+      <span
+        id="login-local-mode-description"
+        className="mt-2 line-clamp-2 max-w-full text-12 text-[var(--text-secondary)]"
+        style={{ lineHeight: `${LOGIN_LOCAL_MODE.descriptionLineHeight}px` }}
       >
-        {t('sidebar.accountSwitcher.title')}
-      </button>
-    ) : null;
-  const loginFooter =
-    showLocalModeFooter || accountSwitcherEntry ? (
-      <>
-        <div className="flex items-center justify-center gap-3">
-          {accountSwitcherEntry}
-          {showLocalModeFooter ? (
-            <button
-              data-testid="login-local-mode"
-              type="button"
-              disabled={localModePending || isLoading}
-              // error 步逃生入口与面板内文字按钮同口径:过协议门(2026-07-29 拍板)
-              onClick={() =>
-                requireConsent(() => void openLocalMode(), { deferConsentPersist: true })
-              }
-              aria-describedby="login-local-mode-description"
-              className="select-none rounded-full border border-[var(--border-default)] bg-[var(--surface-elevated)] px-6 py-2.5 text-13 font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring-soft)] disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ minHeight: 40 }}
-            >
-              {localModePending ? t('login.localModeOpening') : t('login.localModeEntry')}
-            </button>
-          ) : null}
-        </div>
-        {showLocalModeFooter ? (
-          <span
-            id="login-local-mode-description"
-            className="mt-2 line-clamp-2 max-w-full text-12 text-[var(--text-secondary)]"
-            style={{ lineHeight: `${LOGIN_LOCAL_MODE.descriptionLineHeight}px` }}
-          >
-            {t('login.localModeDescription')}
-          </span>
-        ) : null}
-      </>
-    ) : null;
+        {t('login.localModeDescription')}
+      </span>
+    </>
+  ) : null;
 
   return (
     // 根级 z-[9990] 建立 LoginPage 自己的 stacking context:整体压过品牌 overlay
@@ -1370,19 +1428,11 @@ export function LoginPage({
       >
         {node}
       </LoginStage>
-      {accountSwitcherOpen ? (
-        <Suspense fallback={null}>
-          <AccountSwitcherDialog
-            open
-            onOpenChange={setAccountSwitcherOpen}
-            onAddAccount={() => {
-              setAccountSwitcherOpen(false);
-              reset();
-            }}
-            triggerRef={accountSwitcherTriggerRef}
-          />
-        </Suspense>
-      ) : null}
+      <CredentialStoreHelpDialog
+        open={credentialHelpOpen && (credentialStoreFailed || rateLimited)}
+        onOpenChange={setCredentialHelpOpen}
+        reason={rateLimited ? 'rate-limit' : 'credentials'}
+      />
       {/* 注销状态提示气泡(figma 678:1075「注销状态」组件集):浮层——不占文档流、
           不推挤下方内容,z-30 盖过 stage 全部内容(低于拖拽条 z-40 与协议弹窗 z-50);
           窗口顶 72px 恒定、水平窗口居中、宽 670 恒定,均不随 loginScale 缩放。
@@ -1415,24 +1465,12 @@ export function LoginPage({
         className="absolute left-0 top-0 z-40 flex w-full items-center justify-end"
         style={{ height: DRAG_BAR_HEIGHT, WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {(isAddAccount && onClose) || !isMac ? (
+        {!isMac ? (
           <div
             className="flex h-full items-center"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
-            {isAddAccount && onClose ? (
-              <ChromeIconButton
-                data-testid="add-account-close"
-                className={isMac ? 'mr-2' : 'mr-1'}
-                aria-label={t('sidebar.accountSwitcher.close')}
-                tooltip={t('sidebar.accountSwitcher.close')}
-                tooltipSide="bottom"
-                onClick={onClose}
-              >
-                <X size={14} aria-hidden="true" />
-              </ChromeIconButton>
-            ) : null}
-            {!isMac ? <WindowControls /> : null}
+            <WindowControls />
           </div>
         ) : null}
       </div>
@@ -1453,14 +1491,30 @@ export function LoginPage({
       )}
       {realmConfirmation && (
         <LoginConsentDialog
-          title={t('login.realmConsent.title')}
-          body={t(
-            realmConfirmation.targetRegion === 'cn'
-              ? 'login.realmConsent.bodyCn'
-              : 'login.realmConsent.bodyGlobal',
+          title={t(
+            realmConfirmation.personalLoginAvailable
+              ? 'login.realmConsent.personalTitle'
+              : 'login.realmConsent.title',
           )}
-          agreeLabel={t('login.realmConsent.agree')}
-          disagreeLabel={t('login.realmConsent.disagree')}
+          body={t(
+            realmConfirmation.personalLoginAvailable
+              ? realmConfirmation.targetRegion === 'cn'
+                ? 'login.realmConsent.personalBodyCn'
+                : 'login.realmConsent.personalBodyGlobal'
+              : realmConfirmation.targetRegion === 'cn'
+                ? 'login.realmConsent.bodyCn'
+                : 'login.realmConsent.bodyGlobal',
+          )}
+          agreeLabel={t(
+            realmConfirmation.personalLoginAvailable
+              ? 'login.realmConsent.enterpriseLogin'
+              : 'login.realmConsent.agree',
+          )}
+          disagreeLabel={t(
+            realmConfirmation.personalLoginAvailable
+              ? 'login.realmConsent.continuePersonal'
+              : 'login.realmConsent.disagree',
+          )}
           onAgree={() => void dispatch({ type: 'confirm-sso-realm' })}
           onDisagree={() => void dispatch({ type: 'cancel-sso-realm' })}
           onOpenTerms={() => undefined}

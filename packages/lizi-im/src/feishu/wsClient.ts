@@ -57,7 +57,7 @@ import * as storage from './storage.js';
 import { parseIncoming } from './incomingContent.js';
 import { downloadAttachments } from './attachmentDownloader.js';
 import { parseCardAction } from './cardActionParser.js';
-import { decodeLaneUserId, encodeLaneUserId } from './codec.js';
+import { encodeLaneUserId } from './codec.js';
 import {
   coordinateDualDelivery,
   resetDualDeliveryForTest,
@@ -65,7 +65,7 @@ import {
 import { getLog } from './moduleScope.js';
 import { messages as transportMessages } from './messages.js';
 import type { BotCredentials, FeishuConnectionStatus } from './internal-types.js';
-import type { IMFinalReplyMirror, IMMessageEvent } from '../types.js';
+import type { IMMessageEvent } from '../types.js';
 
 // ── module state ──────────────────────────────────────────────────────────────
 
@@ -275,30 +275,10 @@ interface UnconfirmedOpenRetry {
   commitUnpairedFlat?: () => boolean;
   isUnpairedFlatTakenOver?: () => boolean;
   abandonUnpairedFlat?: () => void;
-  /** 双投镜像身份与入站账号代次必须跨延迟恢复链保留。 */
-  mirrorKey?: string;
-  mirrorAccountEpoch?: number;
-  mirrorConfirmed?: boolean;
 }
 
 const unconfirmedOpenRetries = new Map<string, UnconfirmedOpenRetry>();
 const suspendedUnconfirmedOpens: UnconfirmedOpenRetry[] = [];
-
-function parentChatMirror(
-  chatId: string,
-  key: string | undefined,
-  accountEpoch: number | undefined,
-  confirmed?: boolean,
-): IMFinalReplyMirror | undefined {
-  if (!key || accountEpoch === undefined) return undefined;
-  return {
-    kind: 'parent-chat',
-    chatId,
-    idempotencyKey: key,
-    accountEpoch,
-    ...(confirmed ? { confirmed: true } : {}),
-  };
-}
 
 function clearUnconfirmedOpenRetries(): void {
   for (const retry of unconfirmedOpenRetries.values()) {
@@ -488,22 +468,16 @@ async function retryUnconfirmedOpen(
   log.info(
     `[feishu/wsClient] unconfirmed openThread recovered as ${opener.kind} — emitting deferred turn`,
   );
-  const recoveredMirror = parentChatMirror(
-    entry.chatId,
-    entry.mirrorKey,
-    entry.mirrorAccountEpoch,
-    entry.mirrorConfirmed,
-  );
   feishuEvents.emit('message', {
     channelName: 'feishu',
     senderId: laneUserId,
+    invoked: true,
     chatId: entry.chatId,
     contextId: entry.botAppId,
     messageId: entry.messageId,
     text: entry.text,
     speaker: { id: entry.senderOpenId, name: '', isOwner: true },
     ...(groupContextLane ? { groupContextLane } : {}),
-    ...(recoveredMirror ? { finalReplyMirror: recoveredMirror } : {}),
     ...(entry.replyContext ? { replyContext: entry.replyContext } : {}),
     attachments: entry.attachments,
     unsupported: entry.unsupported,
@@ -1445,6 +1419,8 @@ function sanitizeMentionName(value: string): string {
  * 群消息文本清洗: 剥掉 @bot 的占位符(`@_user_1` 形态, key 来自 mentions),
  * 其他人的占位符替换为 `@名字`(名字是平台可改字段 — 不可信输入, 控制字符
  * 剥除 + 截断后使用)。text/post 抽出的正文里的占位符同一口径处理。
+ *
+ * 纯 @bot 剥完保持空正文，召唤事实通过事件的 invoked 标记传递。
  */
 function resolveMentionPlaceholders(
   text: string,
@@ -1459,7 +1435,8 @@ function resolveMentionPlaceholders(
     const replacement = isSelf ? '' : `@${safeName || 'user'}`;
     out = out.split(mention.key).join(replacement);
   }
-  return out.replace(/[ \t]{2,}/g, ' ').trim();
+  out = out.replace(/[ \t]{2,}/g, ' ').trim();
+  return out;
 }
 
 /** 群消息是否 @ 到本 bot。botOpenId 未知恒 false(群功能惰性失效)。 */
@@ -1546,8 +1523,6 @@ async function processClaimedMessage(
   // 提取分支后 data.message 的窄化不跨函数传递。
   const msgType = data.message?.message_type ?? '';
   const rawContent = data.message?.content ?? '';
-  let finalReplyMirrorKey: string | undefined;
-  let finalReplyMirrorConfirmed = false;
   let commitUnpairedFlat: (() => boolean) | undefined;
   let isUnpairedFlatTakenOver: (() => boolean) | undefined;
   let abandonUnpairedFlat: (() => void) | undefined;
@@ -1592,8 +1567,6 @@ async function processClaimedMessage(
         log.info('[feishu/wsClient] native thread main-feed copy suppressed');
         return;
       }
-      finalReplyMirrorKey = paired.mirrorKey;
-      finalReplyMirrorConfirmed = Boolean(paired.alreadyConfirmed);
       commitUnpairedFlat = paired.commitUnpairedFlat;
       isUnpairedFlatTakenOver = paired.isUnpairedFlatTakenOver;
       abandonUnpairedFlat = paired.abandonUnpairedFlat;
@@ -1658,7 +1631,7 @@ async function processClaimedMessage(
       : parsed.text;
 
   // Drop entirely only when there's literally nothing to relay.
-  if (!text && attachments.length === 0 && unsupported.length === 0) {
+  if (!text && attachments.length === 0 && unsupported.length === 0 && !(isGroup && parsed.text.trim())) {
     abandonUnpairedFlat?.();
     abandonTopic?.();
     return;
@@ -1803,13 +1776,6 @@ async function processClaimedMessage(
           commitUnpairedFlat,
           isUnpairedFlatTakenOver,
           abandonUnpairedFlat,
-          ...(finalReplyMirrorKey
-            ? {
-                mirrorKey: finalReplyMirrorKey,
-                mirrorAccountEpoch: outbound.getAccountEpoch(),
-                ...(finalReplyMirrorConfirmed ? { mirrorConfirmed: true } : {}),
-              }
-            : {}),
         });
         return;
       }
@@ -1861,17 +1827,13 @@ async function processClaimedMessage(
 
   // Emit raw fields — orchestrator decides how to render unsupported (it owns
   // the user-facing wording and the "skip agent for pure-unsupported" rule).
-  const inboundMirror = parentChatMirror(
-    chatId,
-    finalReplyMirrorKey && decodeLaneUserId(laneUserId ?? '')?.threadId
-      ? finalReplyMirrorKey
-      : undefined,
-    outbound.getAccountEpoch(),
-    finalReplyMirrorConfirmed,
-  );
   feishuEvents.emit('message', {
     channelName: 'feishu',
+    invoked: isGroup,
     senderId: laneUserId ?? senderOpenId,
+    ...(!isGroup && data.message?.thread_id && data.message?.root_id
+      ? { replyThread: { rootMessageId: data.message.root_id, threadId: data.message.thread_id } }
+      : {}),
     chatId,
     contextId: botAppId,
     messageId,
@@ -1884,7 +1846,6 @@ async function processClaimedMessage(
         }
       : {}),
     ...(groupContextLane ? { groupContextLane } : {}),
-    ...(inboundMirror ? { finalReplyMirror: inboundMirror } : {}),
     ...(resolvedReply ? { replyContext: resolvedReply.replyContext } : {}),
     attachments,
     unsupported,

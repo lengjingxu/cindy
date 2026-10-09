@@ -14,6 +14,7 @@ import type { IMCardActionEvent, IMHost, IMMessageEvent } from '../../types.js';
 import { TelegramApiError, type TelegramApiClient, type TgUpdate } from '../api.js';
 import { encodeCallbackData, encodeMessageId } from '../codec.js';
 import { TelegramIM, type TelegramGroupWindowEntry } from '../index.js';
+import { PROCESSING_REACTION_POOL } from '../reactionPool.js';
 
 const BOT = { id: 999, is_bot: true, first_name: 'Cindy', username: 'my_cindy_bot' };
 const OWNER_ID = '111';
@@ -333,6 +334,20 @@ describe('TelegramIM', () => {
     await vi.waitFor(() => expect(events).toHaveLength(2));
     expect(events[0]).toMatchObject({ senderId: 'g/-100200', text: '你在?' });
     expect(events[1]).toMatchObject({ senderId: 'g/-100200', text: '帮我看看这个' });
+  });
+
+  it('纯 @bot 无正文仍召唤一轮，单独传递 invoked', async () => {
+    const events: IMMessageEvent[] = [];
+    im.onMessage((e) => events.push(e));
+    await connect();
+    api.pushUpdates([groupMessage({ text: '', fromId: 222, messageId: 33, mentionBot: true })]);
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    expect(events[0]).toMatchObject({
+      senderId: 'g/-100200',
+      text: '',
+      invoked: true,
+      speaker: { id: '222', isOwner: false },
+    });
   });
 
   it('受保护群的消息一个字都不落本地窗口, 但仍可照常触发一轮', async () => {
@@ -1582,6 +1597,46 @@ describe('TelegramIM', () => {
     expect(api.calls.some((c) => c.method === 'deleteMyCommands')).toBe(true);
   });
 
+  it('randomizes processing reactions quietly, keeps waiting fixed, and clears the actual variant', async () => {
+    await connect();
+    const random = vi.spyOn(Math, 'random');
+    try {
+      for (const [index, emoji] of PROCESSING_REACTION_POOL.entries()) {
+        random.mockReturnValue((index + 0.5) / PROCESSING_REACTION_POOL.length);
+        expect(await im.reactToMessage('111|5', '👨‍💻')).toBe(emoji);
+        const sent = api.calls.filter((call) => call.method === 'setMessageReaction').at(-1)!;
+        expect(sent.params.reaction).toEqual([{ type: 'emoji', emoji }]);
+        expect(sent.params.is_big).toBeUndefined();
+      }
+      expect(await im.reactToMessage('111|5', '👀')).toBe('👀');
+      await im.removeMessageReaction('111|5');
+      expect(
+        api.calls.filter((call) => call.method === 'setMessageReaction').at(-1)!.params.reaction,
+      ).toEqual([]);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
+  it('falls back to the base processing reaction when the group rejects a random variant', async () => {
+    await connect();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.999);
+    try {
+      api.failNextCall(
+        'setMessageReaction',
+        new TelegramApiError('setMessageReaction', 400, 'REACTION_INVALID'),
+      );
+      expect(await im.reactToMessage('111|5', '👨‍💻')).toBe('👨‍💻');
+      expect(
+        api.calls
+          .filter((call) => call.method === 'setMessageReaction')
+          .map((call) => call.params.reaction),
+      ).toEqual([[{ type: 'emoji', emoji: '✍' }], [{ type: 'emoji', emoji: '👨‍💻' }]]);
+    } finally {
+      random.mockRestore();
+    }
+  });
+
   it('行为配置: emoji off 不放任何表情; DM replyQuote=first 首条回复挂回', async () => {
     await im.dispose();
     im = new TelegramIM(ctx.host, {
@@ -1594,6 +1649,8 @@ describe('TelegramIM', () => {
     await connect();
     // emoji off: reactToMessage 直接返回 null, 不发 setMessageReaction
     expect(await im.reactToMessage('111|5', '👍')).toBeNull();
+    expect(await im.reactToMessage('111|5', '👨‍💻')).toBeNull();
+    expect(await im.reactToMessage('111|5', '👀')).toBeNull();
     expect(api.calls.some((c) => c.method === 'setMessageReaction')).toBe(false);
     // DM replyQuote=first: 首条回复挂回触发消息, 第二条不挂
     api.pushUpdates([privateMessage('问个事', 111, 95)]);
@@ -2359,33 +2416,37 @@ describe('TelegramIM', () => {
     const events: IMMessageEvent[] = [];
     im.onMessage((e) => events.push(e));
     await connect();
-    api.pushUpdates([
-      groupMessage({ text: '改个文件', fromId: 111, messageId: 99, mentionBot: true }),
-    ]);
-    await vi.waitFor(() => expect(events).toHaveLength(1));
-    await vi.waitFor(() => {
-      expect(
-        api.calls.some((c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200'),
-      ).toBe(true);
-    });
+    vi.useFakeTimers();
+    try {
+      api.pushUpdates([
+        groupMessage({ text: '改个文件', fromId: 111, messageId: 99, mentionBot: true }),
+      ]);
+      await vi.waitFor(() => expect(events).toHaveLength(1));
+      await vi.waitFor(() => {
+        expect(
+          api.calls.some((c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200'),
+        ).toBe(true);
+      });
 
     // 卡片投的是宿主私聊 —— callSend 只会停它自己那条 chat 的 typing loop,
     // 群里那条必须由转发分支显式停掉, 否则每 4.5s 继续打一次 sendChatAction。
-    await im.sendInteractiveCard(
-      events[0].senderId,
-      { title: '需要授权', body: '改 src/app.ts？', buttons: [{ id: 'allow', label: '允许' }] },
-      { deliverToOwnerDm: true, ownerDmNote: '群聊里的任务需要你授权。' },
-    );
-    const groupTypingAfterCard = api.calls.filter(
-      (c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200',
-    ).length;
-    // **必须跨过一个 TYPING_REFRESH_MS(4.5s)**: loop 每 4.5s 才刷一次, 只等 100ms 的话
-    // 循环还没来得及打下一枪, 断言对「有没有真的停掉」没有判别力(反向验证时会假通过)。
-    await new Promise((r) => setTimeout(r, 4_700));
-    expect(
-      api.calls.filter((c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200')
-        .length,
-    ).toBe(groupTypingAfterCard);
+      await im.sendInteractiveCard(
+        events[0].senderId,
+        { title: '需要授权', body: '改 src/app.ts？', buttons: [{ id: 'allow', label: '允许' }] },
+        { deliverToOwnerDm: true, ownerDmNote: '群聊里的任务需要你授权。' },
+      );
+      const groupTypingAfterCard = api.calls.filter(
+        (c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200',
+      ).length;
+      // 跨过一个 TYPING_REFRESH_MS(4.5s)，验证循环确实已停止。
+      await vi.advanceTimersByTimeAsync(4_700);
+      expect(
+        api.calls.filter((c) => c.method === 'sendChatAction' && c.params.chat_id === '-100200')
+          .length,
+      ).toBe(groupTypingAfterCard);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // 交互卡的 callback token 只活在进程内存里(codec 的 callbackRefs), 重启或被淘汰后
