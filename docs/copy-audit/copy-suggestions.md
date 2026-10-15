@@ -3,183 +3,183 @@
 定位基线：分支 fix/menubar-copy-prune，commit 9d658774b。
 
 - 总条数：600
-- 有代码调用点行号：531 条（其余为动态拼 key 或仅在 locale 中定义）
-- 建议稿分四类：具体改写 / 机械初稿（需人工定稿）/ 方向（涉及权限或数据，禁截断）/ 待人工
+- 定位到代码调用点（文件:行号）：484 条；其余为动态拼 key 或仅在 locale 定义
+- 建议稿分类：具体改写 236 条 / 机械初稿（需人工定稿）197 条 / 方向 167 条（涉及权限或数据，只给分段方向）
 
 ## 主界面（59 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 84 | newchat.chatinput.agentswitch.confirmation.description | components/new-chat/ChatInput.tsx:6689 | 新 Agent 引擎会通过交接摘要续接，思考内容等不能保证完美继承；切回时仍可继续原引擎会话。切换还会让 prompt 缓存中断一次，可能造成 Token 消耗的增加。 | 新 Agent 引擎会通过交接摘要续接，思考内容等不能保证完美继承；（建议（需人工定稿）） |
 | 66 | chat.messageactionbar.deleteconfirmdescription | components/chat/useDeleteMessage.ts:47 | 用户消息只删除本条；AI 消息会删除上一次用户输入之后产生的整轮输出。之后的消息继续保留。下次发送时，AI 上下文会从剩余记录重建。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 56 | ccagent.sidebar.bulkselection.confirmarchive.dirtyworktreewarning | features/cc-agent/CCAgentSidebarUpper.tsx:3331<br>features/cc-agent/CCAgentSidebarUpper.tsx:3519 | 其中 {{count}} 个任务的 worktree 有未提交更改，归档前会自动保存为 git 快照，之后可在任务内一键恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 55 | ccagent.sidebar.confirmdelete.dirtyworktreewarning | features/cc-agent/CCAgentSidebarUpper.tsx:3971<br>features/cc-agent/SessionContentHeader.tsx:547 | 该任务的 worktree 有未提交的更改；删除前会自动保存为 git 快照（分支保留，可用 git 找回）。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 55 | newchat.permissionselector.modes.codex.auto.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 在受保护的工作区沙箱内自动执行命令；需要越过沙箱边界的操作交给自动审查器判断，高风险操作可能被拒绝或要求确认。 | 在受保护的工作区沙箱内自动执行命令；（建议（需人工定稿）） |
+| 55 | newchat.permissionselector.modes.codex.auto.description | 未定位 | 在受保护的工作区沙箱内自动执行命令；需要越过沙箱边界的操作交给自动审查器判断，高风险操作可能被拒绝或要求确认。 | 在受保护的工作区沙箱内自动执行命令；（建议（需人工定稿）） |
 | 51 | ccagent.sidebar.confirmarchive.dirtyworktreewarning | features/cc-agent/CCAgentSidebarUpper.tsx:3972<br>features/cc-agent/lib/sessionHardwareTaskActions.ts:89 | 该任务的 worktree 有未提交的更改；归档前会自动保存为 git 快照，之后可在任务内一键恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 50 | newchat.sourcedisconnected.description | components/new-chat/ChatInput.tsx:5488 | 此任务选择的来源已断开连接，暂时无法发送消息。请在模型选择器里换一个已连接的来源，或去设置重新连接。 | 此任务选择的来源已断开连接，暂时无法发送消息。（建议（需人工定稿）） |
-| 50 | newchat.permissionselector.modes.claude-code.auto.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 允许在工作区内读写，并自动审批提权请求；高风险操作可能被拒绝或要求确认。能减少打断，但存在误判风险。 | 允许在工作区内读写，并自动审批提权请求；能减少打断，但存在误判风险。（建议（需人工定稿）） |
+| 50 | newchat.permissionselector.modes.claude-code.auto.description | 未定位 | 允许在工作区内读写，并自动审批提权请求；高风险操作可能被拒绝或要求确认。能减少打断，但存在误判风险。 | 允许在工作区内读写，并自动审批提权请求；能减少打断，但存在误判风险。（建议（需人工定稿）） |
 | 48 | taskmigration.estimatenote | features/cc-agent/sidebar/TaskMigrationDialog.tsx:442 | 复制前估算，含隐藏文件；不含另行复制的 Git 历史、任务对话及附件。文件变化可能影响最终大小。 | 复制前估算，含隐藏文件；（建议（需人工定稿）） |
 | 46 | newchat.addremoteproject.empty | components/new-chat/AddRemoteProjectDialog.tsx:448<br>components/new-chat/AddRemoteProjectDialog.tsx:449 | 请先在「设置 → 远程连接」连接一台远程设备，或在「设置 → 远端机器」添加 SSH 主机。 | 请先在「设置 → 远程连接」连接一台远程设备，或在「设置 → 远端机器」添加 S（建议（需人工定稿）） |
-| 44 | chat.messageactionbar.forkconfirmdescription | components/chat/useForkAtMessage.ts:92<br>components/chat/__tests__/useForkAtMessage.test.tsx:75 | 系统会根据这里的对话上下文创建一个独立的新任务。原任务不会改变，之后两边的消息互不影响。 | 系统会根据这里的对话上下文创建一个独立的新任务。（机械初稿（需人工定稿）） |
+| 44 | chat.messageactionbar.forkconfirmdescription | components/chat/useForkAtMessage.ts:92 | 系统会根据这里的对话上下文创建一个独立的新任务。原任务不会改变，之后两边的消息互不影响。 | 系统会根据这里的对话上下文创建一个独立的新任务。（机械初稿（需人工定稿）） |
 | 44 | apperror.description | components/error/AppCrashScreen.tsx:66 | 渲染这个界面时遇到了问题。你可以重新加载试试；如果反复出现，请把错误详情反馈给开发团队。 | 渲染这个界面时遇到了问题（建议稿） |
 | 44 | ccagent.sidebar.bulkselection.confirmdelete.dirtyworktreewarning | features/cc-agent/CCAgentSidebarUpper.tsx:3188 | 其中 {{count}} 个任务的 worktree 有未提交更改，删除前会自动保存为 git 快照。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 44 | ccagent.sidebar.projectaction.removefromsidebarconfirmdescription | features/cc-agent/CCAgentSidebarUpper.tsx:2779 | 这会从侧栏移除该项目。电脑上的文件不会被删除。现有任务会移到“对话”分组，仍可正常使用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 43 | ccagent.sidebar.unarchiveall.description | features/cc-agent/CCAgentSidebarUpper.tsx:3445 | 将恢复该项目下 {{count}} 个已归档任务。恢复后将从“已归档”列表移除，并回到“活跃”列表。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 41 | newchat.pluginsetup.remoteoauthhint | components/new-chat/PluginSetupPrompt.tsx:524 | 在这台电脑的浏览器中授权，账号将连接到当前远程设备。其他设置仍需在远程设备上完成。 | 在这台电脑的浏览器中授权（建议稿） |
 | 41 | newchat.chatinput.voiceinput.permissiondialog.description | components/new-chat/ChatInput.tsx:3160 | App 需要麦克风权限才能在输入框里使用语音输入。授权后，请再次点击语音输入按钮。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 41 | newchat.permissionselector.modes.claude-code.acceptedits.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 自动接受文件编辑请求，减少反复确认；涉及更高风险的命令或权限仍按底层权限策略处理。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 41 | newchat.permissionselector.modes.claude-code.acceptedits.description | 未定位 | 自动接受文件编辑请求，减少反复确认；涉及更高风险的命令或权限仍按底层权限策略处理。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 40 | chat.rewind.dialog.errordescription | components/chat/RewindPreviewDialog.tsx:211 | 这个任务的文件 checkpointing 未启用，无法回退被工具改动过的文件。 | 这个任务的文件 checkpointing 未启用，无法回退被工具改动过的文件。（建议（需人工定稿）） |
-| 38 | ccagent.gitcontext.pr.setup.stages.login.description | features/cc-agent/GithubConnectButton.tsx:20<br>features/issue-tracker/__tests__/IssueTrackerFeatureLayout.test.tsx:100 | 连接你的 GitHub 账号；尚未安装 GitHub CLI 时会自动安装。 | 连接你的 GitHub 账号（建议稿） |
-| 38 | newchat.permissionselector.modes.pi.auto.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 工作区内写文件与安全命令自动执行；越界写、危险命令和 MCP 工具仍会询问。 | 工作区内写文件与安全命令自动执行；（建议（需人工定稿）） |
+| 38 | ccagent.gitcontext.pr.setup.stages.login.description | 未定位 | 连接你的 GitHub 账号；尚未安装 GitHub CLI 时会自动安装。 | 连接你的 GitHub 账号（建议稿） |
+| 38 | newchat.permissionselector.modes.pi.auto.description | 未定位 | 工作区内写文件与安全命令自动执行；越界写、危险命令和 MCP 工具仍会询问。 | 工作区内写文件与安全命令自动执行；（建议（需人工定稿）） |
 | 35 | ccagent.workdirbrowse.filebody.cachedtruncatednotice | features/cc-agent/workdir-browse/FileBodyView.tsx:1373 | 缓存副本较大，已截断显示前 32 MB —— 在系统中打开查看完整内容 | 缓存副本较大（建议稿） |
-| 35 | chat.textlightbox.oversizebody | components/chat/TextLightbox.tsx:603<br>__tests__/textLightbox.test.ts:183 | 该文件大小为 {{size}}，超过 {{limit}}MB 预览上限。请使用系统默认应用打开。 | 该文件大小为 {{size}}（建议稿） |
-| 34 | sidebar.accountswitcher.runningtaskdescription | components/settings/UserProfileCard.tsx:140<br>components/sidebar/UserInfoSection.tsx:216 | 当前有任务正在运行。切换账号会先中断这些任务，未完成的执行不会继续。 | 当前有任务正在运行。（机械初稿（需人工定稿）） |
-| 33 | newchat.permissionselector.modes.claude-code.ask.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 允许在工作区内读写；需要更高权限、联网或访问工作区外路径时再询问。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 35 | chat.textlightbox.oversizebody | components/chat/TextLightbox.tsx:603 | 该文件大小为 {{size}}，超过 {{limit}}MB 预览上限。请使用系统默认应用打开。 | 该文件大小为 {{size}}（建议稿） |
+| 34 | sidebar.accountswitcher.runningtaskdescription | components/settings/UserProfileCard.tsx:140<br>components/sidebar/AccountSwitcherDialog.tsx:108 | 当前有任务正在运行。切换账号会先中断这些任务，未完成的执行不会继续。 | 当前有任务正在运行。（机械初稿（需人工定稿）） |
+| 33 | newchat.permissionselector.modes.claude-code.ask.description | 未定位 | 允许在工作区内读写；需要更高权限、联网或访问工作区外路径时再询问。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 32 | ccagent.workdirbrowse.filebody.truncatednotice | features/cc-agent/workdir-browse/FileBodyView.tsx:1027 | 文件较大，已截断显示前 2 MB —— 在系统中打开查看完整内容 | 文件较大，已截断显示前 2 MB —— 在系统中打开查看完整内容（建议（需人工定稿）） |
 | 31 | sidebar.databasesizewarning.description | components/sidebar/DatabaseSizeWarningBanner.tsx:97 | 数据库约占 {{size}}，已超过 {{threshold}} G。建议前往存储空间进行清理。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 31 | chat.rewind.dialog.summaryempty | components/chat/__tests__/RewindPreviewDialog.test.tsx:133<br>components/chat/RewindPreviewDialog.tsx:427 | 这条消息之后没有检测到项目文件改动，继续后会移除后续对话记录。 | 这条消息之后没有检测到项目文件改动（建议稿） |
-| 30 | newchat.permissionselector.modes.pi.ask.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 只读工具直接执行；写文件、跑命令和 MCP 工具每次都询问。 | 只读工具直接执行；（建议（需人工定稿）） |
+| 31 | chat.rewind.dialog.summaryempty | components/chat/RewindPreviewDialog.tsx:427<br>components/chat/RewindPreviewDialog.tsx:428 | 这条消息之后没有检测到项目文件改动，继续后会移除后续对话记录。 | 这条消息之后没有检测到项目文件改动（建议稿） |
+| 30 | newchat.permissionselector.modes.pi.ask.description | 未定位 | 只读工具直接执行；写文件、跑命令和 MCP 工具每次都询问。 | 只读工具直接执行；（建议（需人工定稿）） |
 | 29 | newchat.addremoteproject.hint | components/new-chat/AddRemoteProjectDialog.tsx:439 | 选择一台已连接的远程主机或远程设备，并选择此项目的文件夹。 | 选择一台已连接的远程主机或远程设备（建议稿） |
-| 28 | newchat.noprovider.description | hooks/useVendorAuthGate.ts:66<br>components/new-chat/ChatInput.tsx:5528 | 当前模型还没有已连接的来源，请先在设置里连接一个再发送。 | 当前模型还没有已连接的来源（建议稿） |
+| 28 | newchat.noprovider.description | components/new-chat/ChatInput.tsx:5528<br>hooks/useVendorAuthGate.ts:66 | 当前模型还没有已连接的来源，请先在设置里连接一个再发送。 | 当前模型还没有已连接的来源（建议稿） |
 | 28 | chat.rewind.dialog.runningnotice | components/chat/RewindPreviewDialog.tsx:308 | 任务仍在运行。确认后会先停止任务，再按最新状态执行回退。 | 任务仍在运行。（机械初稿（需人工定稿）） |
 | 28 | titlebar.closeconfirm.description | apps/desktop/src/main/bootstrap-electron.ts:3217<br>components/title-bar/WindowControls.tsx:310 | 当前有正在进行的任务，关闭会中断，未完成的这一轮会丢失。 | 当前有正在进行的任务（建议稿） |
 | 28 | newchat.pluginsetup.hostrequirements.modelprovider.description | apps/desktop/src/main/cindy-brain/ghostHostSetupRequirements.ts:29 | 使用插件声明的图片或视频能力前，需要先连接可用的模型服务 | 使用插件声明的图片或视频能力前（建议稿） |
 | 26 | ccagent.workdirbrowse.archivesession.description | features/cc-agent/workdir-browse/WorkdirBrowseRoute.tsx:354 | 「{{title}}」将被归档，从列表中移除。可在归档视图中恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 26 | ccagent.remotedesktopconfirmation.description | features/cc-agent/RemoteDesktopConfirmationNotice.tsx:24<br>features/cc-agent/__tests__/RemoteDesktopConfirmationNotice.test.tsx:25 | 请在远程电脑上打开 Cindy，查看并处理这项确认。 | 请在远程电脑上打开 Cindy（建议稿） |
-| 26 | ccagent.layout.contextring.codexautohint | features/cc-agent/CCAgentSessionView.tsx:6603<br>components/new-chat/ModelConfigFlyout.tsx:169 | Codex CLI 管理上下文与自动压缩，此处只读。 | Codex CLI 管理上下文与自动压缩，此处只读。（建议（需人工定稿）） |
-| 25 | ccagent.gitcontext.pr.setup.stages.authorizing.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 复制下方设备码，在 GitHub 页面输入并授权。 | 复制下方设备码（建议稿） |
+| 26 | ccagent.remotedesktopconfirmation.description | features/cc-agent/RemoteDesktopConfirmationNotice.tsx:24 | 请在远程电脑上打开 Cindy，查看并处理这项确认。 | 请在远程电脑上打开 Cindy（建议稿） |
+| 26 | ccagent.layout.contextring.codexautohint | components/new-chat/ModelConfigFlyout.tsx:169<br>features/cc-agent/CCAgentSessionView.tsx:6603 | Codex CLI 管理上下文与自动压缩，此处只读。 | Codex CLI 管理上下文与自动压缩，此处只读。（建议（需人工定稿）） |
+| 25 | ccagent.gitcontext.pr.setup.stages.authorizing.description | 未定位 | 复制下方设备码，在 GitHub 页面输入并授权。 | 复制下方设备码（建议稿） |
 | 23 | ccagent.workdirbrowse.filebody.cachedstalenotice | features/cc-agent/workdir-browse/FileBodyView.tsx:1259 | 当前显示的是本地缓存副本，可能不是远端最新版本 | 当前显示的是本地缓存副本，可能不是远端最新版本（建议（需人工定稿）） |
-| 22 | ccagent.workdirbrowse.filebody.confirmsave.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 将覆盖文件 {{path}} 的当前内容，操作不可撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 22 | ccagent.workdirbrowse.filebody.confirmsave.description | 未定位 | 将覆盖文件 {{path}} 的当前内容，操作不可撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 21 | ccagent.sidebar.bulkselection.confirmdelete.description | features/cc-agent/CCAgentSidebarUpper.tsx:3183 | 将删除 {{count}} 个已选任务。删除后无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 20 | chat.ghostcall.linkconfirmhint | components/chat/GhostCardHostPrompts.tsx:157 | 该链接由插件提供，将在系统浏览器中打开： | 该链接由插件提供，将在系统浏览器中打开（建议稿） |
 | 19 | ccagent.sidebar.confirmdelete.description | features/cc-agent/CCAgentSidebarUpper.tsx:3966<br>features/cc-agent/SessionContentHeader.tsx:546 | 确定要删除这个任务吗？删除后无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 18 | chat.turnchanges.partialactionhint | components/chat/__tests__/TurnChangesCard.test.tsx:224<br>components/chat/TurnChangesCard.tsx:258 | 仅撤销或重新应用已精确记录的文件变更 | 仅撤销或重新应用已精确记录的文件变更（建议稿） |
+| 18 | chat.turnchanges.partialactionhint | components/chat/TurnChangesCard.tsx:258 | 仅撤销或重新应用已精确记录的文件变更 | 仅撤销或重新应用已精确记录的文件变更（建议稿） |
 | 17 | ccagent.workdirbrowse.deletefile.description | features/cc-agent/workdir-browse/WorkdirBrowseSidebar.tsx:440 | 确认删除「{{name}}」？此操作不可撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 17 | newchat.collaboration.disabledhint | features/cc-agent/CCAgentSessionView.tsx:5736<br>features/cc-agent/NewMakerDraftRoute.tsx:3525 | 协同模式已关闭，请在设置中重新启用 | 协同模式已关闭，请在设置中重新启用（建议稿） |
-| 17 | ccagent.gitcontext.pr.setup.stages.checking.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 正在确认 GitHub 登录状态。 | 正在确认 GitHub 登录状态（建议稿） |
+| 17 | newchat.collaboration.disabledhint | features/cc-agent/NewMakerDraftRoute.tsx:3525<br>features/cc-agent/NewMakerDraftRoute.tsx:4773 | 协同模式已关闭，请在设置中重新启用 | 协同模式已关闭，请在设置中重新启用（建议稿） |
+| 17 | ccagent.gitcontext.pr.setup.stages.checking.description | 未定位 | 正在确认 GitHub 登录状态。 | 正在确认 GitHub 登录状态（建议稿） |
 | 16 | taskmigration.failuredescription | features/cc-agent/sidebar/TaskMigrationDialog.tsx:352 | 关闭后可从任务菜单重新发起复制。 | 关闭后可从任务菜单重新发起复制（建议稿） |
-| 15 | chat.planreviewbubble.pendinghint | __tests__/planReviewBubbleMarkdown.test.tsx:320<br>components/chat/PlanReviewBubble.tsx:203 | Agent 正在等待计划批准… | Agent 正在等待计划批准…（建议稿） |
+| 15 | chat.planreviewbubble.pendinghint | components/chat/PlanReviewBubble.tsx:203 | Agent 正在等待计划批准… | Agent 正在等待计划批准…（建议稿） |
 | 15 | sidebar.mobiledownload.scananotherhint | components/sidebar/MobileDownloadDialog.tsx:498 | 在另一台手机上打开 Cindy | 在另一台手机上打开 Cindy（建议稿） |
-| 14 | newchat.collaboration.loadinghint | features/cc-agent/CCAgentSessionView.tsx:5729<br>features/cc-agent/NewMakerDraftRoute.tsx:3492 | 正在确认协同设置，请稍后重试 | 正在确认协同设置，请稍后重试（建议（需人工定稿）） |
+| 14 | newchat.collaboration.loadinghint | features/cc-agent/NewMakerDraftRoute.tsx:3492<br>features/cc-agent/NewMakerDraftRoute.tsx:4755 | 正在确认协同设置，请稍后重试 | 正在确认协同设置，请稍后重试（建议（需人工定稿）） |
 | 13 | sidebar.accountswitcher.description | components/sidebar/AccountSwitcherDialog.tsx:175 | 选择这台设备上登录过的账号 | 选择这台设备上登录过的账号（建议稿） |
 | 11 | chat.media.annotatediscardconfirmdescription | components/chat/ImageLightbox.tsx:645 | 将恢复到打开时的标注。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 11 | ccagent.gitcontext.pr.setup.stages.cancelled.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 准备好后可以重新连接。 | 准备好后可以重新连接（建议稿） |
-| 11 | ccagent.gitcontext.pr.setup.stages.preparing.description | components/error/LocalDbFatalScreen.tsx:54 | 正在获取一次性设备码。 | 正在获取一次性设备码（建议稿） |
+| 11 | ccagent.gitcontext.pr.setup.stages.cancelled.description | 未定位 | 准备好后可以重新连接。 | 准备好后可以重新连接（建议稿） |
+| 11 | ccagent.gitcontext.pr.setup.stages.preparing.description | 未定位 | 正在获取一次性设备码。 | 正在获取一次性设备码（建议稿） |
 | 10 | newchat.deviceswitcher.onlinehint | components/new-chat/DeviceSwitcherPill.tsx:174 | 已连接，可在其上创建 | 已连接，可在其上创建（建议稿） |
-| 8 | sidebar.mobiledownload.subtitle | __tests__/mobileDownloadDialog.test.tsx:568<br>components/sidebar/MobileDownloadDialog.tsx:418 | 移动端连接桌面端 | 移动端连接桌面端（建议稿） |
+| 8 | sidebar.mobiledownload.subtitle | components/sidebar/MobileDownloadDialog.tsx:418<br>components/sidebar/MobileDownloadDialog.tsx:425 | 移动端连接桌面端 | 移动端连接桌面端（建议稿） |
 | 7 | chat.textlightbox.closehint | components/chat/TextLightbox.tsx:682<br>components/chat/ToolPayloadLightbox.tsx:577 | 或点击背景关闭 | 或点击背景关闭（建议稿） |
 | 7 | ccagent.layout.contextring.compacthint | features/cc-agent/CCAgentSessionView.tsx:6584<br>features/cc-agent/CCAgentSessionView.tsx:6614 | 点击压缩上下文 | 点击压缩上下文（建议稿） |
 
 ## IM 机器人（54 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 146 | settings.imbot.defaults.grouppermissiondescription | components/settings/ImDefaultSettingsSection.tsx:385<br>components/settings/__tests__/ImDefaultSettingsSection.test.tsx:267 | 群里新建任务时统一使用的权限档（@bot 开话题、/new、/ctr 都算），默认「自动审批」；上面那个权限档只管私聊。群上下文里有成员可控的内容，设成「完全访问」后将直接执行、不再逐条确认，请确认群里的人都可信。改动只影响之后新建的任务，已有任务在群里用 /permission 单独切换。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 146 | settings.imbot.defaults.grouppermissiondescription | components/settings/ImDefaultSettingsSection.tsx:385 | 群里新建任务时统一使用的权限档（@bot 开话题、/new、/ctr 都算），默认「自动审批」；上面那个权限档只管私聊。群上下文里有成员可控的内容，设成「完全访问」后将直接执行、不再逐条确认，请确认群里的人都可信。改动只影响之后新建的任务，已有任务在群里用 /permission 单独切换。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 137 | settings.discordbot.guide.step3.body | components/settings/DiscordBotSection.tsx:82 | 在 OAuth2 URL Generator 勾选 scope bot，并授予 Send Messages、Read Message History、Attach Files 权限，把 Bot 邀请到任一你所在的 server；DM 需要你和 Bot 有共同 server。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 82 | settings.feishubot.clearconfirm.description | components/settings/FeishuBotSection.tsx:104 | 解绑后将断开 WebSocket 连接，并删除本机保存的 App ID / App Secret / 主人 openId。如需重新使用，需要重新创建或重新填写凭证。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 74 | bots.groupchat.settings.projectdirnote | features/bots/ChatGroupSettings.tsx:133<br>features/bots/BotGroupSettingsDrawer.tsx:491 | 分工做事时，伙伴们在这里干活。不选也行，会用这个群自己的文件夹；选了 git 项目，每次分工会新开一个 worktree 和分支，不动你手上的代码。 | 分工做事时，伙伴们在这里干活（建议稿） |
 | 62 | bots.lifecycle.deletedescription | features/bots/BotDeleteDialog.tsx:65 | 删除 {{name}} 后，伙伴的资料、记忆、工作目录、通道连接与自动化任务将被移除，无法撤销。任务历史与独立 worktree会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 62 | bots.groupchat.server.settings.toolshint | features/bots/ChatGroupSettings.tsx:19<br>features/bots/ChatBotAccessField.tsx:11 | 本群成员可以使用伙伴已有的工具与私人资料，结果对全群可见。原有操作审批仍有效；撤回会停止进行中的请求，已执行的操作无法撤销。 | 本群成员可以使用伙伴已有的工具与私人资料，结果对全群可见。（建议（需人工定稿）） |
-| 62 | settings.imbot.defaults.agentunsupportedonchannelmodehint | components/settings/ImDefaultSettingsSection.tsx:412<br>components/settings/__tests__/ImDefaultSettingsSection.test.tsx:155 | 切换 Agent 后发送 /new，若新的 Agent 仍提示权限模式问题，请再发送 /permission 调整权限模式。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 62 | bots.groupchat.server.settings.toolshint | 未定位 | 本群成员可以使用伙伴已有的工具与私人资料，结果对全群可见。原有操作审批仍有效；撤回会停止进行中的请求，已执行的操作无法撤销。 | 本群成员可以使用伙伴已有的工具与私人资料，结果对全群可见。（建议（需人工定稿）） |
+| 62 | settings.imbot.defaults.agentunsupportedonchannelmodehint | components/settings/ImDefaultSettingsSection.tsx:412 | 切换 Agent 后发送 /new，若新的 Agent 仍提示权限模式问题，请再发送 /permission 调整权限模式。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 56 | settings.discordbot.guide.step4.body | components/settings/DiscordBotSection.tsx:86 | 在 Discord 用户设置开启 Developer Mode，右键自己的头像，选择 Copy User ID。 | 右键自己的头像（建议稿） |
 | 56 | settings.wechatbot.intro | components/settings/WechatBotSection.tsx:239 | 连接后，你发给该微信连接的私聊消息会进入本机 Cindy。授权网页由腾讯提供，页面中可能显示 OpenClaw。 | 连接后，你发给该微信连接的私聊消息会进入本机 Cindy。（建议（需人工定稿）） |
 | 56 | settings.imbot.defaults.permissionmodeunsupportedonchannelhint | apps/desktop/src/main/im/feishu/uiText.ts:97<br>components/settings/ImDefaultSettingsSection.tsx:418 | 当前 Agent 不支持以此权限模式在该渠道运行，消息将无法处理。请发送 /permission 调整权限模式。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 55 | settings.imbot.defaults.agentunsupportedonchannelhint | components/settings/ImDefaultSettingsSection.tsx:406<br>components/settings/__tests__/ImDefaultSettingsSection.test.tsx:136 | {{agent}} Agent 不支持此渠道的逐条权限确认，消息将无法处理。请改用 Claude Code 或 Codex。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 54 | settings.wechatbot.unbind.description | components/settings/WechatBotSection.tsx:103<br>components/settings/__tests__/WechatBotSection.test.tsx:143 | 解绑会停止收发、删除本机微信凭证并清理未完成的执行。已创建的 Cindy 任务、历史消息和已保存附件会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 55 | settings.imbot.defaults.agentunsupportedonchannelhint | components/settings/ImDefaultSettingsSection.tsx:406 | {{agent}} Agent 不支持此渠道的逐条权限确认，消息将无法处理。请改用 Claude Code 或 Codex。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 54 | settings.wechatbot.unbind.description | components/settings/WechatBotSection.tsx:103 | 解绑会停止收发、删除本机微信凭证并清理未完成的执行。已创建的 Cindy 任务、历史消息和已保存附件会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 53 | settings.telegrambot.remotedevices.hint | components/settings/TelegramRemoteDevices.tsx:193 | 让某台设备下线后，它就不再接收消息。它的 Token 和绑定不会被清除，之后在那台设备上随时能自己再上线。 | 让某台设备下线后，它就不再接收消息。（机械初稿（需人工定稿）） |
 | 50 | settings.telegrambot.guide.step4.body | components/settings/TelegramBotSection.tsx:120 | 把 Token 和用户 ID 填到上面，点连接。桌面端会直连 Telegram，不经 {{appName}} 服务器。 | 把 Token 和用户 ID 填到上面（建议稿） |
 | 47 | bots.capabilities.accesshint | features/bots/BotCapabilitySettings.tsx:213 | 逐项选择伙伴可使用的内置工具、MCP 与技能。更改从下一次请求生效，也适用于已授权的群内请求。 | 逐项选择伙伴可使用的内置工具、MCP 与技能。（建议（需人工定稿）） |
 | 46 | settings.wecombot.ownerhint | components/settings/WecomBotSection.tsx:206 | 连接后，首个向机器人发送单聊消息的成员会绑定为本机 owner；仅该成员可触发 Agent。 | 仅该成员可触发 Agent（建议稿） |
 | 46 | bots.groupchat.settings.speakingmodeautonote | features/bots/BotGroupSettingsDrawer.tsx:543 | 没有 @ 人或 @所有人时，第一圈大家同时想，之后轮流接话；@ 了伙伴就按 @ 的先后轮流。 | 没有 @ 人或 @所有人时，第一圈大家同时想，之后轮流接话；（机械初稿（需人工定稿）） |
 | 44 | settings.wecombot.setuphint | components/settings/WecomBotSection.tsx:162 | 在企业微信管理后台创建智能机器人并启用长连接，然后填入 Bot ID 和 Secret。 | 然后填入 Bot ID 和 Secret（建议稿） |
-| 44 | settings.wechatbot.authorization.rebinddescription | components/settings/WechatBotSection.tsx:88<br>components/settings/__tests__/WechatBotSection.test.tsx:113 | 当前微信已有连接。继续扫码可能解除该微信原有的 Cindy 或 OpenClaw 连接。 | 当前微信已有连接。（建议（需人工定稿）） |
+| 44 | settings.wechatbot.authorization.rebinddescription | components/settings/WechatBotSection.tsx:88 | 当前微信已有连接。继续扫码可能解除该微信原有的 Cindy 或 OpenClaw 连接。 | 当前微信已有连接。（建议（需人工定稿）） |
 | 42 | settings.wechatbot.errornote | components/settings/WechatBotSection.tsx:238 | 本次连接未完成。请确认网络正常后重新扫码；Cindy 不会在连接失败时保存明文凭证。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 42 | bots.sessionloadfaileddescription | features/bots/BotSessionView.tsx:226<br>features/bots/RemoteBotSessionView.tsx:107 | 任务关联仍然存在，但 Cindy 暂时无法读取伙伴状态。你可以重试，或返回伙伴总览。 | 任务关联仍然存在，但 Cindy 暂时无法读取伙伴状态。（建议（需人工定稿）） |
-| 42 | bots.modelchain.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 最多设置 5 个模型。当前候选不可用时，伙伴会按顺序自动接替，不需要你切任务或重试。 | 最多设置 5 个模型。（建议（需人工定稿）） |
+| 42 | bots.modelchain.description | 未定位 | 最多设置 5 个模型。当前候选不可用时，伙伴会按顺序自动接替，不需要你切任务或重试。 | 最多设置 5 个模型。（建议（需人工定稿）） |
 | 41 | bots.groupchat.settings.replymodenote | features/bots/BotGroupSettingsDrawer.tsx:516 | 没什么可补充的伙伴不会说话。每轮最多聊 3 圈、10 条，之后等你点「继续讨论」。 | 没什么可补充的伙伴不会说话。（机械初稿（需人工定稿）） |
 | 38 | bots.sessionunavailabledescription | features/bots/BotSessionView.tsx:227 | 这条任务可能已丢失、被删除，或不再属于这个伙伴。返回后会打开恢复好的主任务。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 38 | settings.discordbot.description | components/settings/DiscordBotSection.tsx:114 | 绑定你自建的 Discord Bot，在 Discord 私聊里连接 {{appName}}。 | 绑定你自建的 Discord Bot（建议稿） |
-| 37 | bots.background.footnote | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:1219 | 这段内容会进入伙伴的身份上下文；快速性格设置单独保存，修改这里不会覆盖它。 | 这段内容会进入伙伴的身份上下文；（建议（需人工定稿）） |
-| 35 | bots.homefolder.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 伙伴会自己维护记忆和学会的做法。只有需要纠正时，才直接打开它的文件夹。 | 伙伴会自己维护记忆和学会的做法（建议稿） |
+| 37 | bots.background.footnote | 未定位 | 这段内容会进入伙伴的身份上下文；快速性格设置单独保存，修改这里不会覆盖它。 | 这段内容会进入伙伴的身份上下文；（建议（需人工定稿）） |
+| 35 | bots.homefolder.description | 未定位 | 伙伴会自己维护记忆和学会的做法。只有需要纠正时，才直接打开它的文件夹。 | 伙伴会自己维护记忆和学会的做法（建议稿） |
 | 35 | settings.wechatbot.disablednote | components/settings/WechatBotSection.tsx:236 | 此版本的个人微信连接已因兼容性策略暂停。已保存的任务和设置不会被删除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 34 | bots.capabilities.inheritedhint | features/bots/BotCapabilitySettings.tsx:268 | 当前跟随本机已开启的工具。关闭任意一项后，此列表只使用你选择的项目。 | 当前跟随本机已开启的工具（建议稿） |
 | 33 | bots.globalsettings.restorehint | 未定位 | 恢复默认后将跟随客户端默认模型设置，单个伙伴的自定义模型保持不变。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 32 | bots.import.takeovernote | 未定位 | 数据连接验证通过后才暂停原任务。取消所需依赖时，原任务继续运行。 | 数据连接验证通过后才暂停原任务（建议稿） |
 | 32 | bots.lifecycle.pauseddescription | 未定位 | 不会接收新工作；用户原本手动暂停的自动化在恢复伙伴后仍保持暂停。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 32 | bots.groupchat.server.settings.removehint | features/bots/ChatGroupSettings.tsx:19<br>features/bots/ChatBotAccessField.tsx:11 | 该成员将无法继续查看或发消息；如果是伙伴的主人，其伙伴也会退出。 | 该成员将无法继续查看或发消息；（建议（需人工定稿）） |
+| 32 | bots.groupchat.server.settings.removehint | 未定位 | 该成员将无法继续查看或发消息；如果是伙伴的主人，其伙伴也会退出。 | 该成员将无法继续查看或发消息；（建议（需人工定稿）） |
 | 32 | bots.groupchat.settings.deletenote | features/bots/BotGroupSettingsDrawer.tsx:268<br>features/bots/BotGroupSettingsDrawer.tsx:567 | 只删除这个群和群里的消息，伙伴本身、它们的记忆和私聊都不受影响。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 32 | bots.groupchat.server.revokedescription | features/bots/ChatGroupSettings.tsx:19<br>features/bots/ChatInviteDialog.tsx:13 | 此链接将无法再用于加入群聊。其他邀请链接和已加入的成员不受影响。 | 此链接将无法再用于加入群聊。（机械初稿（需人工定稿）） |
+| 32 | bots.groupchat.server.revokedescription | 未定位 | 此链接将无法再用于加入群聊。其他邀请链接和已加入的成员不受影响。 | 此链接将无法再用于加入群聊。（机械初稿（需人工定稿）） |
 | 31 | bots.groupchat.loadfaileddescription | features/bots/BotGroupChatView.tsx:533 | Cindy 暂时读不到这个群的消息。你可以重试，或返回伙伴页。 | Cindy 暂时读不到这个群的消息。（建议（需人工定稿）） |
 | 31 | settings.discordbot.formhint | components/settings/DiscordBotSection.tsx:227 | 用户 ID 必须是 17-20 位纯数字 snowflake。 | 用户 ID 必须是 17-20 位纯数字 snowflake。（建议（需人工定稿）） |
 | 30 | bots.guided.cindydescription | 未定位 | 我会帮你使用 Cindy、连接工具，也会和你一起把事情做完。 | 我会帮你使用 Cindy、连接工具（建议稿） |
-| 29 | settings.feishubot.saved.conflictnote | components/settings/feishuBotPresentation.ts:18<br>__tests__/feishuBotPresentation.test.ts:19 | 已保存机器人凭证，但该 App ID 当前被其他设备占用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 29 | bots.import.description | components/settings/SessionImportSection.tsx:178 | 选择要从 Hermes 或 OpenClaw 带来的内容。 | 选择要从 Hermes 或 OpenClaw 带来的内容。（建议（需人工定稿）） |
+| 29 | settings.feishubot.saved.conflictnote | components/settings/feishuBotPresentation.ts:18 | 已保存机器人凭证，但该 App ID 当前被其他设备占用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 29 | bots.import.description | 未定位 | 选择要从 Hermes 或 OpenClaw 带来的内容。 | 选择要从 Hermes 或 OpenClaw 带来的内容。（建议（需人工定稿）） |
 | 29 | settings.feishubot.description | components/settings/FeishuBotSection.tsx:120 | 通过飞书或 Lark 机器人随时随地连接 {{appName}} 进行工作。 | 通过飞书或 Lark 机器人随时随地连接 {{appName}} 进行工作。（建议（需人工定稿）） |
 | 29 | bots.lifecycle.stoppeddescription | 未定位 | 这是旧版留下的停止状态；你仍可保留任务记录后永久删除伙伴。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 27 | settings.feishubot.saved.errornote | components/settings/feishuBotPresentation.ts:20<br>__tests__/feishuBotPresentation.test.ts:20 | 已保存机器人凭证，但当前连接失败。请点击重新连接重试。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 27 | settings.feishubot.saved.errornote | components/settings/feishuBotPresentation.ts:20 | 已保存机器人凭证，但当前连接失败。请点击重新连接重试。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 26 | bots.capabilities.unavailablehint | features/bots/BotCapabilitySettings.tsx:278 | 本机或当前执行环境暂不可用，请先配置连接或系统授权。 | 本机或当前执行环境暂不可用（建议稿） |
 | 25 | bots.lifecycle.restartdescription | 未定位 | 停止当前运行并重新准备，保留对话记录、记忆和文件。 | 停止当前运行并重新准备（建议稿） |
 | 25 | settings.wecombot.description | components/settings/WecomBotSection.tsx:88 | 连接企业微信智能机器人，在单聊和群聊中使用 {{appName}}。 | 连接企业微信智能机器人（建议稿） |
 | 25 | bots.groupchat.unavailabledescription | features/bots/BotGroupChatView.tsx:533 | 它可能已被删除。返回伙伴页可以打开其他群聊和伙伴。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 24 | settings.feishubot.saved.idlenote | components/settings/feishuBotPresentation.ts:22<br>__tests__/feishuBotPresentation.test.ts:15 | 已保存机器人凭证，当前尚未连接。请点击重新连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 24 | settings.feishubot.saved.idlenote | components/settings/feishuBotPresentation.ts:22 | 已保存机器人凭证，当前尚未连接。请点击重新连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 23 | settings.wechatbot.description | components/settings/WechatBotSection.tsx:118 | 扫码连接个人微信，在微信私聊中与 {{appName}} 工作。 | 扫码连接个人微信（建议稿） |
 | 23 | bots.groupchat.settings.speakingmodesequentialnote | features/bots/BotGroupSettingsDrawer.tsx:542 | 每次只有一位伙伴发言，后说的能看到前面的回答。 | 每次只有一位伙伴发言（建议稿） |
-| 22 | bots.emptydescription | features/bots/ChatGroupSettings.tsx:19<br>features/bots/ChatInviteDialog.tsx:13 | 先定义伙伴的职责，再按需连接工具与消息通道。 | 先定义伙伴的职责（建议稿） |
-| 16 | settings.feishubot.saved.connectingnote | components/settings/feishuBotPresentation.ts:14<br>__tests__/feishuBotPresentation.test.ts:16 | 已保存机器人凭证，正在建立连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 16 | settings.feishubot.saved.reconnectingnote | components/settings/feishuBotPresentation.ts:16<br>__tests__/feishuBotPresentation.test.ts:18 | 已保存机器人凭证，正在恢复连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 22 | bots.emptydescription | 未定位 | 先定义伙伴的职责，再按需连接工具与消息通道。 | 先定义伙伴的职责（建议稿） |
+| 16 | settings.feishubot.saved.connectingnote | components/settings/feishuBotPresentation.ts:14 | 已保存机器人凭证，正在建立连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 16 | settings.feishubot.saved.reconnectingnote | components/settings/feishuBotPresentation.ts:16 | 已保存机器人凭证，正在恢复连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 14 | bots.memory.deletedescription | features/bots/BotMemorySettings.tsx:345 | {{name}}之后不会再参考「{{title}}」。 | {{name}}之后不会再参考「{{title}}」（建议稿） |
 
 ## 模型供应商（52 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 105 | settings.providers.custom.fields.openaiimageshint | components/settings/ProviderConnectionDialog.tsx:2621 | 使用此连接的地址和 API Key 调用 /images/generations 与 /images/edits。开启后，此连接将作为供应商唯一的图片连接。缺少的模型可手动添加 ID，再到模型详情声明图片能力。 | 使用此连接的地址和 API Key 调用 /images/generations 与 /images/edits。（机械初稿（需人工定稿）） |
 | 96 | settings.providers.models.advanced.contextlimitlocalmillionhint | components/settings/ModelAdvancedDrawer.tsx:755 | 原生 256K（262,144 tokens），可选扩展至 1M（1,000,000）。服务运行时需在「管理服务」中重启以应用更改；已停止时，下次使用自动生效。长输入会增加内存占用和等待时间。 | 原生 256K（262,144 tokens），可选扩展至 1M（1,000,000）。（机械初稿（需人工定稿）） |
-| 96 | settings.connections.claude.apimode.nokeydialog.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 关闭 API 模式（走订阅）后，非 Claude 模型（gpt / deepseek 等）仍需复用 Cindy AI Key，当前还没有配置。前往「模型供应商」连接 Cindy AI 后即可。 | 关闭 API 模式（走订阅）后（建议稿） |
+| 96 | settings.connections.claude.apimode.nokeydialog.description | 未定位 | 关闭 API 模式（走订阅）后，非 Claude 模型（gpt / deepseek 等）仍需复用 Cindy AI Key，当前还没有配置。前往「模型供应商」连接 Cindy AI 后即可。 | 关闭 API 模式（走订阅）后（建议稿） |
 | 89 | settings.providers.models.advanced.contextlimithint | components/settings/ModelAdvancedDrawer.tsx:757 | 用于此模型的所有可用引擎。以整数 K 编辑（1 K = 1,000 tokens）；未编辑时保留精确值。保存后用于后续运行，正在生成的内容不受影响。实际可用长度仍受模型服务限制。 | 用于此模型的所有可用引擎。（机械初稿（需人工定稿）） |
-| 87 | settings.auxiliarymodels.description | components/settings/PersonalizationDetails.settings-search.ts:13<br>components/settings/AuxiliaryModelSection.tsx:152 | 用于任务自动命名和 AI 重命名、输入框推荐指令、Help、置顶任务摘要、IM / 飞书标题与群上下文判断、定时任务脚本、插件快问快答的「跟随默认」，以及自带密钥的语音润色。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 87 | settings.auxiliarymodels.description | components/settings/AuxiliaryModelSection.tsx:152<br>components/settings/PersonalizationDetails.settings-search.ts:13 | 用于任务自动命名和 AI 重命名、输入框推荐指令、Help、置顶任务摘要、IM / 飞书标题与群上下文判断、定时任务脚本、插件快问快答的「跟随默认」，以及自带密钥的语音润色。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 76 | settings.providers.remote.detailnote | components/settings/OwnRemoteProviders.tsx:249 | Agent 在 {{device}} 上运行，用的是那台电脑的登录和配额。新建任务时在模型列表里选择它就能用；要修改这个供应商，请到那台电脑的「设置 → 模型供应商」。 | Agent 在 {{device}} 上运行（建议稿） |
 | 76 | settings.providers.custom.fields.xaivideoshint | components/settings/ProviderConnectionDialog.tsx:2654 | 使用此连接的地址和 API Key 提交、查询视频任务。开启后，此连接将作为供应商唯一的视频连接。缺少的模型可手动添加 ID，再到模型详情声明视频能力。 | 使用此连接的地址和 API Key 提交、查询视频任务。（机械初稿（需人工定稿）） |
-| 71 | settings.providers.wizard.mimotokenplannote | components/settings/AddProviderWizard.tsx:1983<br>__tests__/addProviderWizardPresetEntry.test.tsx:272 | 请使用 MiMo Token Plan 页面提供的专属 API Key (tp-…)。调用消耗订阅配额，不能与按量付费 API Key 混用。 | 请使用 MiMo Token Plan 页面提供的专属 API Key (tp-…)。（建议（需人工定稿）） |
+| 71 | settings.providers.wizard.mimotokenplannote | components/settings/AddProviderWizard.tsx:1983 | 请使用 MiMo Token Plan 页面提供的专属 API Key (tp-…)。调用消耗订阅配额，不能与按量付费 API Key 混用。 | 请使用 MiMo Token Plan 页面提供的专属 API Key (tp-…)。（建议（需人工定稿）） |
 | 70 | settings.providers.local.onboardingbody | components/settings/LocalOllamaInstall.tsx:118 | 安装 Ollama 后，即可在 Cindy 中下载和使用本机模型，无需打开 Ollama App。Ollama 是免费开源的第三方运行环境。 | 安装 Ollama 后（建议稿） |
 | 69 | settings.providers.models.advanced.contextlimitgpthint | components/settings/ModelAdvancedDrawer.tsx:756 | GPT 默认最多使用 272K；可在此自定义到 1M。Codex 会同步应用窗口与自动压缩阈值，保留 5% 余量；实际容量受模型服务限制。 | GPT 默认最多使用 272K（建议稿） |
-| 59 | settings.connections.codex.apimode.nokeydialog.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | API 模式需要复用 Cindy AI Key，当前还没有配置。前往「模型供应商」连接 Cindy AI 后即可开启。 | 当前还没有配置（建议稿） |
+| 59 | settings.connections.codex.apimode.nokeydialog.description | 未定位 | API 模式需要复用 Cindy AI Key，当前还没有配置。前往「模型供应商」连接 Cindy AI 后即可开启。 | 当前还没有配置（建议稿） |
 | 56 | settings.providers.custom.authmode.nonehelp | components/settings/ProviderConnectionDialog.tsx:2202 | 适用于本机或受信任的自托管 Proxy。Cindy 会移除 CLI 自带的订阅凭证和账号头，再把请求发往该端点。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 54 | settings.providers.custom.authmode.oauthhelp | components/settings/ProviderConnectionDialog.tsx:2149 | 适用于支持 OAuth 登录的供应商。可选择浏览器或设备码登录，保存后从供应商列表发起登录。凭证保存在本机。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 53 | settings.providers.xd.disconnectconfirm.description | components/settings/ProvidersSection.tsx:1751 | 断开后将清除本地保存的 Cindy AI Key，需要重新连接才能继续使用 Cindy AI 提供的模型。 | 断开后将清除本地保存的 Cindy AI Key，需要重新连接才能继续使用 Ci（建议（需人工定稿）） |
 | 52 | settings.providers.custom.runtimefill.independentnote | components/settings/CustomProviderRuntimeFillOverlay.tsx:419 | 这是一次性填充；之后各 runtime 不会同步。API 密钥仍使用独立 safeStorage 记录。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 51 | settings.providers.custom.fields.modelsupportsreasoninghelp | components/settings/ModelPriceOverrideDialog.tsx:237<br>components/settings/ProviderConnectionDialog.tsx:1957 | 仅在该模型接受推理强度时开启，并勾选它实际支持的所有档位。保存后，下一个 Pi Agent 会话生效。 | 仅在该模型接受推理强度时开启（建议稿） |
+| 51 | settings.providers.custom.fields.modelsupportsreasoninghelp | 未定位 | 仅在该模型接受推理强度时开启，并勾选它实际支持的所有档位。保存后，下一个 Pi Agent 会话生效。 | 仅在该模型接受推理强度时开启（建议稿） |
 | 48 | settings.providers.wizard.modelshint | components/settings/AddProviderWizard.tsx:2175 | 勾选的模型将出现在对话的模型选择器中，对可用的 CLI 同时生效；之后可在供应商详情里随时调整。 | 勾选的模型将出现在对话的模型选择器中，对可用的 CLI 同时生效；（机械初稿（需人工定稿）） |
 | 47 | settings.providers.builtinapikey.disconnectconfirm.description | components/settings/ProvidersSection.tsx:1590 | 断开会清除这份连接保存的 API key。供应商会保留，重新填写 API key 后即可使用。 | 断开会清除这份连接保存的 API key。（建议（需人工定稿）） |
 | 47 | codexresets.confirmbody | hooks/useCodexRateLimitReset.ts:56 | 将为 {{account}} 消耗 1 次重置，优先使用最早到期的一次。可重置的用量额度将恢复，此操作无法撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 44 | settings.providers.custom.runtimefill.endpointbundlenote | components/settings/CustomProviderRuntimeFillOverlay.tsx:409 | 向 {{target}} 填充时，基础 URL、请求路径和 API 协议会成组复制，避免端点组合不匹配。 | 向 {{target}} 填充时，基础 URL、请求路径和 API 协议会成组复（建议（需人工定稿）） |
 | 44 | settings.providers.local.deleteconfirmbody | components/settings/ProvidersSection.tsx:2857 | 只会移除 Cindy 中的连接。Ollama 里已下载的模型仍在磁盘上，服务也不会停止。 | 只会移除 Cindy 中的连接（建议稿） |
-| 42 | settings.providers.import.busywarning | components/settings/ProviderImportDialog.tsx:289<br>components/settings/__tests__/ProviderImportDialog.test.tsx:155 | 此次变更需要重载本机 Codex 服务，可能中断 {{count}} 个正在运行的任务。是否继续？ | 此次变更需要重载本机 Codex 服务，可能中断 {{count}} 个正在运行的任务。（机械初稿（需人工定稿）） |
-| 42 | settings.auxiliarymodels.signinhint | components/settings/__tests__/AuxiliaryModelSection.test.tsx:298<br>components/settings/AuxiliaryModelSection.tsx:301 | 登录 Cindy 后可使用自动推荐；未登录时请在自定义中选择已配置的其他供应商模型。 | 登录 Cindy 后可使用自动推荐；（建议（需人工定稿）） |
+| 42 | settings.providers.import.busywarning | components/settings/ProviderImportDialog.tsx:289 | 此次变更需要重载本机 Codex 服务，可能中断 {{count}} 个正在运行的任务。是否继续？ | 此次变更需要重载本机 Codex 服务，可能中断 {{count}} 个正在运行的任务。（机械初稿（需人工定稿）） |
+| 42 | settings.auxiliarymodels.signinhint | components/settings/AuxiliaryModelSection.tsx:301<br>components/settings/AuxiliaryModelSection.tsx:314 | 登录 Cindy 后可使用自动推荐；未登录时请在自定义中选择已配置的其他供应商模型。 | 登录 Cindy 后可使用自动推荐；（建议（需人工定稿）） |
 | 41 | settings.providers.models.advanced.imagecapability.hint | components/settings/ModelAdvancedDrawer.tsx:897 | 应用于 {{agent}} 的图片连接。仅声明接口实际支持的能力，保存后重新打开 Art 详情。 | 应用于 {{agent}} 的图片连接（建议稿） |
 | 41 | settings.providers.llamacpp.restarthint | components/settings/LlamaCppProviderDetail.tsx:278 | 下载模型或修改上下文后，在「管理服务」中重启以应用更改。重启会中断正在进行的生成。 | 下载模型或修改上下文后，在「管理服务」中重启以应用更改。（机械初稿（需人工定稿）） |
 | 41 | settings.providers.local.deletemodelconfirmbody | components/settings/UnifiedModelList.tsx:667 | 会从这台电脑删除已下载的模型文件，Cindy 里也会一并移除。需要时可以重新下载。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 41 | settings.providers.openai.accountsourcesdescription | components/settings/AddProviderWizard.tsx:1811 | 使用已有的本机 Codex 连接，或登录一个独立保存的账号。两种方式支持相同功能。 | 使用已有的本机 Codex 连接（建议稿） |
 | 40 | settings.providers.models.advanced.videocapability.hint | components/settings/ModelAdvancedDrawer.tsx:922 | 应用于 {{agent}} 视频连接。仅声明接口实际支持的能力，保存后重新打开 Art 详情。 | 应用于 {{agent}} 视频连接（建议稿） |
-| 40 | settings.providers.wizard.noauthnote | components/settings/AddProviderWizard.tsx:1987<br>__tests__/addProviderWizardPresetEntry.test.tsx:788 | 此 Proxy 无需客户端密钥；Cindy 会在转发前移除 CLI 的订阅凭证。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 40 | codexresets.confirmselectedbody | hooks/__tests__/useCodexRateLimitReset.test.ts:60<br>hooks/useCodexRateLimitReset.ts:52 | 为 {{account}} 使用所选重置：{{title}}（{{expiry}}）。将恢复符合条件的用量上限，此操作无法撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 39 | settings.providers.custom.imagegenerationreload.description | components/settings/ProviderConnectionDialog.tsx:2962<br>components/settings/ProvidersSection.tsx:437 | 应用此更改需要重新加载 Codex，并会中断当前正在执行的 Codex 任务。 | 应用此更改需要重新加载 Codex（建议稿） |
+| 40 | settings.providers.wizard.noauthnote | components/settings/AddProviderWizard.tsx:1987 | 此 Proxy 无需客户端密钥；Cindy 会在转发前移除 CLI 的订阅凭证。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 40 | codexresets.confirmselectedbody | hooks/useCodexRateLimitReset.ts:52 | 为 {{account}} 使用所选重置：{{title}}（{{expiry}}）。将恢复符合条件的用量上限，此操作无法撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 39 | settings.providers.custom.imagegenerationreload.description | components/settings/ProvidersSection.tsx:437<br>components/settings/ProviderConnectionDialog.tsx:2962 | 应用此更改需要重新加载 Codex，并会中断当前正在执行的 Codex 任务。 | 应用此更改需要重新加载 Codex（建议稿） |
 | 38 | settings.providers.custom.deleteconfirm.description | components/settings/ProvidersSection.tsx:528<br>components/settings/ProvidersSection.tsx:2837 | 删除后，Cindy 将无法再使用「{{name}}」。历史消息会保留，之后可以重新添加。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 37 | providergroup.deleteconfirm.description | features/provider-group/ProviderGroupSection.tsx:119 | 之后这台电脑上的新任务都在本机运行；已经分到其他电脑的任务留在那台电脑上。 | 之后这台电脑上的新任务都在本机运行；（机械初稿（需人工定稿）） |
-| 37 | settings.providers.llamacpp.empty | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 从上方清单选择模型，或输入 Hugging Face 仓库下载第一个模型。 | 从上方清单选择模型（建议稿） |
+| 37 | settings.providers.llamacpp.empty | 未定位 | 从上方清单选择模型，或输入 Hugging Face 仓库下载第一个模型。 | 从上方清单选择模型（建议稿） |
 | 36 | settings.providers.genericoauth.logoutconfirm.description | components/settings/ProvidersSection.tsx:1427<br>components/settings/ProvidersSection.tsx:2118 | 断开后，Cindy 将无法使用「{{name}}」。供应商会保留，之后可以重新连接。 | 断开后，Cindy 将无法使用「{{name}}」。（机械初稿（需人工定稿）） |
 | 36 | settings.providers.subtitle | components/settings/ProvidersSection.tsx:3070 | 选择模型时的来源。每个来源提供它支持的模型与计费方式，可按任务分别切换。 | 选择模型时的来源（建议稿） |
 | 35 | settings.subagentmodels.smartrouting.enabledhint | components/settings/SubagentModelSection.tsx:235 | 开启后，Codex 可按任务选用更多已连接模型；卡片显示实际执行模型。 | Codex 可按任务选用更多已连接模型（建议稿） |
 | 35 | settings.providers.openai.subtitle | components/settings/ProvidersSection.tsx:1185 | 连接一个 ChatGPT 账号，同时用于 Codex 和 Claude | 连接一个 ChatGPT 账号（建议稿） |
-| 31 | settings.providers.custom.fields.modelsupportsimageinputhelp | components/settings/ModelPriceOverrideDialog.tsx:237<br>components/settings/ProviderConnectionDialog.tsx:1957 | 仅在该模型确实支持视觉输入时开启。保存后新建 Pi 任务生效。 | 仅在该模型确实支持视觉输入时开启（建议稿） |
+| 31 | settings.providers.custom.fields.modelsupportsimageinputhelp | 未定位 | 仅在该模型确实支持视觉输入时开启。保存后新建 Pi 任务生效。 | 仅在该模型确实支持视觉输入时开启（建议稿） |
 | 30 | providergroup.member.removeconfirm.description | features/provider-group/ProviderGroupSection.tsx:102 | 之后不再给它分新任务；已经在它上面运行的任务留在那台电脑上。 | 之后不再给它分新任务；（机械初稿（需人工定稿）） |
-| 30 | settings.providers.custom.modelprotocol.help | lib/customProviderWireProtocols.ts:36 | 继承默认会使用上方供应商协议；仅在该模型需要不同协议时覆盖。 | 继承默认会使用上方供应商协议；（建议（需人工定稿）） |
+| 30 | settings.providers.custom.modelprotocol.help | 未定位 | 继承默认会使用上方供应商协议；仅在该模型需要不同协议时覆盖。 | 继承默认会使用上方供应商协议；（建议（需人工定稿）） |
 | 29 | settings.providers.import.authorizationpendingnote | components/settings/ProviderImportDialog.tsx:181 | 供应商已添加，但授权尚未完成。你可以在这里重试或取消授权。 | 供应商已添加，但授权尚未完成。（建议（需人工定稿）） |
-| 29 | codexresets.confirmretrybody | hooks/__tests__/useCodexRateLimitReset.test.ts:142<br>hooks/useCodexRateLimitReset.ts:52 | 使用原请求重试为 {{account}} 确认过的重置，不会消耗另一张重置。 | 使用原请求重试为 {{account}} 确认过的重置，不会消耗另一张重置。（建议（需人工定稿）） |
+| 29 | codexresets.confirmretrybody | hooks/useCodexRateLimitReset.ts:52 | 使用原请求重试为 {{account}} 确认过的重置，不会消耗另一张重置。 | 使用原请求重试为 {{account}} 确认过的重置，不会消耗另一张重置。（建议（需人工定稿）） |
 | 27 | providergroup.member.removeconfirm.lastdescription | features/provider-group/ProviderGroupSection.tsx:101 | 它是组里最后一台电脑，移出后会删除 {{provider}} 的供应商组。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 25 | settings.providers.import.replacewarning | components/settings/__tests__/ProviderImportDialog.test.tsx:90<br>components/settings/__tests__/ProviderImportDialog.test.tsx:108 | 本次提供的 API Key 将替换所选连接的密钥。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 25 | settings.providers.import.replacewarning | 未定位 | 本次提供的 API Key 将替换所选连接的密钥。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 25 | settings.providers.import.confirmnote | components/settings/ProviderImportDialog.tsx:182 | 点击确认前不会保存任何内容，也不会访问供应商接口。 | 点击确认前不会保存任何内容（建议稿） |
-| 15 | settings.providers.llamacpp.description | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 选择下方模型，下载到本机运行。 | 选择下方模型，下载到本机运行（建议稿） |
+| 15 | settings.providers.llamacpp.description | 未定位 | 选择下方模型，下载到本机运行。 | 选择下方模型，下载到本机运行（建议稿） |
 | 13 | settings.providers.models.manage.hint | components/settings/UnifiedModelList.tsx:1085 | 用开关选择常用的对话模型。 | 用开关选择常用的对话模型（建议稿） |
 | 13 | settings.providers.wizard.pickhint | components/settings/AddProviderWizard.tsx:1769 | 选择你要连接的账号或服务。 | 选择你要连接的账号或服务（建议稿） |
 | 13 | settings.providers.custom.runtimefill.confirmsubtitle | components/settings/CustomProviderRuntimeFillOverlay.tsx:236 | 选择从 {{source}} 复制的字段。 | 选择从 {{source}} 复制的字段（建议稿） |
@@ -188,52 +188,52 @@
 
 ## 远程连接（40 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 151 | settings.remote.add.agentproxyhint | components/settings/RemoteSection.tsx:813 | 远端 127.0.0.1 的固定端口经 Cindy 维护的独立 SSH 隧道转回本机 Proxy（如 Clash 的 7890）。{{appName}} 不提供 Proxy，只建隧道；远端 agent 的 HTTPS_PROXY 写死这个固定端口，重连不漂移。修改配置后远端 codex daemon 会重启一次以生效。 | 远端 127.0.0.1 的固定端口经 Cindy 维护的独立 SSH 隧道转回本机 Proxy（如 Clash 的 7890）。（建议（需人工定稿）） |
 | 131 | settings.remotecontrol.hook.form.defaultworkspacerowhint | components/settings/HookConnectionsSection.tsx:1248 | 选中的目录是默认工作目录：Telegram 私聊、群和话题里，凡是没有单独选过项目的，任务都落在它里面（用 /workspace 单独选过的，仍按那个走）。请留意所选目录这一行的权限模式：设成「完全访问」时，任何群里 @ bot 都会以完全访问在这个仓库里执行。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 110 | settings.remote.keys.agenttrouble.fallbackbody | components/settings/SshKeySetupDialog.tsx:1089 | 你可以在添加 host 时改用「Identity file」方式，{{appName}} 会把密钥文件直接交给 ssh，每次连接时由你输入密码。完全不依赖 agent。安全权衡：每次连接都要输密码，但内存里也不会留任何密钥缓存，安全自负。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 96 | settings.remotecontrol.hook.form.legacydefaultsdescription | components/settings/HookConnectionsSection.tsx:277 | 这台设备保存过一份旧的官方 bot 默认设置，它仍是没有单独配置过的目录的兜底值（官方 Telegram 与 X 共用同一份）。这些值现在统一在每个目录里设置。恢复默认会一并清掉以下全部内容： | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 96 | settings.remote.keys.encrypthint | components/settings/SshKeySetupDialog.tsx:547 | passphrase 现在输入一次，然后 ssh-add 会把解密后的密钥缓存在系统 ssh-agent 里。macOS 还会把 passphrase 存到 Keychain，重启后自动恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 93 | settings.remotecontrol.hook.x.guide.withdrawbody | components/settings/__tests__/HookConnectionsSection.test.tsx:1997 | 提问者在要删除的回答下回复「@askmycindy /delete」（或「@askmycindy /删除」），正文中必须手动带上 @askmycindy。只删公开回帖，本地任务记录保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 72 | settings.remotecontrol.hook.x.guide.riskworkdirbody | components/settings/__tests__/HookConnectionsSection.test.tsx:2056 | X 任务都落在 X 连接设置里的默认工作目录，Agent 能读写其中文件，而结论会公开回帖 —— 默认目录指到私密仓库时，文件内容可能随之公开。 | X 任务都落在 X 连接设置里的默认工作目录，Agent 能读写其中文件，而结论（建议（需人工定稿）） |
+| 93 | settings.remotecontrol.hook.x.guide.withdrawbody | 未定位 | 提问者在要删除的回答下回复「@askmycindy /delete」（或「@askmycindy /删除」），正文中必须手动带上 @askmycindy。只删公开回帖，本地任务记录保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 72 | settings.remotecontrol.hook.x.guide.riskworkdirbody | 未定位 | X 任务都落在 X 连接设置里的默认工作目录，Agent 能读写其中文件，而结论会公开回帖 —— 默认目录指到私密仓库时，文件内容可能随之公开。 | X 任务都落在 X 连接设置里的默认工作目录，Agent 能读写其中文件，而结论（建议（需人工定稿）） |
 | 62 | settings.remote.keys.unlockhint | components/settings/SshKeySetupDialog.tsx:664 | 输入 passphrase 把这把密钥加载到 ssh-agent。我们把它直接喂给 `ssh-add` 后立刻丢弃，不保存。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 61 | settings.remotecontrol.hook.x.guide.riskpublicbody | components/settings/__tests__/HookConnectionsSection.test.tsx:1975<br>components/settings/__tests__/HookConnectionsSection.test.tsx:1982 | 我们的回复是一条公开推文，任何人都能看到。这个功能适合公开地找答案、解决问题，不适合处理私事 —— 那会有隐私暴露的风险。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 61 | settings.remotecontrol.hook.x.guide.riskpublicbody | 未定位 | 我们的回复是一条公开推文，任何人都能看到。这个功能适合公开地找答案、解决问题，不适合处理私事 —— 那会有隐私暴露的风险。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 60 | settings.remote.startsession.hint | components/settings/RemoteHostDetail.tsx:477 | 新建一个绑定到这台机器的 Maker。Codex 跑在远端，你在这里和它聊。工作目录支持 ~ 展开，不存在会确认后创建。 | 新建一个绑定到这台机器的 Maker（建议稿） |
 | 58 | settings.remotecontrol.revokeconfirm.description | apps/desktop/src/main/remote-desktop/controlledOverlay.ts:241<br>features/remote-device/ControlledBanner.tsx:214 | 撤销后，该设备会立即断开，并且无法再远程连接本机。之后需在「设置 → 远程连接」中恢复其访问权限，对方才能重新连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 50 | settings.remotecontrol.hook.multi.removeconfirmdescription | components/settings/HookConnectionsSection.tsx:955 | 解绑后 Slack workspace「{{team}}」将无法再向这台设备派发任务；需要时可随时重新授权绑定。 | 解绑后 Slack workspace「{{team}}」将无法再向这台设备派发任务；（机械初稿（需人工定稿）） |
 | 50 | remotedesktop.screenrecordinghelp | 未定位 | 打开系统设置，为当前 Cindy 开启屏幕录制。若系统要求重新启动，请重新打开 Cindy 后连接。 | 打开系统设置（建议稿） |
 | 48 | settings.devices.allowcontrolhint | components/settings/MyDevicesPanel.tsx:376 | 开启后，使用同一账号登录的其它设备无需逐次确认即可控制本机；本机会显示远程控制提示，可随时断开。 | 开启后，使用同一账号登录的其它设备无需逐次确认即可控制本机；（建议（需人工定稿）） |
 | 47 | settings.remote.add.auth.keyhint | components/settings/RemoteSection.tsx:542 | 直接读私钥文件。为了不存密码，不支持加密的密钥 —— 仅在 ssh-agent 不可用时使用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 47 | settings.devices.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 同一飞书账号登录的设备可以互相发现；开启「允许控制」后，你的其它设备可以远程连接本机的 {{appName}}。 | 同一飞书账号登录的设备可以互相发现（建议稿） |
-| 46 | settings.remotecontrol.hook.telegram.unlinkconfirmdescription | components/settings/__tests__/TelegramBehaviorSettings.test.tsx:77<br>components/settings/__tests__/TelegramBehaviorSettings.test.tsx:100 | 解绑后 Telegram 将不能再向这台设备派发消息；本地项目和 Slack 连接不受影响。 | 解绑后 Telegram 将不能再向这台设备派发消息；（机械初稿（需人工定稿）） |
-| 46 | settings.remote.configwarning | components/settings/RemoteSection.tsx:1335<br>components/settings/__tests__/RemoteSection.addFormOrder.test.ts:38 | 部分 SSH 配置规则 Cindy 无法解析，主机列表或连接信息可能与终端 SSH 不一致。 | 部分 SSH 配置规则 Cindy 无法解析，主机列表或连接信息可能与终端 SS（建议（需人工定稿）） |
+| 47 | settings.devices.description | 未定位 | 同一飞书账号登录的设备可以互相发现；开启「允许控制」后，你的其它设备可以远程连接本机的 {{appName}}。 | 同一飞书账号登录的设备可以互相发现（建议稿） |
+| 46 | settings.remotecontrol.hook.telegram.unlinkconfirmdescription | 未定位 | 解绑后 Telegram 将不能再向这台设备派发消息；本地项目和 Slack 连接不受影响。 | 解绑后 Telegram 将不能再向这台设备派发消息；（机械初稿（需人工定稿）） |
+| 46 | settings.remote.configwarning | components/settings/RemoteSection.tsx:1335 | 部分 SSH 配置规则 Cindy 无法解析，主机列表或连接信息可能与终端 SSH 不一致。 | 部分 SSH 配置规则 Cindy 无法解析，主机列表或连接信息可能与终端 SS（建议（需人工定稿）） |
 | 45 | remotedesktop.permissionsintro | apps/mobile/src/remote-desktop/PermissionGuide.tsx:90<br>components/settings/RemoteDesktopPermissions.tsx:71 | 查看桌面需要屏幕录制权限；操作桌面还需要辅助功能权限。请在电脑上完成授权，结果会自动更新。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 44 | settings.remote.keys.passstoragenote | components/settings/SshKeySetupDialog.tsx:577<br>components/settings/SshKeySetupDialog.tsx:682 | {{appName}} 不存任何 passphrase。仅在调用 ssh-add 时使用，完成后立即丢弃。 | {{appName}} 不存任何 passphrase。（机械初稿（需人工定稿）） |
 | 44 | remotedevice.controlledtooltip | features/remote-device/ControlledBanner.tsx:238 | 这些设备连接了 Cindy 的任务，不代表正在控制桌面鼠标和键盘。你可以撤销其访问权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 42 | settings.remote.startsession.confirmcreatedescription | components/settings/RemoteHostDetail.tsx:412 | {{path}} 在 {{hostId}} 上不存在。点确认会在远端跑 mkdir -p 创建它，然后进入任务。 | {{path}} 在 {{hostId}} 上不存在。（机械初稿（需人工定稿）） |
 | 41 | remotedesktop.accessibilityhelp | 未定位 | 点击打开设置后，为系统授权提示中的应用开启辅助功能。返回后会自动检测实际输入权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 41 | settings.remote.footnote | components/settings/__tests__/TelegramBehaviorSettings.test.tsx:77<br>components/settings/__tests__/TelegramBehaviorSettings.test.tsx:100 | 第一版仅支持 SSH 连接管理。在远端运行 Agent 的能力将在后续版本中加入。 | 第一版仅支持 SSH 连接管理（建议稿） |
+| 41 | settings.remote.footnote | 未定位 | 第一版仅支持 SSH 连接管理。在远端运行 Agent 的能力将在后续版本中加入。 | 第一版仅支持 SSH 连接管理（建议稿） |
 | 36 | settings.remote.empty.hint | components/settings/RemoteSection.tsx:1361 | 点击"添加"注册一台，或点刷新图标从 ~/.ssh/config 导入。 | 点击"添加"注册一台（建议稿） |
-| 36 | settings.remotecontrol.hook.x.unlinkconfirmdescription | components/settings/__tests__/HookConnectionsSection.test.tsx:487<br>components/settings/__tests__/HookConnectionsSection.test.tsx:493 | 解绑后 X 将不能再向这台设备派发任务；本地项目和其它渠道连接不受影响。 | 解绑后 X 将不能再向这台设备派发任务；（机械初稿（需人工定稿）） |
+| 36 | settings.remotecontrol.hook.x.unlinkconfirmdescription | 未定位 | 解绑后 X 将不能再向这台设备派发任务；本地项目和其它渠道连接不受影响。 | 解绑后 X 将不能再向这台设备派发任务；（机械初稿（需人工定稿）） |
 | 36 | settings.devices.standbyhint | components/settings/MyDevicesPanel.tsx:355 | 本机另一 Cindy 实例正在使用远程连接。关闭它后，本实例会自动接管。 | 本机另一 Cindy 实例正在使用远程连接。（机械初稿（需人工定稿）） |
 | 35 | settings.remote.add.auth.agenthint | components/settings/RemoteSection.tsx:532 | 使用系统正在运行的 ssh-agent。私钥不会进入 {{appName}} 进程内存。 | 使用系统正在运行的 ssh-agent。（机械初稿（需人工定稿）） |
 | 34 | remotedesktop.privacyscreenhint | 未定位 | 遮住电脑屏幕。在电脑上点击鼠标或按键，确认后断开连接，并按设置锁屏。 | 遮住电脑屏幕。（机械初稿（需人工定稿）） |
 | 33 | settings.remote.keys.empty | components/settings/SshKeySetupDialog.tsx:371 | ~/.ssh/ 下没找到 SSH 密钥。点"生成新密钥"创建一把。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 31 | settings.remotecontrol.description | components/settings/RemoteControlSection.tsx:264 | 在同账号的设备之间互相远程操控，或通过 SSH 连接远端主机。 | 在同账号的设备之间互相远程操控（建议稿） |
-| 29 | settings.remotecontrol.hook.multi.removedisplacedconfirmdescription | components/settings/HookConnectionsSection.tsx:954<br>components/settings/__tests__/HookConnectionsSection.test.tsx:311 | 该绑定已被另一台设备顶替，删除只是把这一行从本机列表移除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 29 | remotedesktop.permissionhint | apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:5027<br>components/settings/RemoteDesktopSetting.tsx:62 | 请在电脑的系统设置中允许屏幕录制和辅助功能，然后重新连接。 | 然后重新连接（建议稿） |
-| 28 | settings.remotecontrol.hook.telegram.disabledhint | components/settings/__tests__/TelegramBehaviorSettings.test.tsx:77<br>components/settings/__tests__/TelegramBehaviorSettings.test.tsx:100 | 打开开关后，按提示在 Telegram 里完成账号关联。 | 打开开关后（建议稿） |
+| 29 | settings.remotecontrol.hook.multi.removedisplacedconfirmdescription | components/settings/HookConnectionsSection.tsx:954 | 该绑定已被另一台设备顶替，删除只是把这一行从本机列表移除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 29 | remotedesktop.permissionhint | components/settings/RemoteDesktopSetting.tsx:62 | 请在电脑的系统设置中允许屏幕录制和辅助功能，然后重新连接。 | 然后重新连接（建议稿） |
+| 28 | settings.remotecontrol.hook.telegram.disabledhint | 未定位 | 打开开关后，按提示在 Telegram 里完成账号关联。 | 打开开关后（建议稿） |
 | 26 | remotedesktop.autounlockhint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:123<br>features/remote-desktop/RemoteDesktopViewerWindow.tsx:731 | 在此设备保存 Mac 登录密码，连接时自动解锁电脑。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 25 | remotedesktop.autounlockstoragehint | apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:3036<br>apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:3413 | 密码仅加密保存在当前设备。设置和密码不随账号同步。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 25 | remotedesktop.autounlockstoragehint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:187<br>features/remote-desktop/RemoteDesktopViewerWindow.tsx:749 | 密码仅加密保存在当前设备。设置和密码不随账号同步。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 22 | remotedesktop.clipboardsynchint | 未定位 | 此窗口在前台时，双向同步文字、图片和富文本。 | 此窗口在前台时（建议稿） |
-| 19 | settings.remotecontrol.hook.x.disabledhint | components/settings/__tests__/HookConnectionsSection.test.tsx:487<br>components/settings/__tests__/HookConnectionsSection.test.tsx:493 | 打开开关后，按提示完成 X 账号授权。 | 打开开关后，按提示完成 X 账号授权（建议稿） |
+| 19 | settings.remotecontrol.hook.x.disabledhint | 未定位 | 打开开关后，按提示完成 X 账号授权。 | 打开开关后，按提示完成 X 账号授权（建议稿） |
 | 11 | remotedesktop.hostmutehint | 未定位 | 连接期间将被控电脑静音 | 连接期间将被控电脑静音（建议稿） |
 | 9 | settings.remote.startsession.errorworkdirempty | components/settings/RemoteHostDetail.tsx:383 | 请输入远端工作目录 | 请输入远端工作目录（建议稿） |
 
 ## 关于（37 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 208 | settings.about.storage.dbslimmingincludeactiveconfirmdescription | apps/desktop/src/main/bootstrap-electron.ts:8439<br>components/settings/StorageManagementCard.tsx:735 | 未归档任务即使超过所选时间，也可能仍在运行。清理不会等待任务停止，任务在扫描后继续产生的消息也可能被清除。启用后，超过所选时间的未归档、已归档和软删除任务都会被清理。符合范围的未归档任务历史消息和 Agent 上下文将被清除；普通任务条目也将从列表移除，伙伴主任务仍会保留。数据库备份可以恢复任务和消息数据；不创建备份时，这些数据也无法恢复。用于审查或撤销这些消息所产生文件改动的记录不包含在数据库备份中，无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 122 | settings.about.logupload.scopedescription | components/settings/AboutSection.tsx:877 | 上传内容：Cindy 自身的运行记录（启动与退出、崩溃、网络、更新、数据库、登录）和设备环境信息（系统版本、应用版本、设备标识符），登录后还包含你的账号 ID。不上传：对话内容、文件内容、提示词、工作目录路径。凭证与邮箱地址会在上传前自动抹除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -242,8 +242,8 @@
 | 76 | settings.about.storage.dbslimmingdescription | components/settings/StorageManagementCard.tsx:853 | 扫描超过所选时间未更新的软删除和已归档任务历史，可选择同时纳入未归档任务。确认后重启 Cindy，在数据库打开前清理并压缩。不会删除磁盘附件或生成媒体。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 70 | update.linuxinstallation.description | components/sidebar/UpdateBanner.tsx:343 | 请使用对应的包管理器，或参考 Linux 用户目录安装指南。受管理的安装可能需要补齐工具或恢复写入权限。Cindy 和已下载的更新均已保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 59 | settings.about.storage.cleanupdescription | components/settings/StorageManagementCard.tsx:431 | 扫描没有被任何任务引用的媒体文件、超限缓存与废弃目录。先报数，确认后才删除；输入框草稿和排队消息里的图片会被自动保护。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 59 | settings.about.pikernel.updatedescription | components/settings/PiKernelVersionRow.tsx:32<br>components/settings/PiKernelVersionRow.tsx:65 | 此版本由 Pi 上游发布，可能存在 Cindy 兼容性问题，可随时恢复 Cindy 正式版。已有任务继续使用当前版本。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 57 | settings.about.linuxupdatedescription | components/settings/AboutSection.tsx:521<br>components/settings/__tests__/linuxUpdateSettings.test.tsx:64 | 更新在你选择重启时生效。系统 .deb 安装需要系统密码，用户目录安装不需要。其他安装方式请通过对应包管理器更新。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 59 | settings.about.pikernel.updatedescription | 未定位 | 此版本由 Pi 上游发布，可能存在 Cindy 兼容性问题，可随时恢复 Cindy 正式版。已有任务继续使用当前版本。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 57 | settings.about.linuxupdatedescription | components/settings/AboutSection.tsx:521 | 更新在你选择重启时生效。系统 .deb 安装需要系统密码，用户目录安装不需要。其他安装方式请通过对应包管理器更新。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 54 | settings.about.storage.chatattachmentsdescription | components/settings/StorageManagementCard.tsx:373 | 发送的部分附件会保存在这里。Cindy 不会自动扫描或清理此目录；删除文件后，历史消息中的附件可能无法打开。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 54 | settings.about.storage.chatattachmentsclearconfirmdescription | apps/desktop/src/main/bootstrap-electron.ts:8348 | 只会删除消息附件缓存目录中的文件，不会读取消息数据库。清理后，历史消息中的部分附件可能无法打开，且无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 51 | update.agentautoupdate.enabledescription | apps/desktop/src/main/agent-app-update/agentAppUpdateService.ts:492 | 开启后，更新下载完成时，如果这台电脑已空闲 10 分钟且没有正在运行的任务，{{appName}} 会自动重启完成安装。 | 更新下载完成时（建议稿） |
@@ -253,12 +253,12 @@
 | 49 | settings.about.storage.legacyimagesdescription | components/settings/StorageManagementCard.tsx:349 | Cindy 不会自动扫描或清理此目录。删除文件后，历史消息中的图片可能无法显示，请自行确认后操作。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 42 | settings.about.autoupdatedescription | components/settings/AboutSection.tsx:566 | 更新下载完成后，当这台电脑 10 分钟无操作且没有任务运行时，自动重启应用完成安装。 | 更新下载完成后（建议稿） |
 | 40 | settings.betachannel.description | components/settings/BetaChannelCell.tsx:101 | 加入 Beta 测试渠道，提前接收即将发布的客户端更新。开启后需重启客户端生效。 | 加入 Beta 测试渠道（建议稿） |
-| 37 | settings.about.harnessupdatedescription | components/settings/AboutSection.tsx:241<br>components/settings/__tests__/AboutSection.binaryVersions.test.tsx:234 | 将重启 Cindy，并在启动时更新 {{name}}。当前版本 {{currentVersion}}，线上版本 {{latestVersion}}。 | 将重启 Cindy，并在启动时更新 {{name}}（建议稿） |
+| 37 | settings.about.harnessupdatedescription | components/settings/AboutSection.tsx:241 | 将重启 Cindy，并在启动时更新 {{name}}。当前版本 {{currentVersion}}，线上版本 {{latestVersion}}。 | 将重启 Cindy，并在启动时更新 {{name}}（建议稿） |
 | 36 | localdbfatal.databasecleanup.interrupteddescription | apps/desktop/src/main/localDb/index.ts:228 | 数据库清理异常中断。请重新启动 Cindy，系统会根据维护记录安全恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 36 | localdbfatal.databasecleanup.recoveryfaileddescription | apps/desktop/src/main/localDb/index.ts:238 | 数据库清理恢复失败，Cindy 已停止打开本地数据库以避免覆盖原始数据。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 34 | settings.about.storage.overviewdescription | components/settings/StorageManagementCard.tsx:250<br>components/settings/StorageManagementCard.tsx:270 | 数据库和媒体缓存保存在这台电脑上，Cindy 不会自动删除历史记录。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 32 | settings.about.storage.reconciledescription | components/settings/StorageManagementCard.tsx:530 | 核对媒体账本与磁盘文件是否一致。只检查、只报告，不删除任何内容。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 31 | settings.about.harnessupdatebusydescription | components/settings/AboutSection.tsx:266<br>components/settings/__tests__/AboutSection.binaryVersions.test.tsx:250 | 当前有任务正在进行中，重启会打断它们。确定要立即重启并更新吗？ | 当前有任务正在进行中，重启会打断它们。（机械初稿（需人工定稿）） |
+| 31 | settings.about.harnessupdatebusydescription | components/settings/AboutSection.tsx:266 | 当前有任务正在进行中，重启会打断它们。确定要立即重启并更新吗？ | 当前有任务正在进行中，重启会打断它们。（机械初稿（需人工定稿）） |
 | 31 | update.translocated.description | components/sidebar/UpdateBanner.tsx:394 | 请先将 {{appName}} 移动到「应用程序」文件夹，才能使用自动更新功能。 | 请先将 {{appName}} 移动到「应用程序」文件夹（建议稿） |
 | 29 | settings.betachannel.restartdescription | components/settings/BetaChannelCell.tsx:45 | Beta 测试渠道需要重启客户端后才能生效，是否立即重启？ | 是否立即重启（建议稿） |
 | 28 | settings.betachannel.restartbusydescription | components/settings/BetaChannelCell.tsx:63 | 当前有任务正在进行中，重启会打断它们。确定要立即重启吗？ | 当前有任务正在进行中，重启会打断它们。（机械初稿（需人工定稿）） |
@@ -268,25 +268,25 @@
 | 15 | settings.about.openlogsdirtooltip | components/settings/AboutSection.tsx:726 | 在系统文件管理器中打开日志目录 | 在系统文件管理器中打开日志目录（建议稿） |
 | 15 | update.banner.confirmtooltip | components/sidebar/UpdateBanner.tsx:431 | 仍有任务在运行中，重启会中断它 | 仍有任务在运行中，重启会中断它（建议稿） |
 | 14 | settings.about.storage.mediasectionhint | components/settings/StorageManagementCard.settings-search.ts:10<br>components/settings/StorageManagementCard.tsx:333 | 单独管理；清理前请先确认内容 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 11 | update.linuxinstallation.guide | components/sidebar/UpdateBanner.tsx:344<br>__tests__/updateBannerRelaunchEntry.test.tsx:162 | 打开 Linux 指南 | 打开 Linux 指南（建议稿） |
-| 11 | update.banner.confirmbusyhint | components/sidebar/UpdateBanner.tsx:547<br>__tests__/updateBannerRelaunchEntry.test.tsx:211 | 重启会中断运行中的任务 | 重启会中断运行中的任务（建议稿） |
+| 11 | update.linuxinstallation.guide | components/sidebar/UpdateBanner.tsx:344 | 打开 Linux 指南 | 打开 Linux 指南（建议稿） |
+| 11 | update.banner.confirmbusyhint | components/sidebar/UpdateBanner.tsx:547 | 重启会中断运行中的任务 | 重启会中断运行中的任务（建议稿） |
 | 8 | update.banner.preparingtooltip | components/sidebar/UpdateBanner.tsx:466 | 正在准备新版本… | 正在准备新版本…（建议稿） |
 | 7 | update.banner.subtitle | components/sidebar/UpdateBanner.tsx:548 | 重启以应用更新 | 重启以应用更新（建议稿） |
 
 ## 共享任务（30 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 62 | sessionshare.import.riskwarning | components/settings/SessionShareImportWizard.tsx:349 | 该文件来自外部分享，请确认来源可信。导入的历史内容可能影响 AI 的后续行为；继续对话时，AI 仍可读写本机文件、执行命令。 | 该文件来自外部分享，请确认来源可信。（建议（需人工定稿）） |
 | 53 | sessionshare.import.conflictbody | components/settings/SessionShareImportWizard.tsx:415 | 本机已存在相同标识的任务（此前导入过，或原任务就在本机）。重新导入将覆盖已有任务，替换为此分享包中的内容。 | 本机已存在相同标识的任务（此前导入过，或原任务就在本机）。（建议（需人工定稿）） |
 | 50 | sessionshare.export.sensitivewarning | features/cc-agent/sidebar/SessionShareExportDialog.tsx:153 | 导出文件包含此任务的完整对话记录与工具输出（可能含文件内容、命令结果等敏感信息），请确认接收方可信。 | 导出文件包含此任务的完整对话记录与工具输出（可能含文件内容、命令结果等敏感信息）（建议（需人工定稿）） |
 | 44 | sessionshare.export.oversizehint | features/cc-agent/sidebar/SessionShareExportDialog.tsx:158 | 内容超出体积上限，其中媒体文件约 {{mediaMb}} MB。可排除媒体后重新导出（保留文字与上下文）。 | 内容超出体积上限（建议稿） |
-| 39 | closeallnote | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 全部关闭后，访客无法继续访问，原邀请失效。任务记录和 Agent 工作会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 39 | closeallnote | 未定位 | 全部关闭后，访客无法继续访问，原邀请失效。任务记录和 Agent 工作会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 37 | sharedtask.remotehostofflinenote | features/device-link/SharedTaskDialog.tsx:355 | 房主电脑持续离线后，共享会自动结束。再次共享需重新开启并发送新的邀请链接。 | 房主电脑持续离线后，共享会自动结束。（机械初稿（需人工定稿）） |
 | 37 | sharedtask.invitenotice | features/device-link/SharedTaskDialog.tsx:332 | 持有邀请链接的用户登录后即可加入，拥有与房主相同的 Agent 使用权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 37 | sharedtask.inviteboxhint | features/device-link/SharedTaskDialog.tsx:344 | 将链接发送给伙伴，对方点击即可加入。手机端也可复制链接后打开 Cindy。 | 将链接发送给伙伴，对方点击即可加入。（机械初稿（需人工定稿）） |
 | 37 | sharedtask.hostofflinenote | features/device-link/SharedTaskDialog.tsx:355 | 这台电脑持续离线后，共享会自动结束。再次共享需重新开启并发送新的邀请链接。 | 这台电脑持续离线后，共享会自动结束。（机械初稿（需人工定稿）） |
-| 36 | hostofflinebody | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 这个任务的共享已关闭，原邀请已失效。请联系房主重新开启共享并发送新邀请。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 36 | hostofflinebody | 未定位 | 这个任务的共享已关闭，原邀请已失效。请联系房主重新开启共享并发送新邀请。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 35 | sharedtask.accessendedbody | apps/mobile/src/session/SharedTaskEndedState.tsx:17<br>features/device-link/SharedTaskEndedNotice.tsx:44 | 当前已无法访问这个共享任务。如需再次加入，请联系房主发送新的邀请链接。 | 当前已无法访问这个共享任务。（机械初稿（需人工定稿）） |
 | 35 | sharedtask.joinnotice | apps/mobile/src/session/ClipboardSharedTaskPrompt.tsx:38<br>features/device-link/SharedTaskDialog.tsx:385 | 加入后可查看全部历史，并直接向 Agent 发消息，无需等待房主审批。 | 加入后可查看全部历史（建议稿） |
 | 35 | invitenotice | features/device-link/SharedTaskDialog.tsx:332 | 持有邀请的用户登录后即可加入，拥有与房主相同的 Agent 使用权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -301,7 +301,7 @@
 | 26 | sessionshare.import.workdirhint | components/settings/SessionShareImportWizard.tsx:357 | 原任务的工作目录是 {{originalDir}}，请选择你机器上对应的目录。 | 原任务的工作目录是 {{originalDir}}（建议稿） |
 | 26 | sharedtask.closeallbody | features/device-link/SharedTaskDialog.tsx:315 | 以下任务的所有访客将无法继续访问，原邀请链接将失效。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 26 | sharedtask.joinedmanageintro | features/device-link/SharedTaskDialog.tsx:362<br>features/device-link/SharedTaskDialog.tsx:376 | 退出后将无法继续访问该共享；房主和其他成员不受影响。 | 退出后将无法继续访问该共享；（建议（需人工定稿）） |
-| 25 | removebody | features/device-link/SharedTaskDialog.tsx:314<br>apps/desktop/src/main/localDb/ipc/botRemoteMemory.ts:58 | 该访客将无法继续访问。再次加入需要房主生成新邀请。 | 该访客将无法继续访问。（机械初稿（需人工定稿）） |
+| 25 | removebody | apps/desktop/src/main/localDb/ipc/botRemoteMemory.ts:58<br>apps/desktop/src/main/localDb/ipc/botRemoteMemory.ts:172 | 该访客将无法继续访问。再次加入需要房主生成新邀请。 | 该访客将无法继续访问。（机械初稿（需人工定稿）） |
 | 22 | ownedemptyhint | features/device-link/SharedTaskDialog.tsx:365 | 打开一个任务，在任务菜单中选择“共享任务”。 | 打开一个任务（建议稿） |
 | 21 | sharedtask.joinedemptyhint | features/device-link/SharedTaskDialog.tsx:365 | 打开伙伴发来的邀请链接，即可加入共享任务。 | 打开伙伴发来的邀请链接，即可加入共享任务（建议稿） |
 | 21 | sharedtask.closeonebody | features/device-link/SharedTaskExitDialog.tsx:70<br>features/device-link/SharedTaskDialog.tsx:315 | 所有访客将无法继续访问，原邀请链接将失效。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -310,61 +310,61 @@
 
 ## 键盘快捷键（30 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 61 | settings.shortcuts.workloudercodex.agentkeys.singletap.description | components/settings/WorkLouderCodexSettings.tsx:688 | 开启后按一下就打开任务并激活 Cindy。关闭后按一下仍会在后台切换任务；350 毫秒内再按同一个键才会激活 Cindy。 | 开启后按一下就打开任务并激活 Cindy。（机械初稿（需人工定稿）） |
 | 32 | settings.shortcuts.workloudercodex.layout.editor.keydescription | components/settings/WorkLouderCodexSettings.tsx:739<br>components/settings/WorkLouderCodexSettings.tsx:810 | 任务键打开任务并显示状态灯；动作键执行快捷操作，并可以选择键帽。 | 任务键打开任务并显示状态灯（建议稿） |
 | 30 | settings.shortcuts.workloudercodex.layout.reset.description | components/settings/WorkLouderCodexSettings.tsx:625 | 恢复键帽、摇杆、旋钮和麦克风分配，不改变任务顺序或灯光设置。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 25 | settings.shortcuts.workloudercodex.lighting.autodim.description | components/settings/WorkLouderCodexSettings.tsx:1031 | 闲置后关闭灯光；使用键盘或任务状态变化时自动恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 23 | settings.shortcuts.workloudercodex.commands.composer.submit.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 发送输入框中的消息；若有待确认的请求则改为批准 | 发送输入框中的消息（建议稿） |
+| 23 | settings.shortcuts.workloudercodex.commands.composer.submit.description | 未定位 | 发送输入框中的消息；若有待确认的请求则改为批准 | 发送输入框中的消息（建议稿） |
 | 19 | settings.shortcuts.workloudercodex.agentkeys.customdescription | components/settings/WorkLouderCodexSettings.tsx:482<br>components/settings/WorkLouderCodexSettings.tsx:811 | 来源设为自定义时，这个任务键打开什么。 | 来源设为自定义时，这个任务键打开什么（建议稿） |
 | 17 | settings.shortcuts.workloudercodex.layout.keyboard.description | components/settings/WorkLouderCodexSettings.tsx:620 | 点击键帽，选择它的标签和预置动作。 | 点击键帽，选择它的标签和预置动作（建议稿） |
 | 17 | settings.shortcuts.items.cycle-permission-mode.description | apps/desktop/src/shared/appShortcuts.ts:164 | 输入框聚焦时循环切换任务的权限模式 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 16 | settings.shortcuts.items.open-terminal.description | apps/desktop/src/shared/appShortcuts.ts:210 | 在右侧栏打开终端（已打开则聚焦） | 在右侧栏打开终端（已打开则聚焦）（建议稿） |
-| 16 | settings.shortcuts.workloudercodex.commands.composer.toggleplanmode.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 在当前输入框中开启或关闭计划模式 | 在当前输入框中开启或关闭计划模式（建议稿） |
-| 16 | settings.shortcuts.workloudercodex.commands.composer.togglefastmode.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 在当前输入框中开启或关闭快速模式 | 在当前输入框中开启或关闭快速模式（建议稿） |
+| 16 | settings.shortcuts.workloudercodex.commands.composer.toggleplanmode.description | 未定位 | 在当前输入框中开启或关闭计划模式 | 在当前输入框中开启或关闭计划模式（建议稿） |
+| 16 | settings.shortcuts.workloudercodex.commands.composer.togglefastmode.description | 未定位 | 在当前输入框中开启或关闭快速模式 | 在当前输入框中开启或关闭快速模式（建议稿） |
 | 16 | settings.shortcuts.workloudercodex.encoder.mode.description | components/settings/WorkLouderCodexSettings.tsx:500<br>components/settings/WorkLouderCodexSettings.tsx:917 | 选择旋转和按下旋钮时控制的功能。 | 选择旋转和按下旋钮时控制的功能（建议稿） |
 | 16 | settings.shortcuts.items.find-in-page.description | apps/desktop/src/shared/appShortcuts.ts:230 | 在当前页面或打开的文档中查找文本 | 在当前页面或打开的文档中查找文本（建议稿） |
 | 15 | settings.shortcuts.workloudercodex.layout.editor.description | components/settings/WorkLouderCodexSettings.tsx:740 | 选择这个实体按键上显示的键帽。 | 选择这个实体按键上显示的键帽（建议稿） |
-| 15 | settings.shortcuts.workloudercodex.commands.session.selectprevious.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 打开侧边栏里当前任务上面的那个 | 打开侧边栏里当前任务上面的那个（建议稿） |
-| 15 | settings.shortcuts.workloudercodex.commands.session.selectnext.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 打开侧边栏里当前任务下面的那个 | 打开侧边栏里当前任务下面的那个（建议稿） |
-| 13 | settings.shortcuts.workloudercodex.commands.composer.addfiles.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 把文件和文件夹附加到输入框 | 把文件和文件夹附加到输入框（建议稿） |
+| 15 | settings.shortcuts.workloudercodex.commands.session.selectprevious.description | 未定位 | 打开侧边栏里当前任务上面的那个 | 打开侧边栏里当前任务上面的那个（建议稿） |
+| 15 | settings.shortcuts.workloudercodex.commands.session.selectnext.description | 未定位 | 打开侧边栏里当前任务下面的那个 | 打开侧边栏里当前任务下面的那个（建议稿） |
+| 13 | settings.shortcuts.workloudercodex.commands.composer.addfiles.description | 未定位 | 把文件和文件夹附加到输入框 | 把文件和文件夹附加到输入框（建议稿） |
 | 13 | settings.shortcuts.items.browser-reload.description | apps/desktop/src/shared/appShortcuts.ts:320 | 重新加载内置浏览器当前页面 | 重新加载内置浏览器当前页面（建议稿） |
 | 12 | settings.shortcuts.items.save-file.description | apps/desktop/src/shared/appShortcuts.ts:247 | 将正在编辑的文档写入磁盘 | 将正在编辑的文档写入磁盘（建议稿） |
-| 12 | settings.shortcuts.workloudercodex.commands.openbrowsertab.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 打开一个新的浏览器标签页 | 打开一个新的浏览器标签页（建议稿） |
-| 12 | settings.shortcuts.workloudercodex.commands.composer.decreasereasoningeffort.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 降低当前输入框的推理强度 | 降低当前输入框的推理强度（建议稿） |
-| 12 | settings.shortcuts.workloudercodex.commands.composer.increasereasoningeffort.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 提高当前输入框的推理强度 | 提高当前输入框的推理强度（建议稿） |
-| 11 | settings.shortcuts.workloudercodex.commands.approval.decline.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 拒绝当前等待确认的请求 | 拒绝当前等待确认的请求（建议稿） |
-| 11 | settings.shortcuts.workloudercodex.commands.approval.approve.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 批准当前等待确认的请求 | 批准当前等待确认的请求（建议稿） |
-| 11 | settings.shortcuts.workloudercodex.commands.settings.description | apps/desktop/src/shared/appShortcuts.ts:219 | 打开 Cindy 设置 | 打开 Cindy 设置（建议稿） |
+| 12 | settings.shortcuts.workloudercodex.commands.openbrowsertab.description | 未定位 | 打开一个新的浏览器标签页 | 打开一个新的浏览器标签页（建议稿） |
+| 12 | settings.shortcuts.workloudercodex.commands.composer.decreasereasoningeffort.description | 未定位 | 降低当前输入框的推理强度 | 降低当前输入框的推理强度（建议稿） |
+| 12 | settings.shortcuts.workloudercodex.commands.composer.increasereasoningeffort.description | 未定位 | 提高当前输入框的推理强度 | 提高当前输入框的推理强度（建议稿） |
+| 11 | settings.shortcuts.workloudercodex.commands.approval.decline.description | 未定位 | 拒绝当前等待确认的请求 | 拒绝当前等待确认的请求（建议稿） |
+| 11 | settings.shortcuts.workloudercodex.commands.approval.approve.description | 未定位 | 批准当前等待确认的请求 | 批准当前等待确认的请求（建议稿） |
+| 11 | settings.shortcuts.workloudercodex.commands.settings.description | 未定位 | 打开 Cindy 设置 | 打开 Cindy 设置（建议稿） |
 | 10 | settings.shortcuts.accessories.description | components/settings/KeyboardShortcutsSection.tsx:100<br>components/settings/KeyboardShortcutsSection.settings-search.ts:9 | 键盘、手柄等输入设备 | 键盘、手柄等输入设备（建议稿） |
-| 9 | settings.shortcuts.workloudercodex.commands.composer.addphotos.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 把图片添加到输入框 | 把图片添加到输入框（建议稿） |
-| 8 | settings.shortcuts.workloudercodex.commands.composer.focus.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 把光标移到输入框 | 把光标移到输入框（建议稿） |
+| 9 | settings.shortcuts.workloudercodex.commands.composer.addphotos.description | 未定位 | 把图片添加到输入框 | 把图片添加到输入框（建议稿） |
+| 8 | settings.shortcuts.workloudercodex.commands.composer.focus.description | 未定位 | 把光标移到输入框 | 把光标移到输入框（建议稿） |
 | 6 | settings.shortcuts.items.open-settings.description | apps/desktop/src/shared/appShortcuts.ts:219 | 打开设置页面 | 打开设置页面（建议稿） |
-| 6 | settings.shortcuts.workloudercodex.commands.toggleterminal.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 打开终端面板 | 打开终端面板（建议稿） |
+| 6 | settings.shortcuts.workloudercodex.commands.toggleterminal.description | 未定位 | 打开终端面板 | 打开终端面板（建议稿） |
 
 ## 通用设置（28 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 149 | settings.contacts.description | components/settings/contacts/ContactsSection.tsx:210 | 为 Agent 建立的人物与组织档案库：跨平台身份反查(邮箱 / 飞书 / Slack / GitHub id → 这是谁)、关系背景与带日期的事件记录。Agent 在工作中自动沉淀，低置信条目进入待确认队列由你裁决。数据默认只保存在本机，也可由你开启设备间同步；查询与整理会经由你自己的模型处理。 | 为 Agent 建立的人物与组织档案库（建议稿） |
-| 80 | settings.visionbridge.enablehint | components/settings/VisionBridgeSection.settings-search.ts:8<br>components/settings/VisionBridgeSection.tsx:362 | 关闭时所有模型行为与之前完全一致。开启后，下方勾选的模型会把图片经视觉后端转成文字描述。启用后，发送给这些模型的图片以及同消息文字提示会发送给你选择的视觉后端。 | 关闭时所有模型行为与之前完全一致（建议稿） |
+| 80 | settings.visionbridge.enablehint | components/settings/VisionBridgeSection.tsx:362<br>components/settings/VisionBridgeSection.settings-search.ts:8 | 关闭时所有模型行为与之前完全一致。开启后，下方勾选的模型会把图片经视觉后端转成文字描述。启用后，发送给这些模型的图片以及同消息文字提示会发送给你选择的视觉后端。 | 关闭时所有模型行为与之前完全一致（建议稿） |
 | 79 | settings.contacts.sync.description | components/settings/contacts/ContactsSection.tsx:279 | 在需要参与的每台桌面设备上开启一次。设备在线时自动同步；同一局域网优先直连，否则发送端到端加密的中转数据。纯程序比对，不调用模型，也不产生 token 消耗。 | 在需要参与的每台桌面设备上开启一次。（机械初稿（需人工定稿）） |
 | 78 | settings.sessionruntimefallback.cell.description | components/settings/SessionRuntimeFallbackCell.tsx:81 | 连接或容量故障连续发生时，先切换到同名模型的其他已连接来源，再尝试当前 Agent 明确推荐的模型；不会切换 Agent，也不会改掉你保存的选择。默认关闭。 | 连接或容量故障连续发生时，先切换到同名模型的其他已连接来源，再尝试当前 Agent 明确推荐的模型；（机械初稿（需人工定稿）） |
 | 65 | settings.tina.chat.description | components/settings/HookConnectionsSection.tsx:1290 | 不落任何仓库的纯对话；在 Slack、Telegram 或 X 里选择 chat 即可使用，每条对话 lane 独立对应一个任务。 | 不落任何仓库的纯对话（建议稿） |
 | 52 | settings.messagenavrail.cell.description | components/settings/MessageNavRailCell.tsx:36 | 在对话正文左侧显示一列提问刻度：悬停预览提问和回答开头，点击跳回那一轮。仅在提问较多且窗口足够宽时出现。 | 在对话正文左侧显示一列提问刻度：悬停预览提问和回答开头，点击跳回那一轮。（机械初稿（需人工定稿）） |
 | 48 | settings.dingtalkbot.disconnectconfirm.description | components/settings/DingTalkBotSection.tsx:51 | 解绑后会断开连接，并清除本机保存的 Client ID、Client Secret 和主人绑定。 | 解绑后会断开连接，并清除本机保存的 Client ID、Client Secre（建议（需人工定稿）） |
-| 46 | settings.composer.sendshortcut.hint | components/settings/PersonalizationDetails.settings-search.ts:8<br>components/settings/__tests__/ComposerSendShortcutSection.test.tsx:17 | 开启后按 {{shortcut}} 发送消息；关闭后按 Enter 发送消息，按 Shift+Enter 换行。 | 开启后按 {{shortcut}} 发送消息（建议稿） |
+| 46 | settings.composer.sendshortcut.hint | components/settings/ComposerSendShortcutSection.tsx:37<br>components/settings/PersonalizationDetails.settings-search.ts:8 | 开启后按 {{shortcut}} 发送消息；关闭后按 Enter 发送消息，按 Shift+Enter 换行。 | 开启后按 {{shortcut}} 发送消息（建议稿） |
 | 41 | settings.gitsafety.description | components/settings/GitSafetySection.tsx:57 | 选择 Cindy 记录隐藏文件恢复点的范围。这只影响文件恢复成本，不影响对话回退。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 37 | settings.dingtalkbot.description | components/settings/DingTalkBotSection.tsx:64 | 连接你自建的钉钉机器人，通过 Stream 模式在私聊和群聊中使用 {{appName}}。 | 连接你自建的钉钉机器人（建议稿） |
 | 35 | settings.contacts.merge.confirmdescription | components/settings/contacts/ContactDetailPane.tsx:284 | 「{{source}}」的身份、事件、关联、分组将全部迁入，其档案随后删除，不可恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 34 | settings.windowbehavior.swallowactivationclickhint | components/settings/WindowBehaviorSection.tsx:230<br>components/settings/WindowBehaviorSection.settings-search.ts:12 | 左键点回后台窗口时，只唤起窗口。关闭后会同时操作点击位置，可能误触。 | 左键点回后台窗口时，只唤起窗口。（机械初稿（需人工定稿）） |
-| 33 | settings.appearance.wallpaper.description | components/settings/AppearanceSection.settings-search.ts:11<br>components/settings/WallpaperSection.tsx:104 | 为整个应用选择 Cindy 场景、自己的图片或视频，主题保持独立。 | 主题保持独立（建议稿） |
+| 33 | settings.appearance.wallpaper.description | components/settings/WallpaperSection.tsx:104<br>components/settings/AppearanceSection.settings-search.ts:11 | 为整个应用选择 Cindy 场景、自己的图片或视频，主题保持独立。 | 主题保持独立（建议稿） |
 | 33 | settings.windowbehavior.closebehavior.hint | components/settings/WindowBehaviorSection.tsx:210<br>components/settings/WindowBehaviorSection.settings-search.ts:11 | 每次关闭都按此设置执行。未设置时，首次关闭会询问；可随时在这里修改 | 每次关闭都按此设置执行（建议稿） |
 | 33 | settings.streamfade.hint | components/settings/StreamFadeSection.tsx:45 | 回复中的新文字逐渐显示。关闭后直接显示；系统开启减少动效时不启用。 | 回复中的新文字逐渐显示（建议稿） |
 | 32 | settings.notifications.wecomgroupconfiguredhint | components/settings/WecomBotSection.tsx:264 | 已配置（密钥 {{maskedKey}}）。开启总开关后，可在每个自动操作中按需发送。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 29 | settings.contacts.merge.hint | components/settings/contacts/ContactDetailPane.tsx:410 | 选择一份重复档案，将其身份、事件、关联并入「{{target}}」后删除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 29 | settings.visionbridge.backends.hint | components/settings/VisionBridgeSection.settings-search.ts:10<br>components/settings/VisionBridgeSection.tsx:438 | 选择最多两个把图片转文字的多模态模型。第二个（备用）可选。 | 选择最多两个把图片转文字的多模态模型（建议稿） |
+| 29 | settings.visionbridge.backends.hint | components/settings/VisionBridgeSection.tsx:438<br>components/settings/VisionBridgeSection.tsx:551 | 选择最多两个把图片转文字的多模态模型。第二个（备用）可选。 | 选择最多两个把图片转文字的多模态模型（建议稿） |
 | 27 | settings.dingtalkbot.errorhint | components/settings/DingTalkBotSection.tsx:175 | 连接失败，请检查凭证、Stream 模式和网络后重试。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 26 | settings.contacts.deleteconfirm.description | components/settings/contacts/ContactsManagerDialog.tsx:205 | 将同时删除其全部身份、事件记录与分组关系，不可恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 24 | settings.dingtalkbot.formhint | components/settings/DingTalkBotSection.tsx:179 | 凭证仅加密保存在本机；连接后首次私聊会绑定主人。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -378,56 +378,56 @@
 
 ## 自动操作（18 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 176 | settings.computeruse.browser.openforloginhint | components/settings/ComputerUseSection.tsx:1452 | 这是 Agent 专用的独立浏览器：基于你本机的 Chrome，但用一份独立配置（右上角显示为 Cindy），不会动你日常 Chrome 的标签页、书签和登录态。Agent 会在这里替你打开网页、阅读内容、点击和截图。需要登录的网站，点上面「打开 Agent 专用浏览器」手动登录一次即可——登录态会长期保留，之后 Agent 就能以你的身份继续操作。 | 这是 Agent 专用的独立浏览器：基于你本机的 Chrome，但用一份独立配置（右上角显示为 Cindy），不会动你日常 Chrome 的标签页、书签和登录态。（机械初稿（需人工定稿）） |
-| 175 | settings.computeruse.directcontrol.permissionintro.macosdescription | apps/desktop/src/main/__tests__/computerUsePluginIpc.test.ts:360 | 接下来 {{appName}} 会安装或打开 Cua Driver 的授权流程，并可能跳转到 macOS 系统设置。请先为 CuaDriver 授予「辅助功能」和「屏幕录制」核心权限；之后在使用过程中，macOS 可能还会按目标 App 或具体动作弹出额外确认。只有在你主动发起 Computer Use 任务时才应确认这些请求。完成后回到 {{appName}}，它会自动检查并启用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 175 | settings.computeruse.directcontrol.permissionintro.macosdescription | 未定位 | 接下来 {{appName}} 会安装或打开 Cua Driver 的授权流程，并可能跳转到 macOS 系统设置。请先为 CuaDriver 授予「辅助功能」和「屏幕录制」核心权限；之后在使用过程中，macOS 可能还会按目标 App 或具体动作弹出额外确认。只有在你主动发起 Computer Use 任务时才应确认这些请求。完成后回到 {{appName}}，它会自动检查并启用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 74 | settings.computeruse.description | components/settings/ComputerUseSection.tsx:1359 | 让 Agent 使用电脑和已连接设备替你完成任务。浏览器自动化使用独立浏览器；Android 自动化使用 ADB；电脑自动化依赖本机 driver。 | 让 Agent 使用电脑和已连接设备替你完成任务。（建议（需人工定稿）） |
 | 67 | settings.computeruse.realprofile.readdenieddescription | components/settings/realProfilePermissionGuide.ts:88<br>components/settings/ComputerUseSection.tsx:1154 | 读取 Chrome 登录文件需要系统允许 Cindy。请在「隐私与安全性 → 完全磁盘访问权限」中打开 Cindy，然后回到这里再试。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 65 | settings.computeruse.android.connectionguide.unauthorized.body | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:3748 | 请在手机弹出的「允许 USB 调试」窗口中点击「允许」，建议勾选「始终允许使用这台电脑」，然后回到 Cindy 点击「重新检查」。 | 建议勾选「始终允许使用这台电脑」（建议稿） |
-| 62 | settings.computeruse.directcontrol.permissionintro.description | apps/desktop/src/main/__tests__/computerUsePluginIpc.test.ts:359 | {{appName}} 将在本机安装或启动 Cua Driver，用于读取屏幕并执行点击、输入等操作。请仅在你主动发起自动操作电脑任务时启用。 | {{appName}} 将在本机安装或启动 Cua Driver，用于读取屏幕并执行点击、输入等操作。（机械初稿（需人工定稿）） |
+| 65 | settings.computeruse.android.connectionguide.unauthorized.body | 未定位 | 请在手机弹出的「允许 USB 调试」窗口中点击「允许」，建议勾选「始终允许使用这台电脑」，然后回到 Cindy 点击「重新检查」。 | 建议勾选「始终允许使用这台电脑」（建议稿） |
+| 62 | settings.computeruse.directcontrol.permissionintro.description | 未定位 | {{appName}} 将在本机安装或启动 Cua Driver，用于读取屏幕并执行点击、输入等操作。请仅在你主动发起自动操作电脑任务时启用。 | {{appName}} 将在本机安装或启动 Cua Driver，用于读取屏幕并执行点击、输入等操作。（机械初稿（需人工定稿）） |
 | 55 | settings.computeruse.directcontrol.permissions.macoshint | components/settings/ComputerUseSection.tsx:1730 | 电脑使用需要「辅助功能」和「屏幕录制」。实际使用时，macOS 仍可能按目标 App 或具体动作弹出额外确认。 | 电脑使用需要「辅助功能」和「屏幕录制」。（建议（需人工定稿）） |
 | 48 | settings.computeruse.realprofile.confirmdescription | components/settings/realProfilePermissionGuide.ts:8<br>components/settings/realProfilePermissionGuide.ts:10 | Agent 将能以你已登录的身份打开网页，包括邮箱、网盘和公司后台。可以随时关掉，拷贝会被删除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 48 | settings.computeruse.directcontrol.driverinfo | components/settings/ComputerUseSection.tsx:1724 | 自动操作电脑由开源 CUA Driver 提供，运行在本机，用于读取屏幕并执行点击、输入等操作。 | 运行在本机（建议稿） |
-| 47 | settings.computeruse.directcontrol.permissions.linuxhint | components/settings/ComputerPermissionGuideWindow.tsx:192<br>components/settings/ComputerPermissionGuideWindow.tsx:193 | Linux 不需要 macOS 的 TCC 授权；请确保当前桌面会话允许窗口读取和输入自动化。 | Linux 不需要 macOS 的 TCC 授权；（建议（需人工定稿）） |
+| 47 | settings.computeruse.directcontrol.permissions.linuxhint | 未定位 | Linux 不需要 macOS 的 TCC 授权；请确保当前桌面会话允许窗口读取和输入自动化。 | Linux 不需要 macOS 的 TCC 授权；（建议（需人工定稿）） |
 | 44 | settings.computeruse.android.togglehint | components/settings/ComputerUseSection.tsx:1986 | 这个全局开关只对之后新建的 Agent 会话生效；已在运行的 Agent 会话不受影响。 | 这个全局开关只对之后新建的 Agent 会话生效；（机械初稿（需人工定稿）） |
 | 42 | settings.computeruse.browser.togglehint | components/settings/ComputerUseSection.tsx:1456 | 这个开关只对之后新建的 Agent 会话生效；已在运行的 Agent 会话不受影响。 | 这个开关只对之后新建的 Agent 会话生效；（机械初稿（需人工定稿）） |
 | 37 | settings.computeruse.browserbackend.description | components/settings/BrowserBackendSubsection.tsx:69 | 选择 Agent 自动化操作时实际控制哪个浏览器。两种模式登录态相互独立。 | 选择 Agent 自动化操作时实际控制哪个浏览器。（建议（需人工定稿）） |
-| 35 | settings.computeruse.android.description | components/settings/ComputerUseSection.settings-search.ts:11<br>components/settings/ComputerUseSection.tsx:1777 | 让 Agent 通过 ADB 检查并操作已连接的 Android 设备 | 让 Agent 通过 ADB 检查并操作已连接的 Android 设备（建议（需人工定稿）） |
-| 30 | settings.computeruse.directcontrol.permissionguide.turnondescription | components/settings/ComputerPermissionGuideWindow.tsx:102<br>components/settings/ComputerPermissionGuideWindow.tsx:257 | 请在系统设置中打开这项权限。开启后，Cindy 会自动继续。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 27 | settings.computeruse.directcontrol.noprojecthint | components/settings/ComputerPermissionGuideWindow.tsx:102<br>components/settings/ComputerPermissionGuideWindow.tsx:192 | 从项目任务中打开「设置」可针对该项目开关直接电脑控制。 | 从项目任务中打开「设置」可针对该项目开关直接电脑控制。（建议（需人工定稿）） |
-| 27 | settings.computeruse.browser.noprojecthint | components/settings/browserOpenForLoginError.ts:8<br>components/settings/browserOpenForLoginError.ts:9 | 从项目任务中打开「设置」可针对该项目开关浏览器自动化。 | 从项目任务中打开「设置」可针对该项目开关浏览器自动化。（建议（需人工定稿）） |
-| 23 | settings.computeruse.directcontrol.description | components/settings/ComputerUseSection.settings-search.ts:10<br>components/settings/ComputerUseSection.tsx:1484 | 让 Agent 检查窗口、读取界面并点击或输入 | 让 Agent 检查窗口、读取界面并点击或输入（建议（需人工定稿）） |
+| 35 | settings.computeruse.android.description | components/settings/ComputerUseSection.tsx:1777<br>components/settings/ComputerUseSection.settings-search.ts:11 | 让 Agent 通过 ADB 检查并操作已连接的 Android 设备 | 让 Agent 通过 ADB 检查并操作已连接的 Android 设备（建议（需人工定稿）） |
+| 30 | settings.computeruse.directcontrol.permissionguide.turnondescription | 未定位 | 请在系统设置中打开这项权限。开启后，Cindy 会自动继续。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 27 | settings.computeruse.directcontrol.noprojecthint | 未定位 | 从项目任务中打开「设置」可针对该项目开关直接电脑控制。 | 从项目任务中打开「设置」可针对该项目开关直接电脑控制。（建议（需人工定稿）） |
+| 27 | settings.computeruse.browser.noprojecthint | 未定位 | 从项目任务中打开「设置」可针对该项目开关浏览器自动化。 | 从项目任务中打开「设置」可针对该项目开关浏览器自动化。（建议（需人工定稿）） |
+| 23 | settings.computeruse.directcontrol.description | components/settings/ComputerUseSection.tsx:1484<br>components/settings/ComputerUseSection.settings-search.ts:10 | 让 Agent 检查窗口、读取界面并点击或输入 | 让 Agent 检查窗口、读取界面并点击或输入（建议（需人工定稿）） |
 
 ## Cindy Make（18 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 69 | cindymake.history.stopconfirm.description | apps/desktop/src/main/cindy-make/__tests__/remoteProvider.test.ts:171<br>apps/desktop/src/main/cindy-make/remoteProjection.ts:204 | 会同时停止本次处理冲突的任务，丢弃临时冲突修改，清理临时文件，并撤回尚未生成成功版本的合入。原制作任务的修改、交流记录和已生成版本会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 69 | cindymake.history.stopconfirm.description | apps/desktop/src/main/cindy-make/remoteProjection.ts:204<br>components/cindy-make/useCindyMakeBuildStop.ts:39 | 会同时停止本次处理冲突的任务，丢弃临时冲突修改，清理临时文件，并撤回尚未生成成功版本的合入。原制作任务的修改、交流记录和已生成版本会保留。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 67 | settings.cindymake.forcemanaged.enabledhint | components/settings/CindyMakeSection.tsx:332 | 下方卡片可以测试 Windows 工具的下载与安装，已安装的 Cindy 工具会复用。开关立即生效，刷新或重启后关闭，不改动系统工具。 | 已安装的 Cindy 工具会复用（建议稿） |
 | 65 | settings.cindymake.forcemanaged.description | components/settings/CindyMakeSection.tsx:314 | 仅开发版可用。便携工具只检查 Cindy 管理的副本，并模拟 Windows 原生编译工具缺失。切换开关只重新检查，不会开始安装。 | 仅开发版可用（建议稿） |
 | 55 | settings.cindymake.source.resetconfirm.description | components/settings/CindyMakeSection.tsx:461 | 这会删除 Cindy 管理的源码目录，包括个人版分支和所有尚未打包的修改。清理后如需使用，请再次点击准备源码。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 51 | settings.cindymake.create.description | components/cindy-make/CindyMakeCreateDialog.tsx:101 | 说说你想让 Cindy 做哪些改变。接下来会打开制作任务，使用统一流程检查环境、准备源码，再继续制作。 | 说说你想让 Cindy 做哪些改变。（机械初稿（需人工定稿）） |
 | 44 | settings.cindymake.syncbeforebuild.description | components/settings/CindyMakeSection.settings-search.ts:10<br>components/settings/CindyMakeSection.tsx:394 | 开启后，每次生成或重新生成个人版前，会先把当前渠道的最新官方源码同步到个人版。默认关闭。 | 开启后，每次生成或重新生成个人版前，会先把当前渠道的最新官方源码同步到个人版。（机械初稿（需人工定稿）） |
-| 44 | cindymake.merge.conflictconfirm.description | components/cindy-make/__tests__/CindyMakeMergeNotice.i18n.test.tsx:163<br>components/cindy-make/useCindyMakeMergeResolution.ts:45 | 确认后会创建独立任务，由 Agent 自动处理冲突。取消将放弃本次合入，保留现有个人版。 | 确认后会创建独立任务（建议稿） |
-| 37 | settings.cindymake.tasks.finishhint | components/cindy-make/CindyMakeTasksPanel.tsx:110<br>components/cindy-make/CindyMakeTasksPanel.tsx:126 | 确认改动后完成制作，合入个人版并清理开发目录。对话记录保留在已归档任务中。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 44 | cindymake.merge.conflictconfirm.description | components/cindy-make/useCindyMakeMergeResolution.ts:45 | 确认后会创建独立任务，由 Agent 自动处理冲突。取消将放弃本次合入，保留现有个人版。 | 确认后会创建独立任务（建议稿） |
+| 37 | settings.cindymake.tasks.finishhint | 未定位 | 确认改动后完成制作，合入个人版并清理开发目录。对话记录保留在已归档任务中。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 37 | cindymake.versions.description | components/cindy-make/CindyMakeVersionsPanel.tsx:166 | 选择本机要使用的 Cindy 版本。切换后会重启，并保留账号、设置与任务。 | 选择本机要使用的 Cindy 版本（建议稿） |
 | 35 | cindymake.versions.readyhint | apps/desktop/src/main/cindy-make/remoteProjection.ts:147<br>components/cindy-make/CindyMakeTestCard.tsx:229 | 个人版已准备好。切换后会重启 Cindy，并保留当前账号、设置和任务。 | 个人版已准备好（建议稿） |
 | 35 | cindymake.versions.updatehint | components/cindy-make/CindyMakeTestCard.tsx:226 | 个人版已有新内容。重启后会使用最新个人版，并保留当前账号、设置和任务。 | 个人版已有新内容（建议稿） |
 | 31 | cindymake.test.readyhint | apps/desktop/src/main/cindy-make/remoteProjection.ts:151<br>components/cindy-make/CindyMakeTestCard.tsx:258 | 请在测试窗口体验修改。点击“继续修改”会关闭测试版并恢复输入。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 27 | settings.cindymake.tasks.endhint | components/cindy-make/CindyMakeTasksPanel.tsx:243 | 结束制作后会清理工作目录，保留制作历史与已保存的改动。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 25 | cindymake.test.resume.description | components/cindy-make/__tests__/CindyMakeEditingActions.test.tsx:141 | 先检查当前修改，通过后恢复测试和生成个人版的选项。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 25 | cindymake.test.resume.description | 未定位 | 先检查当前修改，通过后恢复测试和生成个人版的选项。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 25 | cindymake.versions.removedescription | components/cindy-make/CindyMakeVersionsPanel.tsx:201 | 仅删除生成的应用文件，保留源码、账号、设置和任务。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 24 | cindymake.test.startinghint | apps/desktop/src/main/cindy-make/remoteProjection.ts:149<br>components/cindy-make/__tests__/CindyMakeTestCard.test.tsx:244 | 启动完成前暂时不能继续修改，请等待当前步骤完成。 | 启动完成前暂时不能继续修改，请等待当前步骤完成。（建议（需人工定稿）） |
+| 24 | cindymake.test.startinghint | apps/desktop/src/main/cindy-make/remoteProjection.ts:149<br>components/cindy-make/CindyMakeTestCard.tsx:256 | 启动完成前暂时不能继续修改，请等待当前步骤完成。 | 启动完成前暂时不能继续修改，请等待当前步骤完成。（建议（需人工定稿）） |
 | 23 | cindymake.merge.buildinghint | components/settings/CindyMakeSection.tsx:562 | 个人版正在生成，完成或停止制作后才能同步源码。 | 个人版正在生成（建议稿） |
 | 10 | cindymake.versions.usinghint | components/cindy-make/CindyMakeTestCard.tsx:224 | 正在使用最新个人版。 | 正在使用最新个人版（建议稿） |
 
 ## 插件设置（17 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 179 | settings.ghosts.market.sources.guide.authbody | features/plugin/MarketplaceGuideDialog.tsx:181 | 认证完全依赖系统的 Git 配置，Cindy 不保存任何 Git 凭证。SSH 方式：本机已配置可用的 key；若组织开启了 SAML SSO，还需在 GitHub 的 SSH key 设置里为该组织点 Configure SSO 授权。HTTPS 方式：使用 Personal Access Token，并由系统 credential helper 保存。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 116 | settings.ghosts.market.sources.guide.rulesbody | cindy-brain/__tests__/installErrorKey.test.ts:71<br>cindy-brain/__tests__/installErrorKey.test.ts:110 | 插件 id 全局唯一、先装先得——与已安装插件冲突时会明确提示。id 使用官方保留前缀（{{reservedGhostIdPrefixes}}）的插件，不能通过拖入、选择文件或自定义插件市场装入。插件声明的权限会在详情页展示；点击安装后直接完成安装并自动开启，不再额外弹窗确认权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 116 | settings.ghosts.market.sources.guide.rulesbody | features/plugin/MarketplaceGuideDialog.tsx:185 | 插件 id 全局唯一、先装先得——与已安装插件冲突时会明确提示。id 使用官方保留前缀（{{reservedGhostIdPrefixes}}）的插件，不能通过拖入、选择文件或自定义插件市场装入。插件声明的权限会在详情页展示；点击安装后直接完成安装并自动开启，不再额外弹窗确认权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 104 | settings.ghosts.market.securitydescription | features/plugin/MarketPluginDetailView.tsx:132 | 安装包会在主进程中校验大小与 SHA-256，再经 Cindy 插件清单校验后原子安装。安装前会请你确认插件的权限，装好后即自动开启，可随时在插件页停用；更新会保留当前生效状态，新版本权限变多时会先请你确认。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 77 | settings.ghosts.market.customsecuritydescription | features/plugin/MarketPluginDetailView.tsx:131 | 该插件来自你添加的自定义市场，未经 Cindy 服务端完整性校验。安装前会在主进程校验插件清单并请你确认插件的权限；装好后即自动开启，可随时在插件页停用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 62 | settings.ghosts.library.relocateconfirmdescription | features/plugin/GhostLibrarySection.tsx:89<br>features/plugin/GhostLibrarySection.tsx:112 | 将把全部作品数据复制到新位置并逐项校验；原目录保留 14 天作为回滚余地。数据量大时可能需要几分钟，期间请尽量不使用该插件。 | 将把全部作品数据复制到新位置并逐项校验；（建议（需人工定稿）） |
@@ -436,9 +436,9 @@
 | 54 | settings.ghosts.market.replacedescription | features/plugin/GhostPluginPage.tsx:2160<br>features/plugin/MarketPluginDetailView.tsx:48 | 已安装相同标识的插件；继续安装会切换来源。原来源的数据将隔离保留，新来源不会继承原账号和密钥，需要重新连接。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 54 | settings.ghosts.market.sources.guide.structurebody | features/plugin/MarketplaceGuideDialog.tsx:165 | 市场仓库需要一份清单文件，以及若干插件目录。每个插件目录必须包含合法的 ghost.json（插件身份卡）。 | 市场仓库需要一份清单文件，以及若干插件目录。（建议（需人工定稿）） |
 | 52 | settings.ghosts.updateall.description | features/plugin/UpdateAllDialog.tsx:94 | 权限没变多的更新通常会静默完成；新版本权限变多时会逐个请你确认。这里也可重试因忙碌跳过或执行失败的更新。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 49 | settings.ghosts.retirement.embeddedsimulator.datanotice | features/plugin/__tests__/RetiredFeatureDetail.test.tsx:36 | 原模拟器的设备和应用数据不会被删除。安装 Baguette 不会自动迁移设备、App 或登录状态。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 30 | settings.ghosts.installconsent.updatedescription | apps/desktop/src/main/cindy-brain/__tests__/ghostInstallConsentInteraction.test.ts:36<br>cindy-brain/GhostInstallConsentHost.tsx:131 | 新版本需要更多权限，确认后才会更新；在此之前旧版本照常可用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 29 | settings.ghosts.installconsent.installdescription | apps/desktop/src/main/cindy-brain/__tests__/ghostInstallConsentInteraction.test.ts:35<br>cindy-brain/GhostInstallConsentHost.tsx:110 | 确认后才会安装，装好后立即启用，可随时在插件页停用或卸载。 | 确认后才会安装（建议稿） |
+| 49 | settings.ghosts.retirement.embeddedsimulator.datanotice | 未定位 | 原模拟器的设备和应用数据不会被删除。安装 Baguette 不会自动迁移设备、App 或登录状态。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 30 | settings.ghosts.installconsent.updatedescription | cindy-brain/GhostInstallConsentHost.tsx:131 | 新版本需要更多权限，确认后才会更新；在此之前旧版本照常可用。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 29 | settings.ghosts.installconsent.installdescription | cindy-brain/GhostInstallConsentHost.tsx:110 | 确认后才会安装，装好后立即启用，可随时在插件页停用或卸载。 | 确认后才会安装（建议稿） |
 | 29 | settings.ghosts.uninstallconfirm.description | features/plugin/GhostPluginPage.tsx:1331 | 面板与能力将随之移除；布局位置会保留，重新安装时原位复活。 | 面板与能力将随之移除（建议稿） |
 | 27 | settings.ghosts.emptyhint | features/plugin/GhostPluginPage.tsx:1918 | 可从插件市场安装，或点击右上角导入 .cindy 文件 | 可从插件市场安装（建议稿） |
 | 27 | settings.ghosts.library.softlimitwarning | features/plugin/GhostLibrarySection.tsx:217 | 库占用超过建议水位({{limit}})，建议清理或迁移到其它磁盘。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -446,7 +446,7 @@
 
 ## 语音输入（16 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 124 | settings.voiceinput.permissions.inputmonitoring.tooltip | components/settings/VoiceInputSection.tsx:2018 | 用于监听 Fn、单独 Command / Option / Control、带 Fn 的快捷键，以及 F1-F24 单键按住说话的松键事件。普通组合键不需要。已授权表示当前运行中的 App 可以监听快捷键；开发版可能由 Terminal 承载授权。 | 用于监听 Fn、单独 Command / Option / Control、带 Fn 的快捷键，以及 F1-F24 单键按住说话的松键事件。（建议（需人工定稿）） |
 | 68 | settings.voiceinput.fastactivation.hint | voice-input/WebMicAudioEngine.ts:186<br>components/settings/VoiceInputSection.settings-search.ts:18 | 用完后让麦克风短暂待命，缩短按下快捷键或按钮到开始录音的等待；通常可快约 100 毫秒。若 30 分钟内没有再次使用，会自动释放麦克风。 | 用完后让麦克风短暂待命，缩短按下快捷键或按钮到开始录音的等待；（机械初稿（需人工定稿）） |
@@ -467,17 +467,17 @@
 
 ## 用量历史（15 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 64 | usagedashboard.last30dtooltip | components/new-chat/HomeUsageDashboard.tsx:264 | 显示总额 {{total}} = API 实际计费 {{api}} + 订阅 token 价值估算 {{subscription}}。订阅价值用于衡量套餐用量价值，不代表真实账单。 | 显示总额 {{total}} = API 实际计费 {{api}} + 订阅 token 价值估算 {{subscription}}。（建议（需人工定稿）） |
 | 58 | billing.settings.subscriptioncard.cancelconfirmdescription | features/billing/BillingPage.tsx:808<br>features/billing/BillingPage.tsx:811 | 本次操作不会退款，也不会立即调整余额。当前套餐权益可继续使用至 {{date}}，之后不再续费。本计费周期结束前无法购买新套餐。 | 本次操作不会退款，也不会立即调整余额。（机械初稿（需人工定稿）） |
-| 43 | billing.orders.invoice.gmailfallbackdescription | features/billing/__tests__/BillingPage.test.tsx:3342<br>features/billing/BillingPage.tsx:2007 | 开票申请中包含订单信息。打开 Gmail 会将这些信息分享给 Google，是否继续？ | 开票申请中包含订单信息（建议稿） |
+| 43 | billing.orders.invoice.gmailfallbackdescription | features/billing/BillingPage.tsx:2007 | 开票申请中包含订单信息。打开 Gmail 会将这些信息分享给 Google，是否继续？ | 开票申请中包含订单信息（建议稿） |
 | 39 | usagedashboard.dailyestimatedtooltip | components/new-chat/UsageDailyBars.tsx:233 | API 计费 {{api}}；订阅 token 价值预估 {{subscription}}。订阅价值不代表真实账单。 | API 计费 {{api}}；（建议（需人工定稿）） |
-| 29 | billing.planchange.pendingproviderbody | features/billing/__tests__/PlanChangeDialog.test.tsx:141<br>features/billing/PlanChangeDialog.tsx:497 | 支付渠道正在处理本次变更，Cindy 会持续确认最新结果… | 支付渠道正在处理本次变更（建议稿） |
+| 29 | billing.planchange.pendingproviderbody | features/billing/PlanChangeDialog.tsx:497 | 支付渠道正在处理本次变更，Cindy 会持续确认最新结果… | 支付渠道正在处理本次变更（建议稿） |
 | 23 | billing.planchange.upgradehint | features/billing/PlanChangeDialog.tsx:515 | 支付完成后升级立即生效，后续按新套餐价格续费。 | 支付完成后升级立即生效（建议稿） |
 | 23 | billing.checkout.redirecthint | features/billing/BillingCheckoutDialog.tsx:230<br>features/billing/PlanChangeDialog.tsx:584 | 请在支付页面完成操作，完成后返回 Cindy。 | 请在支付页面完成操作（建议稿） |
-| 23 | billing.checkout.actionexpiredbody | features/billing/__tests__/BillingPage.test.tsx:835<br>features/billing/__tests__/BillingPage.test.tsx:840 | 二维码已过期，请关闭后重新选择以生成新的支付。 | 二维码已过期（建议稿） |
-| 22 | billing.planchange.resynchint | features/billing/__tests__/PlanChangeDialog.test.tsx:114<br>features/billing/PlanChangeDialog.tsx:529 | 确认结果暂时无法核实，正在重新确认最新状态… | 确认结果暂时无法核实，正在重新确认最新状态…（建议（需人工定稿）） |
+| 23 | billing.checkout.actionexpiredbody | features/billing/BillingCheckoutDialog.tsx:179 | 二维码已过期，请关闭后重新选择以生成新的支付。 | 二维码已过期（建议稿） |
+| 22 | billing.planchange.resynchint | features/billing/PlanChangeDialog.tsx:529 | 确认结果暂时无法核实，正在重新确认最新状态… | 确认结果暂时无法核实，正在重新确认最新状态…（建议（需人工定稿）） |
 | 21 | billing.planchange.expiredbody | features/billing/PlanChangeDialog.tsx:641 | 报价已过期，请重新发起套餐变更获取新报价。 | 报价已过期，请重新发起套餐变更获取新报价（建议稿） |
 | 16 | billing.checkout.expiredbody | features/billing/BillingCheckoutDialog.tsx:275 | 支付链接已过期，请重新创建支付。 | 支付链接已过期，请重新创建支付（建议稿） |
 | 12 | billing.planchange.quotingbody | features/billing/PlanChangeDialog.tsx:487 | 正在确认价格与生效时间… | 正在确认价格与生效时间…（建议稿） |
@@ -487,27 +487,27 @@
 
 ## 工具设置（13 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 156 | settings.agentresource.description | components/settings/AgentResourceSection.tsx:223 | 限制 Agent 命令行任务的系统资源占用，避免并行测试、构建把机器拖卡。默认全速（不干预）。并发上限即刻生效；优先级降档对已在跑的 Agent 进程约 15 秒内生效；把优先级调回正常和工具链限核只对新启动的 Agent 进程生效。仅作用于本机 Agent；远端（SSH）机器上的 Agent 不受本设置约束。 | 限制 Agent 命令行任务的系统资源占用，避免并行测试、构建把机器拖卡。（机械初稿（需人工定稿）） |
 | 76 | settings.agentresource.capthreadshint | components/settings/AgentResourceSection.tsx:332<br>components/settings/AgentResourceSection.settings-search.ts:11 | 注入 VITEST_MAX_FORKS、MAKEFLAGS 等环境变量，防止单条测试或构建命令占满全部 CPU 核心；你自己设置过的同名变量不会被覆盖。 | 注入 VITEST_MAX_FORKS、MAKEFLAGS 等环境变量，防止单条测试或构建命令占满全部 CPU 核心；（建议（需人工定稿）） |
 | 73 | settings.agentresource.maxconcurrenthint | components/settings/AgentResourceSection.tsx:276<br>components/settings/AgentResourceSection.settings-search.ts:9 | Claude Code 引擎所有命令的并发上限，超出的排队等待；0 表示不限。Codex 命令在自身沙箱内执行、不经此闸门，由优先级与限核层覆盖。 | Claude Code 引擎所有命令的并发上限，超出的排队等待；（机械初稿（需人工定稿）） |
 | 59 | settings.pipackages.inspectionhint | components/settings/PiPackagesSection.tsx:358 | Pi 包由 Pi 原生包系统安装和加载。Cindy 只展示建议性兼容详情；未知、不支持或分析失败都不会阻止安装和启用。 | Pi 包由 Pi 原生包系统安装和加载。未知、不支持或分析失败都不会阻止安装和启用。（建议（需人工定稿）） |
-| 54 | settings.builtintools.plugins.google.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | Google 集成 —— Sheets(只读)与 Gmail(搜索 / 读取 / 发送 / 草稿 / 标签) | Google 集成 —— Sheets(只读)与 Gmail(搜索 / 读取 /（建议（需人工定稿）） |
+| 54 | settings.builtintools.plugins.google.description | 未定位 | Google 集成 —— Sheets(只读)与 Gmail(搜索 / 读取 / 发送 / 草稿 / 标签) | Google 集成 —— Sheets(只读)与 Gmail(搜索 / 读取 /（建议（需人工定稿）） |
 | 44 | settings.pipackages.installsectiondescription | components/settings/PiPackagesSection.tsx:323 | 粘贴 pi.dev 页面上的安装来源，或输入 npm 包名、Git 地址、本地绝对路径。 | 粘贴 pi.dev 页面上的安装来源（建议稿） |
-| 43 | settings.builtintools.plugins.collab.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 关闭后仅影响后续新建的任务，不会中止当前 Worker；用于多 Worker 团队编排 | 关闭后仅影响后续新建的任务（建议稿） |
+| 43 | settings.builtintools.plugins.collab.description | 未定位 | 关闭后仅影响后续新建的任务，不会中止当前 Worker；用于多 Worker 团队编排 | 关闭后仅影响后续新建的任务（建议稿） |
 | 42 | settings.pipackages.uninstalldescription | 未定位 | 将从这台设备移除 {{name}}。当前已打开的 Pi 任务仍会保留旧扩展，关闭后才会彻底卸载。 | 将从这台设备移除 {{name}}（建议稿） |
 | 41 | settings.builtintools.togglehint | components/settings/BuiltinToolsSection.tsx:246 | 变更仅对新建或重启的 Agent 会话生效，正在运行的 Agent 会话不受影响。 | 正在运行的 Agent 会话不受影响（建议稿） |
 | 39 | settings.builtintools.description | components/settings/BuiltinToolsSection.tsx:206<br>components/settings/BuiltinToolsSection.settings-search.ts:9 | 设置 Agent 会话默认值，或为指定项目添加覆盖。项目设置优先于用户默认值。 | 设置 Agent 会话默认值，或为指定项目添加覆盖。（机械初稿（需人工定稿）） |
-| 26 | settings.builtintools.plugins.android.description | components/settings/ComputerUseSection.tsx:1777<br>components/settings/ComputerUseSection.settings-search.ts:11 | 查看、点击和操作连接到本机的 Android 设备。 | 查看、点击和操作连接到本机的 Android 设备。（建议（需人工定稿）） |
-| 26 | settings.builtintools.plugins.slack.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 使用已连接的 Slack 账号搜索、读取和发送消息。 | 使用已连接的 Slack 账号搜索、读取和发送消息。（建议（需人工定稿）） |
-| 25 | settings.builtintools.plugins.ssh.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 通过本机配置的 SSH 连接在远程电脑上执行命令。 | 通过本机配置的 SSH 连接在远程电脑上执行命令。（建议（需人工定稿）） |
+| 26 | settings.builtintools.plugins.android.description | 未定位 | 查看、点击和操作连接到本机的 Android 设备。 | 查看、点击和操作连接到本机的 Android 设备。（建议（需人工定稿）） |
+| 26 | settings.builtintools.plugins.slack.description | 未定位 | 使用已连接的 Slack 账号搜索、读取和发送消息。 | 使用已连接的 Slack 账号搜索、读取和发送消息。（建议（需人工定稿）） |
+| 25 | settings.builtintools.plugins.ssh.description | 未定位 | 通过本机配置的 SSH 连接在远程电脑上执行命令。 | 通过本机配置的 SSH 连接在远程电脑上执行命令。（建议（需人工定稿）） |
 
 ## 插件页（13 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 57 | skillhub.detail.uninstalldialog.description | apps/desktop/src/main/skillhub/registerIpc.ts:1204<br>apps/desktop/src/main/skillhub/registerIpc.ts:1205 | 本地文件及修改将移入回收站，可恢复。  共用此技能的其他 Agent 也会受影响。云端发布和其他安装位置不受影响。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 57 | skillhub.detail.uninstalldialog.description | 未定位 | 本地文件及修改将移入回收站，可恢复。  共用此技能的其他 Agent 也会受影响。云端发布和其他安装位置不受影响。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 47 | skillhub.diffpanel.cleanhint | features/skillhub/SkillhubDiffPanel.tsx:195 | 本地文件跟上次发布完全一致。如果状态仍显示 dirty，可能是行尾差异导致的 hash 偏移。 | 本地文件跟上次发布完全一致。（建议（需人工定稿）） |
 | 47 | skillhub.detail.usageversioncomparabletooltip | features/skillhub/SkillhubDetailView.tsx:394 | 上版本指最近一个历史文档版本。该对比只反映近 30 天窗口内的过程指标变化，不代表任务成功率。 | 上版本指最近一个历史文档版本。（建议（需人工定稿）） |
 | 43 | skillhub.detail.usagereadobservationtooltip | features/skillhub/SkillhubDetailView.tsx:346 | 统计 30 分钟内读取 3 次及以上的任务占比。它只是注意信号，不直接代表文档有问题。 | 统计 30 分钟内读取 3 次及以上的任务占比。（建议（需人工定稿）） |
@@ -523,25 +523,25 @@
 
 ## 远程桌面（13 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 50 | screenrecordinghelp | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 打开系统设置，为当前 Cindy 开启屏幕录制。若系统要求重新启动，请重新打开 Cindy 后连接。 | 打开系统设置（建议稿） |
+| 50 | screenrecordinghelp | 未定位 | 打开系统设置，为当前 Cindy 开启屏幕录制。若系统要求重新启动，请重新打开 Cindy 后连接。 | 打开系统设置（建议稿） |
 | 45 | permissionsintro | apps/mobile/src/remote-desktop/PermissionGuide.tsx:90<br>components/settings/RemoteDesktopPermissions.tsx:71 | 查看桌面需要屏幕录制权限；操作桌面还需要辅助功能权限。请在电脑上完成授权，结果会自动更新。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 41 | accessibilityhelp | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 点击打开设置后，为系统授权提示中的应用开启辅助功能。返回后会自动检测实际输入权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 41 | accessibilityhelp | 未定位 | 点击打开设置后，为系统授权提示中的应用开启辅助功能。返回后会自动检测实际输入权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 35 | clipboardsynchint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:249 | 前台双向同步文字、图片和富文本。iPhone 如请求粘贴权限，请允许。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 34 | privacyscreenhint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:242 | 遮住电脑屏幕。在电脑上点击鼠标或按键，确认后断开连接，并按设置锁屏。 | 遮住电脑屏幕。（机械初稿（需人工定稿）） |
-| 29 | permissionhint | apps/mobile/src/session/ContextSheetMediaViews.tsx:55<br>apps/mobile/src/session/ContextSheetMediaViews.tsx:105 | 请在电脑的系统设置中允许屏幕录制和辅助功能，然后重新连接。 | 然后重新连接（建议稿） |
+| 29 | permissionhint | packages/device-link/src/remoteDesktopViewerSession.ts:360<br>apps/mobile/src/session/ContextSheetMediaViews.tsx:55 | 请在电脑的系统设置中允许屏幕录制和辅助功能，然后重新连接。 | 然后重新连接（建议稿） |
 | 29 | resolutionhint | apps/mobile/src/remote-desktop/RemoteDesktopDisplaySettings.tsx:387<br>features/remote-desktop/RemoteDesktopViewerWindow.tsx:635 | 调整分辨率会改变电脑上的窗口布局，断开连接后恢复原分辨率。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 26 | panhint | components/settings/LlamaCppCandidates.tsx:89<br>components/settings/LlamaCppCandidates.tsx:152 | 滑动只移动画面，捏合缩放。关闭后恢复原来的操作方式。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 25 | autounlockstoragehint | apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:3036<br>apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:3413 | 密码仅加密保存在当前设备。设置和密码不随账号同步。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 26 | panhint | 未定位 | 滑动只移动画面，捏合缩放。关闭后恢复原来的操作方式。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 25 | autounlockstoragehint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:187<br>features/remote-desktop/RemoteDesktopViewerWindow.tsx:749 | 密码仅加密保存在当前设备。设置和密码不随账号同步。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 23 | autounlockhint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:123<br>features/remote-desktop/RemoteDesktopViewerWindow.tsx:731 | 在此设备保存电脑登录密码，连接时自动解锁电脑。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 22 | pointerhint | apps/mobile/src/remote-desktop/RemoteDesktopControls.tsx:270<br>apps/mobile/src/remote-desktop/__tests__/screen.test.tsx:4384 | 滑动移动鼠标，轻点点击；双指滚动，捏合缩放。 | 滑动移动鼠标，轻点点击；（机械初稿（需人工定稿）） |
+| 22 | pointerhint | apps/mobile/src/remote-desktop/RemoteDesktopControls.tsx:270<br>apps/mobile/src/remote-desktop/FoldTouchpad.tsx:16 | 滑动移动鼠标，轻点点击；双指滚动，捏合缩放。 | 滑动移动鼠标，轻点点击；（机械初稿（需人工定稿）） |
 | 20 | touchhint | apps/mobile/src/remote-desktop/RemoteDesktopControls.tsx:269 | 轻点点击，长按拖拽；双指滚动，捏合缩放。 | 轻点点击，长按拖拽；（机械初稿（需人工定稿）） |
 | 11 | hostmutehint | apps/mobile/src/remote-desktop/RemoteDesktopSecuritySettings.tsx:256 | 连接期间将远程电脑静音 | 连接期间将远程电脑静音（建议稿） |
 
 ## 伙伴页（12 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 107 | providershare.received.detailnote | features/provider-share/ProviderShareReceivedRail.tsx:263 | Agent 在 {{name}} 的电脑或 {{name}} 安排的其他电脑上运行，用的是对方的登录和配额。对话内容和 Agent 读取的文件内容会经过 {{name}} 的电脑，并保存在实际运行任务的那台电脑上。新建任务时在模型列表里选择它就能用。 | 用的是对方的登录和配额（建议稿） |
 | 69 | providershare.apply.waitdescription | features/provider-share/ProviderShareApplyDialog.tsx:230 | {{name}} 可能会问你看到的配对码，告诉对方这 4 位数字即可。对方的电脑不在线时，会在上线后看到你的申请；申请 24 小时内未处理会自动失效。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -551,46 +551,46 @@
 | 39 | providershare.apply.expireddescription | 未定位 | 对方 24 小时内没有处理，这条链接已作废。如需使用，请联系对方重新生成链接。 | 对方 24 小时内没有处理（建议稿） |
 | 35 | providershare.apply.regiondescription | 未定位 | 这个链接来自另一个区域的 Cindy 服务，目前还不能跨区域申请分享。 | 这个链接来自另一个区域的 Cindy 服务，目前还不能跨区域申请分享。（建议（需人工定稿）） |
 | 25 | providershare.apply.rejecteddescription | features/provider-share/ProviderShareApplyDialog.tsx:287 | 这条链接已作废。如需使用，请联系对方重新生成链接。 | 这条链接已作废（建议稿） |
-| 21 | providershare.manage.members.estimatenote | features/provider-share/ProviderUsageSection.tsx:401<br>features/provider-share/__tests__/ProviderShareManagePage.test.tsx:264 | 金额按本地单价估算，不代表供应商实际账单。 | 金额按本地单价估算，不代表供应商实际账单。（建议（需人工定稿）） |
+| 21 | providershare.manage.members.estimatenote | features/provider-share/ProviderUsageSection.tsx:401 | 金额按本地单价估算，不代表供应商实际账单。 | 金额按本地单价估算，不代表供应商实际账单。（建议（需人工定稿）） |
 | 18 | providershare.apply.invaliddescription | 未定位 | 检查链接是否完整，或请对方重新发送。 | 检查链接是否完整，或请对方重新发送（建议稿） |
 | 9 | providershare.link.regeneratehint | features/provider-share/ProviderShareLinkDialog.tsx:151 | 过期后可以重新生成 | 过期后可以重新生成（建议稿） |
-| 8 | providershare.received.pastedialog.empty | features/provider-share/ProviderSharePasteDialog.tsx:59<br>features/provider-share/__tests__/ProviderShareReceivedRail.test.tsx:79 | 请先粘贴分享链接 | 请先粘贴分享链接（建议稿） |
+| 8 | providershare.received.pastedialog.empty | features/provider-share/ProviderSharePasteDialog.tsx:59 | 请先粘贴分享链接 | 请先粘贴分享链接（建议稿） |
 
 ## issueTracker（12 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 64 | issuetracker.mine.enhancementfailedhint | features/issue-tracker/lib/myIssuesNotices.ts:95<br>features/issue-tracker/__tests__/myIssuesNotices.test.ts:131 | 暂时没能读取你 GitHub 账号名下的 Issue。可能是 Cindy GitHub 插件的访问令牌权限不足，可到插件页检查。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 61 | issuetracker.mine.platformunavailablehint | features/issue-tracker/__tests__/IssueTrackerFeatureLayout.test.tsx:220<br>features/issue-tracker/__tests__/myIssuesNotices.test.ts:50 | 当前只显示本机记录的提交。在其它设备上提交过的 Issue、以及它们在 GitHub 上的最新状态，暂时无法在应用内查看。 | 当前只显示本机记录的提交。（建议（需人工定稿）） |
-| 59 | issuetracker.mine.enhancementfailedgenerichint | features/issue-tracker/lib/myIssuesNotices.ts:96<br>features/issue-tracker/__tests__/myIssuesNotices.test.ts:198 | 暂时没能读取你 GitHub 账号名下的 Issue，可能是网络问题或 GitHub 接口限流，稍后可以点右上角重试。 | 暂时没能读取你 GitHub 账号名下的 Issue，可能是网络问题或 GitH（建议（需人工定稿）） |
+| 64 | issuetracker.mine.enhancementfailedhint | features/issue-tracker/lib/myIssuesNotices.ts:95 | 暂时没能读取你 GitHub 账号名下的 Issue。可能是 Cindy GitHub 插件的访问令牌权限不足，可到插件页检查。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 61 | issuetracker.mine.platformunavailablehint | 未定位 | 当前只显示本机记录的提交。在其它设备上提交过的 Issue、以及它们在 GitHub 上的最新状态，暂时无法在应用内查看。 | 当前只显示本机记录的提交。（建议（需人工定稿）） |
+| 59 | issuetracker.mine.enhancementfailedgenerichint | features/issue-tracker/lib/myIssuesNotices.ts:96 | 暂时没能读取你 GitHub 账号名下的 Issue，可能是网络问题或 GitHub 接口限流，稍后可以点右上角重试。 | 暂时没能读取你 GitHub 账号名下的 Issue，可能是网络问题或 GitH（建议（需人工定稿）） |
 | 54 | issuetracker.visibility.dialog.privatetopublicbody | 未定位 | 所有团队成员将能看到这条 Issue 的全部内容（标题、详情、版本号、作者）。你之后仍然可以将它切换回私有。 | 所有团队成员将能看到这条 Issue 的全部内容（标题、详情、版本号、作者）。（机械初稿（需人工定稿）） |
 | 43 | issuetracker.visibility.dialog.publictoprivatebody | 未定位 | 此 Issue 将仅你本人可见。其他团队成员将无法在 Issue 列表与搜索中看到它。 | 此 Issue 将仅你本人可见。（建议（需人工定稿）） |
-| 36 | issuetracker.mine.platformunavailablepartialhint | features/issue-tracker/__tests__/myIssuesNotices.test.ts:72<br>features/issue-tracker/__tests__/myIssuesNotices.test.ts:90 | 在其它设备上提交过的 Issue 暂时无法在应用内查看，列表可能不完整。 | 在其它设备上提交过的 Issue 暂时无法在应用内查看，列表可能不完整。（建议（需人工定稿）） |
-| 31 | issuetracker.mine.fetchfailedhint | features/issue-tracker/__tests__/myIssuesNotices.test.ts:98<br>features/issue-tracker/__tests__/myIssuesNotices.test.ts:113 | 暂时取不到最新状态，当前只显示本机记录的提交，列表可能不完整。 | 暂时取不到最新状态，当前只显示本机记录的提交，列表可能不完整。（建议（需人工定稿）） |
-| 29 | issuetracker.mine.fetchfailedpartialhint | features/issue-tracker/__tests__/myIssuesNotices.test.ts:108 | 暂时取不到最新状态，部分 Issue 的状态可能显示不全。 | 暂时取不到最新状态，部分 Issue 的状态可能显示不全。（建议（需人工定稿）） |
+| 36 | issuetracker.mine.platformunavailablepartialhint | 未定位 | 在其它设备上提交过的 Issue 暂时无法在应用内查看，列表可能不完整。 | 在其它设备上提交过的 Issue 暂时无法在应用内查看，列表可能不完整。（建议（需人工定稿）） |
+| 31 | issuetracker.mine.fetchfailedhint | 未定位 | 暂时取不到最新状态，当前只显示本机记录的提交，列表可能不完整。 | 暂时取不到最新状态，当前只显示本机记录的提交，列表可能不完整。（建议（需人工定稿）） |
+| 29 | issuetracker.mine.fetchfailedpartialhint | 未定位 | 暂时取不到最新状态，部分 Issue 的状态可能显示不全。 | 暂时取不到最新状态，部分 Issue 的状态可能显示不全。（建议（需人工定稿）） |
 | 26 | issuetracker.visibility.privatebannerhint | 未定位 | 团队成员看不到这条 Issue，也无法被指派为处理者 | 团队成员看不到这条 Issue，也无法被指派为处理者（建议（需人工定稿）） |
-| 26 | issuetracker.comments.deletedialog.description | features/scheduler/hooks/useDeleteScheduleWithSessions.tsx:291 | 删除后将显示「此评论已被作者删除」占位符，无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 26 | issuetracker.comments.deletedialog.description | 未定位 | 删除后将显示「此评论已被作者删除」占位符，无法恢复。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 26 | issuetracker.detail.notfounddescription | 未定位 | 这个 Issue 可能已被删除，或者你没有访问权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 22 | issuetracker.duplicate.checkpanel.subtitle | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:2534 | 这是同一个问题吗？提交前先看一眼，避免重复。 | 这是同一个问题吗？提交前先看一眼，避免重复。（建议（需人工定稿）） |
+| 22 | issuetracker.duplicate.checkpanel.subtitle | 未定位 | 这是同一个问题吗？提交前先看一眼，避免重复。 | 这是同一个问题吗？提交前先看一眼，避免重复。（建议（需人工定稿）） |
 
 ## 任务页（10 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 66 | screen.deletemessagebody | apps/mobile/src/__tests__/sessionMainLayerDesktopFirst.test.ts:156 | 用户消息只删除本条；AI 消息会删除上一次用户输入之后产生的整轮输出。之后的消息继续保留。下次发送时，AI 上下文会从剩余记录重建。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 44 | screen.forkconfirmdescription | components/settings/ComputerPermissionGuideWindow.tsx:193<br>components/settings/ComputerUseSection.settings-search.ts:15 | 系统会根据这里的对话上下文创建一个独立的新任务。原任务不会改变，之后两边的消息互不影响。 | 系统会根据这里的对话上下文创建一个独立的新任务。（机械初稿（需人工定稿）） |
+| 66 | screen.deletemessagebody | 未定位 | 用户消息只删除本条；AI 消息会删除上一次用户输入之后产生的整轮输出。之后的消息继续保留。下次发送时，AI 上下文会从剩余记录重建。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 44 | screen.forkconfirmdescription | 未定位 | 系统会根据这里的对话上下文创建一个独立的新任务。原任务不会改变，之后两边的消息互不影响。 | 系统会根据这里的对话上下文创建一个独立的新任务。（机械初稿（需人工定稿）） |
 | 36 | collab.permissionautohint | apps/mobile/src/session/ContextSheetCollabView.tsx:239 | 允许在工作区内读写，并自动审批提权请求；高风险操作可能被拒绝或要求确认。 | 允许在工作区内读写，并自动审批提权请求；（建议（需人工定稿）） |
 | 33 | menu.resetcodexbody | apps/mobile/src/session/SessionMenuSheet.tsx:589 | 将为 {{account}} 消耗 1 次重置。配额窗口会立即重开，此操作不能撤销。 | 将为 {{account}} 消耗 1 次重置。（建议（需人工定稿）） |
 | 26 | menu.dirlimitnotice | apps/mobile/src/session/SessionMenuSheet.tsx:962 | 仅显示前 30 个目录，可进入更具体的目录继续选择。 | 仅显示前 30 个目录（建议稿） |
 | 25 | new.previewreadysubtitle | apps/mobile/src/session/newSession.ts:305 | 确认后会在远程设备创建任务，并把首条消息加入队列。 | 确认后会在远程设备创建任务（建议稿） |
 | 20 | collab.disabledhint | apps/mobile/src/session/orcaTeam.ts:338 | 协同模式已关闭，请在电脑端设置中重新启用 | 协同模式已关闭，请在电脑端设置中重新启用（建议稿） |
 | 19 | screen.tokenratedescription | apps/mobile/src/session/RunningTokenRatePopover.tsx:291 | 最近一段生成速度，不含工具执行与等待。 | 最近一段生成速度，不含工具执行与等待（建议稿） |
-| 14 | screen.savinghint | components/settings/ComputerPermissionGuideWindow.tsx:193<br>components/settings/ComputerUseSection.settings-search.ts:15 | 正在保存修改，完成后再操作。 | 正在保存修改，完成后再操作（建议稿） |
+| 14 | screen.savinghint | 未定位 | 正在保存修改，完成后再操作。 | 正在保存修改，完成后再操作（建议稿） |
 | 9 | collab.loadinghint | apps/mobile/src/session/orcaTeam.ts:337 | 正在确认协同设置… | 正在确认协同设置…（建议稿） |
 
 ## 消息（10 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 29 | systemcard.learnstartedbody | apps/mobile/src/session/systemCard.ts:253 | 蒸馏在电脑端后台进行，完成后请到电脑端查看并评审技能草案。 | 蒸馏在电脑端后台进行（建议稿） |
 | 28 | queuepresentation.row.synthetichint | packages/maker-shared/src/queue.ts:295 | 这是系统自动生成的指令，可以取消，但不能编辑或插话发送。 | 这是系统自动生成的指令，可以取消，但不能编辑或插话发送。（建议（需人工定稿）） |
@@ -605,7 +605,7 @@
 
 ## logic（9 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 86 | logic.confirm.remotecodexnosourcedescription | hooks/useVendorAuthGate.ts:342 | 远程设备「{{device}}」尚未连接 Codex 可用的模型来源，无法在这里新建并运行任务。请在该设备上打开 {{appName}}，在「设置 → 模型供应商」登录 OpenAI 或连接其他来源后重试。 | 远程设备「{{device}}」尚未连接 Codex 可用的模型来源，无法在这里新建并运行任务。（建议（需人工定稿）） |
 | 74 | logic.confirm.remoteccnosourcedescription | hooks/useVendorAuthGate.ts:345 | 远程设备「{{device}}」尚未连接可用的 Claude 模型来源，无法在这里新建并运行任务。请在该设备上打开 {{appName}}，在「设置 → 模型供应商」连接来源后重试。 | 远程设备「{{device}}」尚未连接可用的 Claude 模型来源，无法在这里新建并运行任务。（建议（需人工定稿）） |
@@ -619,27 +619,27 @@
 
 ## 设置（9 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 86 | legal.analyticshint | 未定位 | 帮助我们了解 Cindy 的启动与留存情况。上报设备型号、系统版本、应用版本、设备标识符等设备与使用环境信息，登录后还包含你的账号 ID；不包含任何对话内容、文件或提示词。 | 帮助我们了解 Cindy 的启动与留存情况。（机械初稿（需人工定稿）） |
-| 57 | locallogs.hint | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:560 | 记录手机上的连接、恢复、文件预览与播放、滚动、键盘与性能细节。默认关闭，最多保留 7 天、8 MB，不会自动上传。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 57 | locallogs.hint | 未定位 | 记录手机上的连接、恢复、文件预览与播放、滚动、键盘与性能细节。默认关闭，最多保留 7 天、8 MB，不会自动上传。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 44 | appearance.userbubble.customhint | 未定位 | 左右拖动色带选择颜色。颜色会按浅色和深色模式自动调整明暗，保证文字清晰。仅保存在此设备。 | 左右拖动色带选择颜色（建议稿） |
-| 41 | voicedictionary.hint | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:560 | 词典保存在电脑上，并在你的电脑之间自动同步；手机只能查看，添加和删除请回电脑操作。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 41 | voicedictionary.hint | 未定位 | 词典保存在电脑上，并在你的电脑之间自动同步；手机只能查看，添加和删除请回电脑操作。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 28 | betachannel.restarthint | 未定位 | Beta 测试渠道需要重启客户端后才能生效，请重启应用。 | 请重启应用（建议稿） |
 | 25 | locallogs.exporthint | 未定位 | 分享详细本地日志供排障使用；不包含对话正文或凭证。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 21 | devserverenvironment.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 仅影响 CindyDev 连接的业务服务器 | 仅影响 CindyDev 连接的业务服务器（建议（需人工定稿）） |
+| 21 | devserverenvironment.description | 未定位 | 仅影响 CindyDev 连接的业务服务器 | 仅影响 CindyDev 连接的业务服务器（建议（需人工定稿）） |
 | 17 | devserverenvironment.confirmbody | 未定位 | 切换会退出当前账号并重启 App。 | 切换会退出当前账号并重启 App（建议稿） |
 | 17 | voicedictionary.offlinehint | 未定位 | 电脑不在线，正在显示上次同步的词典 | 电脑不在线，正在显示上次同步的词典（建议稿） |
 
 ## 登录与欢迎页（9 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 65 | login.consentdialog.body | components/login/__tests__/LoginPage.consent.test.tsx:32<br>components/login/LoginPage.tsx:1483 | 请阅读并同意 Cindy 的以下协议后继续：<terms>服务条款</terms>、<privacy>隐私协议</privacy> | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 37 | splash.spawnfailed.description | components/splash/__tests__/SplashScreen.test.tsx:311<br>components/splash/SplashScreen.tsx:416 | 更新程序无法启动，可能被系统安全策略拦截。请手动下载最新版安装包完成更新。 | 更新程序无法启动，可能被系统安全策略拦截。（建议（需人工定稿）） |
+| 65 | login.consentdialog.body | components/login/LoginPage.tsx:1483 | 请阅读并同意 Cindy 的以下协议后继续：<terms>服务条款</terms>、<privacy>隐私协议</privacy> | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 37 | splash.spawnfailed.description | components/splash/SplashScreen.tsx:416<br>components/sidebar/UpdateBanner.tsx:406 | 更新程序无法启动，可能被系统安全策略拦截。请手动下载最新版安装包完成更新。 | 更新程序无法启动，可能被系统安全策略拦截。（建议（需人工定稿）） |
 | 32 | login.ssoorgsubtitle | components/login/LoginPage.tsx:851 | 输入企业 ID、组织 slug 或已验证域名，跳转到企业单点登录 | 跳转到企业单点登录（建议稿） |
-| 22 | localdbgate.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 可以重试，或返回登录方式后重新选择使用模式。 | 可以重试，或返回登录方式后重新选择使用模式。（建议（需人工定稿）） |
-| 21 | splash.databasecleanup.finalizinghint | components/splash/__tests__/SplashScreen.test.tsx:585<br>components/splash/SplashScreen.tsx:579 | 正在安全替换数据库，请勿关闭 Cindy。 | 正在安全替换数据库，请勿关闭 Cindy。（建议（需人工定稿）） |
+| 22 | localdbgate.description | 未定位 | 可以重试，或返回登录方式后重新选择使用模式。 | 可以重试，或返回登录方式后重新选择使用模式。（建议（需人工定稿）） |
+| 21 | splash.databasecleanup.finalizinghint | components/splash/SplashScreen.tsx:579 | 正在安全替换数据库，请勿关闭 Cindy。 | 正在安全替换数据库，请勿关闭 Cindy。（建议（需人工定稿）） |
 | 17 | splash.databasecleanup.cancellinghint | components/splash/SplashScreen.tsx:581 | 正在停止清理，原数据库不会被修改。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 15 | login.chooseaccountsubtitle | components/login/LoginPage.tsx:1065 | 选择本次要使用的个人或企业身份 | 选择本次要使用的个人或企业身份（建议稿） |
 | 12 | login.browsercallback.errorbody | apps/desktop/src/main/authManager.ts:3015 | 请回到 {{appName}} 重新登录。 | 请回到 {{appName}} 重新登录（建议稿） |
@@ -647,7 +647,7 @@
 
 ## 群聊（8 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 74 | settings.projectdirnote | apps/mobile/src/session/BotGroupSettingsSheet.tsx:300<br>features/bots/ChatGroupSettings.tsx:133 | 分工做事时，伙伴们在这里干活。不选也行，会用这个群自己的文件夹；选了 git 项目，每次分工会新开一个 worktree 和分支，不动你手上的代码。 | 分工做事时，伙伴们在这里干活（建议稿） |
 | 46 | settings.speakingmodeautonote | apps/mobile/src/session/BotGroupSettingsSheet.tsx:321<br>features/bots/BotGroupSettingsDrawer.tsx:543 | 没有 @ 人或 @所有人时，第一圈大家同时想，之后轮流接话；@ 了伙伴就按 @ 的先后轮流。 | 没有 @ 人或 @所有人时，第一圈大家同时想，之后轮流接话；（机械初稿（需人工定稿）） |
@@ -660,22 +660,22 @@
 
 ## rightSidebar（7 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 63 | rightsidebar.resourceusage.terminateconfirmdescription | features/right-sidebar/plugins/resource-usage/ResourceUsageBody.tsx:417 | 将强制终止该 Agent 进程，使用该进程的所有任务都会中断；之后在任一受影响任务里继续发消息，即可按需重新启动 Agent。 | 将强制终止该 Agent 进程，使用该进程的所有任务都会中断；（机械初稿（需人工定稿）） |
 | 45 | rightsidebar.browser.commentmodehint | features/right-sidebar/plugins/web-browser/BrowserTabBody.tsx:566 | 点击元素或 Shift 拖拽框选区域 · Cmd/Ctrl+点击直接添加 · Esc 退出 | 点击元素或 Shift 拖拽框选区域 · Cmd/Ctrl+点击直接添加 · E（建议（需人工定稿）） |
 | 44 | rightsidebar.review.turn.partialnotice | features/right-sidebar/plugins/review/ReviewTabBody.tsx:1447 | 本条消息包含无法精确追踪的命令或工具写入；以下仅展示已精确捕获的部分，不能视为完整补丁。 | 本条消息包含无法精确追踪的命令或工具写入；（建议（需人工定稿）） |
 | 23 | rightsidebar.review.writedisablednotice | features/right-sidebar/plugins/review/ReviewTabBody.tsx:1433 | 当前为只读状态：{{reasons}}。仍可查看 git 改动。 | 当前为只读状态：{{reasons}}。（建议（需人工定稿）） |
 | 22 | rightsidebar.panelerror.description | features/right-sidebar/TabBodyErrorBoundary.tsx:66 | 这个面板暂时无法显示，其他面板仍可继续使用。 | 这个面板暂时无法显示，其他面板仍可继续使用。（建议（需人工定稿）） |
-| 18 | rightsidebar.tabs.empty.addmorehint | features/right-sidebar/EmptyState.tsx:104<br>features/right-sidebar/__tests__/EmptyState.test.tsx:34 | 可通过顶部 + 按钮选择更多面板类型 | 可通过顶部 + 按钮选择更多面板类型（建议稿） |
+| 18 | rightsidebar.tabs.empty.addmorehint | features/right-sidebar/EmptyState.tsx:104 | 可通过顶部 + 按钮选择更多面板类型 | 可通过顶部 + 按钮选择更多面板类型（建议稿） |
 | 6 | rightsidebar.resourceusage.selecthint | features/right-sidebar/plugins/resource-usage/ResourceUsageBody.tsx:310 | 选择一个进程 | 选择一个进程（建议稿） |
 
 ## 插件（7 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 57 | identitychangedhint | apps/mobile/src/plugins/PluginSetupNativeForm.tsx:259 | 这台电脑的授权身份与上次不同，已停止配置。请先核实电脑并重新登记设备身份，再连接；这里不能确认或替换已登记的身份。 | 这台电脑的授权身份与上次不同，已停止配置。（机械初稿（需人工定稿）） |
-| 43 | taskhint | apps/mobile/src/__tests__/pluginNativeViews.test.tsx:549<br>components/settings/WorkLouderCodexSettings.tsx:346 | 在任务中说明你的需求，Cindy 会调用适合的插件。已有任务继续使用原来的模型和权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 43 | taskhint | components/settings/WorkLouderCodexSettings.tsx:346 | 在任务中说明你的需求，Cindy 会调用适合的插件。已有任务继续使用原来的模型和权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 43 | computerauthorizationhint | apps/mobile/src/plugins/PluginSetupNativeForm.tsx:261 | 此账号连接方式使用电脑本地回调。请使用此卡片的电脑入口完成连接，然后回到这里查看状态。 | 此账号连接方式使用电脑本地回调。（机械初稿（需人工定稿）） |
 | 37 | autopermissionhint | apps/mobile/src/plugins/PluginTaskSettings.tsx:154 | 自动审批会允许 Cindy 根据请求自动判断权限。确认用于之后的插件任务？ | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 35 | nativesetuphint | apps/mobile/src/session/InteractionPanel.tsx:1658 | 可在手机完成下方配置。使用电脑本地回调的账号连接，请通过电脑入口继续。 | 可在手机完成下方配置（建议稿） |
@@ -684,7 +684,7 @@
 
 ## 自动化页（5 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 68 | scheduler.list.removeproject.confirmdescription | features/scheduler/SchedulerPage.tsx:508 | 将从 .cindy/automations/schedules.json 中删除 "{{name}}"，此操作会影响所有协作者（commit 后）。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 63 | scheduler.chips.schedulefield.minuteintervalhint | features/scheduler/components/ScheduleChips.tsx:541 | 仅支持能整除 60 的分钟间隔：1、2、3、4、5、6、10、12、15、20、30 分钟；60 分钟请选择“每 1 小时”。 | 仅支持能整除 60 的分钟间隔（建议稿） |
@@ -694,7 +694,7 @@
 
 ## 设备连接（5 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 46 | unstablehint | apps/mobile/src/components/ConnectionBanner.tsx:118<br>apps/mobile/src/device-link/remoteStatus.ts:30 | 本机连接反复断开又重连，远程操作可能一直超时。请检查网络；若持续如此，重启 App 后重试。 | 本机连接反复断开又重连，远程操作可能一直超时。（建议（需人工定稿）） |
 | 25 | toomanyconnectionshint | apps/mobile/src/device-link/remoteStatus.ts:24 | 当前账号同时在线的设备过多，请断开其它设备后重试。 | 当前账号同时在线的设备过多，请断开其它设备后重试。（建议（需人工定稿）） |
@@ -704,7 +704,7 @@
 
 ## accountDeletion（4 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 52 | accountdeletion.graceperiodnotice | components/settings/AccountDeletionSection.tsx:214 | 确认后，账号将进入 30 天等待期。等待期内重新登录可取消注销；到期后 Cindy 登录账号将永久删除。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 50 | accountdeletion.applerevocationnotice | components/settings/AccountDeletionSection.tsx:225 | 如果你曾使用 Apple 登录，还需要在 Apple ID 设置中手动撤销 Cindy 的访问权限。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -713,16 +713,16 @@
 
 ## 设备（4 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 48 | list.revoked.body | apps/mobile/src/session/HomeSurface.tsx:3606 | 「{{deviceName}}」撤销了本机的远程访问权限。请在该电脑的 {{appName}} 设置里重新授权本设备，然后点「重试访问」。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 | 32 | companionimport.takeovernote | 未定位 | 数据连接验证通过后才暂停原任务。取消所需依赖时，原任务继续运行。 | 数据连接验证通过后才暂停原任务（建议稿） |
-| 29 | companionimport.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 选择要从 Hermes 或 OpenClaw 带来的内容。 | 选择要从 Hermes 或 OpenClaw 带来的内容。（建议（需人工定稿）） |
+| 29 | companionimport.description | 未定位 | 选择要从 Hermes 或 OpenClaw 带来的内容。 | 选择要从 Hermes 或 OpenClaw 带来的内容。（建议（需人工定稿）） |
 | 9 | companionprofile.connectionsempty | 未定位 | 尚未选择技能或连接 | 尚未选择技能或连接（建议稿） |
 
 ## 灵动岛（4 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 44 | settings.agentisland.enablehint | components/settings/AgentIslandSection.tsx:280<br>components/settings/AgentIslandSection.settings-search.ts:9 | 在屏幕顶部显示正在运行、待交互和未读完成的任务。启用后会抑制同类系统通知，避免重复打扰。 | 在屏幕顶部显示正在运行、待交互和未读完成的任务。（机械初稿（需人工定稿）） |
 | 33 | settings.agentisland.displayhint | components/settings/AgentIslandSection.tsx:299<br>components/settings/AgentIslandSection.settings-search.ts:10 | 选择灵动岛显示在哪个显示器上；选择全部时，每个显示器都会显示一份。 | 选择灵动岛显示在哪个显示器上（建议稿） |
@@ -731,7 +731,7 @@
 
 ## 个性化设置（3 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 72 | settings.memory.description | components/settings/MemorySection.tsx:287 | 用于帮助用户实现基于工作区的记忆，改变设置之后理论上需要新建 Agent 会话才会生效，如果觉得记忆系统出现问题可以点击 Reset 或者关闭。 | 用于帮助用户实现基于工作区的记忆（建议稿） |
 | 58 | settings.memory.maker.resetconfirm.description | components/settings/MemorySection.tsx:216 | 将永久删除所有项目下的 Cindy 记忆（存放在 user-data 目录下，不在你的代码仓库里）。此操作不可撤销。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
@@ -739,15 +739,15 @@
 
 ## 模型（3 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 61 | contextwindowswitch.remotedescription | apps/mobile/src/session/modelWindowSwitchConfirmation.ts:65<br>apps/mobile/src/__tests__/sessionAgentSwitchWiring.test.ts:230 | 当前远程任务的上下文已用 {{used}} / {{total}}（约 {{pct}}%），无法安全切换到这个小窗口模型。请保留当前模型，或新建任务后再选择。 | 当前远程任务的上下文已用 {{used}} / {{total}}（约 {{pct}}%），无法安全切换到这个小窗口模型。（机械初稿（需人工定稿）） |
+| 61 | contextwindowswitch.remotedescription | apps/mobile/src/session/modelWindowSwitchConfirmation.ts:65 | 当前远程任务的上下文已用 {{used}} / {{total}}（约 {{pct}}%），无法安全切换到这个小窗口模型。请保留当前模型，或新建任务后再选择。 | 当前远程任务的上下文已用 {{used}} / {{total}}（约 {{pct}}%），无法安全切换到这个小窗口模型。（机械初稿（需人工定稿）） |
 | 18 | picker.agentswitchhint | apps/mobile/src/session/ModelPickerSheet.tsx:402 | 选择模型后，下一条消息将切换到 {{agent}} | 选择模型后，下一条消息将切换到 {{agent}}（建议稿） |
 | 18 | picker.crossagentemptyhint | apps/mobile/src/session/ModelPickerSheet.tsx:453 | 请先在远程设备连接 {{agent}} 的模型来源 | 请先在远程设备连接 {{agent}} 的模型来源（建议稿） |
 
 ## 更新（3 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 43 | installhintbody | apps/mobile/src/update/useBundleUpdatePrompt.ts:52 | 在系统弹框中点击「安装」后，请回到桌面查看安装进度；下载完成后系统会自动替换当前版本。 | 在系统弹框中点击「安装」后，请回到桌面查看安装进度；（机械初稿（需人工定稿）） |
 | 22 | openinstallfailedbody | apps/mobile/src/update/useBundleUpdatePrompt.ts:56 | 请手动复制安装地址在 Safari 中打开。 | 请手动复制安装地址在 Safari 中打开。（建议（需人工定稿）） |
@@ -755,108 +755,108 @@
 
 ## legacyMigration（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 110 | legacymigration.description | components/auth/__tests__/LegacyMigrationDialog.test.tsx:41<br>components/auth/__tests__/LegacyMigrationDialog.test.tsx:65 | 检测到本机存有旧版本的数据。历史对话和媒体文件将迁移到新的数据位置。若旧版应用正在运行，请先完全退出它；迁移期间请保持 {{appName}} 打开。注意：已授权的第三方密钥与凭证无法随数据迁移，迁移完成后需要在设置中重新授权或重新填写。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 33 | legacymigration.faileddescription | components/auth/__tests__/LegacyMigrationDialog.test.tsx:76<br>components/auth/LegacyMigrationDialog.tsx:150 | 本次数据迁移未能完成。你可以继续使用 {{appName}}，下次登录时会自动重试。 | 本次数据迁移未能完成。（建议（需人工定稿）） |
+| 110 | legacymigration.description | components/auth/LegacyMigrationDialog.tsx:150 | 检测到本机存有旧版本的数据。历史对话和媒体文件将迁移到新的数据位置。若旧版应用正在运行，请先完全退出它；迁移期间请保持 {{appName}} 打开。注意：已授权的第三方密钥与凭证无法随数据迁移，迁移完成后需要在设置中重新授权或重新填写。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 33 | legacymigration.faileddescription | components/auth/LegacyMigrationDialog.tsx:150 | 本次数据迁移未能完成。你可以继续使用 {{appName}}，下次登录时会自动重试。 | 本次数据迁移未能完成。（建议（需人工定稿）） |
 
 ## 任务导入（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 71 | settings.sessionimport.description | components/settings/SessionImportSection.tsx:178 | 只读扫描本机 Claude Code 与 Codex 历史。只有列表里勾选的任务会被导入；已跳过的内部 Agent 会话不会展示，也不会导入。 | 只读扫描本机 Claude Code 与 Codex 历史。（建议（需人工定稿）） |
 | 19 | settings.sessionimport.emptydescription | components/settings/SessionImportSection.tsx:225 | 扫描不会写入数据库，也不会改变侧边栏。 | 扫描不会写入数据库，也不会改变侧边栏（建议稿） |
 
 ## goal（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 60 | goal.newgoaldialog.description | components/new-chat/NewGoalDialog.tsx:105 | Agent 会自主朝这个目标持续推进，直到达成、受阻或你停止；这可能消耗大量 token，可在「高级设置」里设预算上限。 | Agent 会自主朝这个目标持续推进，直到达成、受阻或你停止；（建议（需人工定稿）） |
 | 13 | goal.capacityretrynotice | components/chat/SystemCard.tsx:848 | 模型服务繁忙，正在重试目标 | 模型服务繁忙，正在重试目标（建议（需人工定稿）） |
 
 ## issueAgent（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 54 | issueagent.confirm.privacyhint | features/cc-agent/IssueConfirmCard.tsx:262<br>features/cc-agent/__tests__/IssueConfirmCard.test.tsx:246 | Issue 的标题和正文将公开显示，并可能被搜索或缓存。系统只能隐藏部分常见敏感信息，无法识别所有语义隐私。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 44 | issueagent.confirm.identityplatformhint | features/cc-agent/IssueConfirmCard.tsx:308<br>features/cc-agent/__tests__/IssueConfirmCard.test.tsx:247 | 无需配置 GitHub 账号；Issue 由官方 Bot 创建，你可在正文中选择公开署名 | 无需配置 GitHub 账号（建议稿） |
+| 54 | issueagent.confirm.privacyhint | features/cc-agent/IssueConfirmCard.tsx:262 | Issue 的标题和正文将公开显示，并可能被搜索或缓存。系统只能隐藏部分常见敏感信息，无法识别所有语义隐私。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
+| 44 | issueagent.confirm.identityplatformhint | features/cc-agent/IssueConfirmCard.tsx:308 | 无需配置 GitHub 账号；Issue 由官方 Bot 创建，你可在正文中选择公开署名 | 无需配置 GitHub 账号（建议稿） |
 
 ## learn（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 31 | learn.review.overwritewarning | features/learn/LearnReviewPanel.tsx:148 | 本地已存在同名技能，应用后将覆盖现有版本（旧版本会自动备份）。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 22 | learn.hub.disabledhint | features/skillhub/SkillhubMarketDetailView.tsx:241<br>features/skillhub/components/__tests__/MarketLocalSkills.test.tsx:95 | 请先在本地技能中启用内置 Learn 技能。 | 请先在本地技能中启用内置 Learn 技能。（建议（需人工定稿）） |
+| 22 | learn.hub.disabledhint | features/skillhub/SkillhubMarketDetailView.tsx:241 | 请先在本地技能中启用内置 Learn 技能。 | 请先在本地技能中启用内置 Learn 技能。（建议（需人工定稿）） |
 
 ## 交互面板（2 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 21 | contextsheet.photopermissionhint | apps/mobile/src/session/ContextSheetMediaViews.tsx:192 | 照片权限未开启，开启后可快速添加最近照片。 | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
-| 20 | panel.submittinghint | apps/mobile/src/session/InteractionPanel.tsx:1073<br>packages/maker-shared/src/interaction.ts:153 | 正在把决定回传到电脑端，请不要重复提交。 | 正在把决定回传到电脑端，请不要重复提交（建议稿） |
+| 20 | panel.submittinghint | packages/maker-shared/src/interaction.ts:153<br>apps/mobile/src/session/InteractionPanel.tsx:1073 | 正在把决定回传到电脑端，请不要重复提交。 | 正在把决定回传到电脑端，请不要重复提交（建议稿） |
 
 ## extraDirs（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 56 | extradirs.writableparentconfirmdescription | components/new-chat/ChatInput.tsx:4643 | 选中的目录是当前工作目录的父级或祖先。Agent 将能读取、创建、修改和删除其中的文件。  仍要允许吗？  {{path}} | 分段改写：范围 / 影响 / 可恢复边界，逐条保留，不删信息（方向（涉及权限或数据，禁截断）） |
 
 ## makerExperimental（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 52 | makerexperimental.notreadybody | features/maker-experimental/MakerExperimentalView.tsx:75 | window.electronAPI.maker 不可用。请重启应用并检查控制台中的 IPC 注册错误。 | window.electronAPI.maker 不可用。（建议（需人工定稿）） |
 
 ## credentialStore（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 45 | credentialstore.dialog.intro | components/auth/CredentialStoreHelpDialog.tsx:52 | Cindy 无法读取或保存这台电脑上的登录信息。这是本机存储问题，重新获取验证码无法解决。 | Cindy 无法读取或保存这台电脑上的登录信息。（建议（需人工定稿）） |
 
 ## ghostPanel（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 37 | ghostpanel.disableconfirm.body | cindy-brain/ghostPanels.tsx:126<br>components/layout/GhostPanelWindowLayout.tsx:90 | 关闭这个面板会停用插件并暂停其能力。你可以随时在侧边栏「插件」中重新启用。 | 关闭这个面板会停用插件并暂停其能力（建议稿） |
+| 37 | ghostpanel.disableconfirm.body | components/layout/GhostPanelWindowLayout.tsx:90<br>cindy-brain/ghostPanels.tsx:126 | 关闭这个面板会停用插件并暂停其能力。你可以随时在侧边栏「插件」中重新启用。 | 关闭这个面板会停用插件并暂停其能力（建议稿） |
 
 ## renameSessions（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 27 | renamesessions.confirm.description | features/cc-agent/RenameSessionsConfirmCard.tsx:62 | 请核对即将写入的标题。确认后会更新 {{count}} 个任务标题。 | 请核对即将写入的标题（建议稿） |
 
 ## planMode（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 24 | planmode.indicator.hint | components/new-chat/PlanModeIndicator.tsx:43<br>__tests__/planModeComposerEntry.test.ts:366 | Agent 先给出实施计划，经你确认后再开始执行 | Agent 先给出实施计划（建议稿） |
+| 24 | planmode.indicator.hint | components/new-chat/PlanModeIndicator.tsx:43 | Agent 先给出实施计划，经你确认后再开始执行 | Agent 先给出实施计划（建议稿） |
 
 ## commonUi（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 22 | commonui.crossagentconvert.running.description | locale apps/desktop/src/renderer/i18n/locales/zh-CN/common.json:14 | 正在为 {{targetAgent}} 写入工作区配置，请勿关闭窗口。 | 正在为 {{targetAgent}} 写入工作区配置（建议稿） |
+| 22 | commonui.crossagentconvert.running.description | 未定位 | 正在为 {{targetAgent}} 写入工作区配置，请勿关闭窗口。 | 正在为 {{targetAgent}} 写入工作区配置（建议稿） |
 
 ## 任务标签（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
-| 17 | edithint | apps/mobile/src/session/InteractionPanel.tsx:1368<br>apps/mobile/src/session/BotGroupPlan.tsx:214 | 修改会同步到使用此标签的所有任务。 | 修改会同步到使用此标签的所有任务（建议稿） |
+| 17 | edithint | packages/maker-shared/src/queue.ts:297<br>apps/mobile/src/session/InteractionPanel.tsx:1368 | 修改会同步到使用此标签的所有任务。 | 修改会同步到使用此标签的所有任务（建议稿） |
 
 ## taskTags（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 17 | tasktags.edithint | apps/mobile/src/session/TaskTags.tsx:1143<br>features/task-tags/TaskTags.tsx:817 | 修改会同步到使用此标签的所有任务。 | 修改会同步到使用此标签的所有任务（建议稿） |
 
 ## 存储空间（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 16 | settings.worktreerecycle.empty | components/settings/WorktreeRecycleCard.tsx:50 | 没有等待回收的 worktree | 没有等待回收的 worktree（建议稿） |
 
 ## 输入区（1 条）
 
-| 字数 | i18n key | 代码位置 | 原文 | 建议稿 / 方向 |
+| 字数 | i18n key | 代码位置 | 原文 | 建议 / 方向 |
 | --- | --- | --- | --- | --- |
 | 11 | input.resize.hint | apps/mobile/src/session/MobileComposerInputRow.tsx:562 | 上下拖动调整输入框高度 | 上下拖动调整输入框高度（建议稿） |
