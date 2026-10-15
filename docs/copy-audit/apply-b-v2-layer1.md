@@ -17,7 +17,7 @@
 **3. `providershare.received.detailnote`**  features/provider-share/ProviderShareReceivedRail.tsx:263  （107→69 字）
 
 - 原文：Agent 在 {{name}} 的电脑或 {{name}} 安排的其他电脑上运行，用的是对方的登录和配额。对话内容和 Agent 读取的文件内容会经过 {{name}} 的电脑，并保存在实际运行任务的那台电脑上。新建任务时在模型列表里选择它就能用。
-- 改：**Agent 在 {{name}} 的电脑上运行，用对方的登录和配额。对话内容与读取的文件会经过对方电脑，并保存在实际运行任务的那台机器上。**
+- 改：**Agent 在 {{name}} 的电脑或 {{name}} 安排的其他电脑上运行，用对方的登录和配额。对话内容与读取的文件会经过这些电脑，并保存在实际运行任务的那台机器上。**
 
 **4. `settings.providers.custom.fields.openaiimageshint`**  components/settings/ProviderConnectionDialog.tsx:2621  （105→45 字）
 
@@ -137,12 +137,12 @@
 **27. `chat.messageactionbar.deleteconfirmdescription`**  components/chat/useDeleteMessage.ts:47  （66→33 字）
 
 - 原文：用户消息只删除本条；AI 消息会删除上一次用户输入之后产生的整轮输出。之后的消息继续保留。下次发送时，AI 上下文会从剩余记录重建。
-- 改：**用户消息只删本条；AI 消息会删掉上一轮整轮输出。之后的消息保留。**
+- 改：**用户消息只删本条；AI 消息会删掉这条消息所属用户轮的全部输出。之后的消息保留。**
 
 **28. `screen.deletemessagebody`**  未定位  （66→33 字）
 
 - 原文：用户消息只删除本条；AI 消息会删除上一次用户输入之后产生的整轮输出。之后的消息继续保留。下次发送时，AI 上下文会从剩余记录重建。
-- 改：**用户消息只删本条；AI 消息会删掉上一轮整轮输出。之后的消息保留。**
+- 改：**用户消息只删本条；AI 消息会删掉这条消息所属用户轮的全部输出。之后的消息保留。**
 
 **29. `settings.tina.chat.description`**  components/settings/HookConnectionsSection.tsx:1290  （65→52 字）
 
@@ -198,3 +198,4 @@
 
 - 原文：将把全部作品数据复制到新位置并逐项校验；原目录保留 14 天作为回滚余地。数据量大时可能需要几分钟，期间请尽量不使用该插件。
 - 改：**会把作品数据复制到新位置并逐项校验；原目录保留 14 天。过程中请尽量不使用该插件。**
+
