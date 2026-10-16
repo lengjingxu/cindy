@@ -122,6 +122,8 @@ describe('automation-generated sessions', () => {
       'plugin',
       // /cindy-make 制作个人版创建的代码任务:按源码 workingDir 归入项目分组。
       'cindy-make',
+      // 外部系统经 partner-bridge 派的活:与 plugin errand 同口径可见可旁观。
+      'bridge',
     ]);
     expect(DESKTOP_VISIBLE_SESSION_SOURCES).toContain('feishu');
     expect(DESKTOP_VISIBLE_SESSION_SOURCES).toContain('telegram');

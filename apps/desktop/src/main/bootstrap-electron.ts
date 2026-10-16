@@ -1,4 +1,5 @@
 import { retainProviderPresentationAfterAuthChange } from './maker-host/provider-presentation-store.js';
+import { stopPartnerBridgeRuntime } from './partner-bridge/runtime.js';
 import { codexAccountState } from './maker-host/codex-account-auth.js';
 import { syncSubscriptionAccountUsage } from './usage/subscriptionAccountUsage.js';
 import { clearSubscriptionAccountDiscoveredModels, setSubscriptionAccountInvalidatedHandler } from './maker-host/subscription-account-auth.js';
@@ -3317,6 +3318,7 @@ const linuxClosePromptFallback = createCloseBehaviorPromptFallbackController(
 
 app.on('before-quit', () => {
   isQuitting = true;
+  void stopPartnerBridgeRuntime();
   void disposeDesktopCompanion();
   disposePiRuntimeRecovery?.();
   retryPiRuntimeAfterNetworkRecovery = null;
