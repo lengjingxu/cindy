@@ -1073,6 +1073,7 @@ body.resizing-pane [data-ghost-webview] {
    循环动画必然带 infinite 字面量,而一次性的 animate-[xxx_200ms_ease-out] 不会。 */
 [data-app-hidden='true'] [data-voice-spinner-arc],
 [data-app-hidden='true'] [data-voice-mic-bar],
+[data-app-hidden='true'] .voice-input-wave-bar,
 /* .status-bar-shimmer 已 cadenced 化为一次性动画(2026-08-07),按「一次性动画
    不得纳入冻结清单」原则移出 —— 冻在中途帧会让状态栏停在半暗。 */
 [data-app-hidden='true'] .session-status-breathing,
