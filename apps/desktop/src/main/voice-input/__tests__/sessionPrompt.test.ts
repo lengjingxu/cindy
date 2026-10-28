@@ -34,6 +34,12 @@ const harness = vi.hoisted(() => {
 vi.mock('electron', () => ({
   app: { isPackaged: false, on: vi.fn(), once: vi.fn(), getPath: () => '/tmp/cindy-test' },
   BrowserWindow: class {
+    static getFocusedWindow() {
+      return null;
+    }
+    static getAllWindows() {
+      return [];
+    }
     constructor() {
       return harness.overlay;
     }
@@ -94,7 +100,11 @@ vi.mock('../../logger.js', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
 
-import { registerGlobalVoiceInputIpc, showSessionVoicePromptOverlay } from '../global.js';
+import {
+  registerGlobalVoiceInputIpc,
+  showSessionVoicePromptOverlay,
+  triggerGlobalVoiceInputFromHardware,
+} from '../global.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -112,6 +122,7 @@ describe('island task voice prompt', () => {
       sourceDeviceId: 'other-computer',
       displayId: 7,
     });
+    triggerGlobalVoiceInputFromHardware('start');
     expect(harness.overlay.showInactive).not.toHaveBeenCalled();
     harness.listeners.get('voice-input:global-overlay-ready')!(event);
     expect(harness.overlay.showInactive).toHaveBeenCalledTimes(1);

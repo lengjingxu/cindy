@@ -241,6 +241,7 @@ export function VoiceInputOverlay() {
   const [refinementPreviewText, setRefinementPreviewText] = useState('');
   const [sessionPrompt, setSessionPrompt] = useState<SessionVoicePromptContext | null>(null);
   const [sessionPromptError, setSessionPromptError] = useState<string | null>(null);
+  const [hasRecordingContent, setHasRecordingContent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [microphoneNotice, setMicrophoneNotice] = useState<string | null>(null);
   const [hasPasteError, setHasPasteError] = useState(false);
@@ -340,6 +341,7 @@ export function VoiceInputOverlay() {
     setRefinementPreviewText('');
     setSessionPrompt(null);
     setSessionPromptError(null);
+    setHasRecordingContent(false);
     sessionPromptRef.current = null;
     draftTextRef.current = '';
     finalTextRef.current = '';
@@ -820,6 +822,7 @@ export function VoiceInputOverlay() {
     setFinalText('');
     setRefinementPreviewText('');
     setSessionPromptError(null);
+    setHasRecordingContent(false);
     draftTextRef.current = '';
     finalTextRef.current = '';
     rawTranscriptTextRef.current = '';
@@ -847,7 +850,10 @@ export function VoiceInputOverlay() {
       isCurrentEngine: (engine) => startAttemptIdRef.current === attemptId && engineRef.current === engine,
       timeline,
       appendAudioChunk,
-      onSoundDetected: () => { hasRecordingContentRef.current = true; },
+      onSoundDetected: () => {
+        hasRecordingContentRef.current = true;
+        setHasRecordingContent(true);
+      },
       onInterrupted: (message) => {
         if (isActiveStartAttempt(attemptId)) void failRecording(message);
       },
@@ -1456,12 +1462,14 @@ export function VoiceInputOverlay() {
           break;
         case 'draft':
           if (event.text.trim()) hasRecordingContentRef.current = true;
+          if (event.text.trim()) setHasRecordingContent(true);
           if (event.text.trim()) startupTimelineRef.current?.mark('first_transcript');
           draftTextRef.current = event.text;
           setDraftText(event.text);
           break;
         case 'submitted':
           if (event.text.trim()) hasRecordingContentRef.current = true;
+          if (event.text.trim()) setHasRecordingContent(true);
           if (event.text.trim()) startupTimelineRef.current?.mark('first_transcript');
           finalTextRef.current = event.text;
           rawTranscriptTextRef.current = event.segment.basedOnText ?? event.text;
@@ -1641,6 +1649,9 @@ export function VoiceInputOverlay() {
     : hasPermissionPrompt
       ? error ?? ''
     : finalText || draftText;
+  const retainedTaskText = sessionPrompt
+    ? (pendingPasteTextRef.current || finalText || draftText).trim()
+    : '';
   const displayContent: ReactNode = refinementPreviewText && !hasPasteError && !hasPermissionPrompt
     ? buildRefinementPreviewText(rawTranscriptTextRef.current, refinementPreviewText)
     : displayText;
@@ -1685,7 +1696,9 @@ export function VoiceInputOverlay() {
   const permissionPromptHint = permissionPrompt
     ? t(`voiceInputOverlay.permissionPrompts.${permissionPrompt}.hint`)
     : '';
-  const transcriptClassName = hasPasteError || hasPermissionPrompt || hasSettingsRecovery
+  const transcriptClassName = hasBlockingError && retainedTaskText
+    ? 'min-h-[88px] max-h-[140px] cursor-default overflow-y-auto whitespace-pre-wrap break-words text-15 leading-6 text-[var(--cmd-palette-item-text)]'
+    : hasPasteError || hasPermissionPrompt || hasSettingsRecovery
     ? 'min-h-[44px] max-h-[72px] cursor-default overflow-y-auto whitespace-pre-wrap break-words text-15 leading-6 text-[var(--cmd-palette-item-text)]'
     : 'h-[88px] cursor-default overflow-y-auto whitespace-pre-wrap break-words text-15 leading-6 text-[var(--cmd-palette-item-text)]';
   const showLiveMicWave = state === 'listening' && !hasBlockingError && !hasPasteError && !hasPermissionPrompt;
@@ -1733,7 +1746,8 @@ export function VoiceInputOverlay() {
                   className={sessionPrompt
                     ? 'flex h-7 w-7 items-center justify-center rounded-full bg-[var(--send-btn-bg)] text-[var(--send-btn-icon)] transition hover:bg-[var(--send-btn-hover-bg)] active:scale-95 active:bg-[var(--send-btn-pressed-bg)] disabled:cursor-default disabled:bg-[var(--send-btn-disabled-bg)] disabled:text-[var(--send-btn-disabled-icon)]'
                     : 'rounded-full p-1.5 text-[var(--cmd-palette-item-meta)] transition hover:bg-[var(--cmd-palette-item-hover)] hover:text-[var(--cmd-palette-item-text)] active:scale-95 disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-[var(--cmd-palette-item-meta)]'}
-                  disabled={state === 'submitting' || state === 'refining' || (Boolean(sessionPrompt) && !displayText.trim())}
+                  disabled={state === 'submitting' || state === 'refining'
+                    || (Boolean(sessionPrompt) && !displayText.trim() && !hasRecordingContent)}
                   onFocus={preventOverlayButtonFocus}
                   onPointerDown={(event) => {
                     beginOverlayButtonAction(event);
@@ -1778,30 +1792,53 @@ export function VoiceInputOverlay() {
                 className="w-full justify-start rounded-[12px] shadow-none"
                 maxWidthClassName="max-w-none"
               />
-              <Button
-                variant="cta"
-                size="lg"
-                type="button"
-                tabIndex={-1}
-                onFocus={preventOverlayButtonFocus}
-                onPointerDown={(event) => {
-                  beginOverlayButtonAction(event);
-                  void (codexRecovery ? handleCodexRecovery() : startRecording());
-                }}
-                onClick={suppressOverlayButtonClick}
-                // The stop IPC gate remains the primary retry guard (disabled={stopInFlight});
-                // auth recovery adds its own busy state while focus/visibility rechecks run.
-                disabled={stopInFlight || codexRecoveryBusy || codexRecoveryPromptPending}
-              >
-                {codexRecovery
-                  ? codexRecoveryRecovered
-                    ? t('voiceInputOverlay.retry')
-                    : t(codexRecoveryActionKey(
-                        codexRecoveryScope,
-                        codexRecoveryBusy ? 'checking' : codexRecoveryCheck,
-                      ))
-                  : t('voiceInputOverlay.retry')}
-              </Button>
+              {retainedTaskText && (
+                <div className="w-full truncate text-12 leading-5 text-[var(--cmd-palette-item-meta)]" title={retainedTaskText}>
+                  {retainedTaskText}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {retainedTaskText && !codexRecovery && (
+                  <Button
+                    variant="cta"
+                    size="lg"
+                    type="button"
+                    tabIndex={-1}
+                    onFocus={preventOverlayButtonFocus}
+                    onPointerDown={(event) => {
+                      beginOverlayButtonAction(event);
+                      void submitSessionPromptText(retainedTaskText);
+                    }}
+                    onClick={suppressOverlayButtonClick}
+                    disabled={state === 'submitting' || state === 'refining'}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                    {t('voiceInputOverlay.sessionPrompt.submit')}
+                  </Button>
+                )}
+                <Button
+                  variant={retainedTaskText && !codexRecovery ? 'secondary' : 'cta'}
+                  size="lg"
+                  type="button"
+                  tabIndex={-1}
+                  onFocus={preventOverlayButtonFocus}
+                  onPointerDown={(event) => {
+                    beginOverlayButtonAction(event);
+                    void (codexRecovery ? handleCodexRecovery() : startRecording());
+                  }}
+                  onClick={suppressOverlayButtonClick}
+                  disabled={stopInFlight || codexRecoveryBusy || codexRecoveryPromptPending}
+                >
+                  {codexRecovery
+                    ? codexRecoveryRecovered
+                      ? t('voiceInputOverlay.retry')
+                      : t(codexRecoveryActionKey(
+                          codexRecoveryScope,
+                          codexRecoveryBusy ? 'checking' : codexRecoveryCheck,
+                        ))
+                    : t('voiceInputOverlay.retry')}
+                </Button>
+              </div>
             </div>
           ) : displayText ? (
             displayContent
@@ -1903,7 +1940,7 @@ export function VoiceInputOverlay() {
                   {t('voiceInputOverlay.openPermissionSettings')}
                 </Button>
               )}
-              {sessionPromptError && (
+              {sessionPrompt && displayText.trim() && (
                 <Button
                   variant="cta"
                   size="lg"
@@ -1919,7 +1956,7 @@ export function VoiceInputOverlay() {
                   className="shrink-0 shadow-sm"
                 >
                   <ArrowUp className="h-3.5 w-3.5" />
-                  {t('voiceInputOverlay.retry')}
+                  {sessionPromptError ? t('voiceInputOverlay.retry') : t('voiceInputOverlay.sessionPrompt.submit')}
                 </Button>
               )}
               <Button

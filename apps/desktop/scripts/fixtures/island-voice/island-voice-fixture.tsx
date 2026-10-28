@@ -24,7 +24,7 @@ void mountPage({
         const emit = (window as unknown as { __uiPage: { emit: (name: string, event: unknown) => void } }).__uiPage.emit;
         emit('voice', { type: 'submitted', runId: 'fixture-run', text: '请把结果整理成一份简短的周报。', segment: {} });
         emit('voice', { type: 'state', runId: 'fixture-run', state: 'done' });
-        return { ok: true };
+        return ctx.case === 'recording-error-retained' ? { ok: false, error: '识别失败' } : { ok: true };
       },
       recordHistory: () => ({ id: 'history-1' }),
       drainAudioQueue: async () => ({ ok: true }),

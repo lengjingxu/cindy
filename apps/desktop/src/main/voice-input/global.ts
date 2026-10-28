@@ -1965,6 +1965,7 @@ function handleGlobalVoiceInputShortcut(phase?: Extract<GlobalVoiceInputShortcut
     overlay.webContents.send('voice-input:global-overlay-command', { type: 'submit' });
     return;
   }
+  if (pendingSessionPromptStart) return;
   if (overlay && overlay.isVisible()) {
     setOverlayIdlePresentationState(overlay);
   }
@@ -2009,6 +2010,7 @@ function handleGlobalVoiceInputShortcutTap(): void {
     overlay.webContents.send('voice-input:global-overlay-command', { type: 'submit' });
     return;
   }
+  if (pendingSessionPromptStart) return;
   const focusedWindow = BrowserWindow.getFocusedWindow();
   if (focusedWindow) {
     focusedWindow.webContents.send('voice-input:global-shortcut-trigger', { phase: 'tap' });
@@ -2028,6 +2030,7 @@ function handleGlobalVoiceInputShortcutSubmit(): void {
     overlay.webContents.send('voice-input:global-overlay-command', { type: 'submit' });
     return;
   }
+  if (pendingSessionPromptStart) return;
   if (pendingOverlayStart) {
     pendingModifierOverlaySubmit = true;
     return;
@@ -2379,6 +2382,7 @@ async function showOverlayWindow(shortcutInvokedAt = Date.now()): Promise<void> 
     existing.webContents.send('voice-input:global-overlay-command', { type: 'submit' });
     return;
   }
+  if (pendingSessionPromptStart) return;
   pendingSessionPromptStart = null;
   sessionPromptPresentation = null;
 
