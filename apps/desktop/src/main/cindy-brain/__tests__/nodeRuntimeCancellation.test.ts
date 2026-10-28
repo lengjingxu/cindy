@@ -101,7 +101,7 @@ function harness(
       args: [],
       ...(rpcId ? { rpcId } : {}),
     });
-  return { worker, children, calls, broker, request, spawn };
+  return { worker, children, calls, broker, request, spawn, ghost };
 }
 
 async function until(check: () => boolean) {
@@ -465,4 +465,92 @@ describe('Node private authorization bridge', () => {
       expect(() => assertCurrent()).toThrow();
     },
   );
+});
+
+// Protects the new private Host boundary (unit/DI): only a live, authorized method
+// may persist a credential. Prior cancellation coverage had no credential writes.
+describe('Node credential capture', () => {
+  it('saves only after authorization, survives a new RPC, and never returns the secret', async () => {
+    let stored: string | null = null;
+    const write = vi.fn((_id: string, _key: string, value: string) => { stored = value; return true; });
+    const h = harness(true, { saveSecret: write, readSecret: () => stored,
+      getCallSessionId: () => 'session-a',
+      openAuthorization: () => ({ result: Promise.resolve({ kind: 'opened' }), opened: Promise.resolve(),
+        finish() {}, dispose() {} }),
+    });
+    const ghost = h.ghost;
+    ghost.manifest.node!.secretBindings = [{ key: 'account', label: 'Account', methods: ['tools/call'], saveMethods: ['tools/call'] }];
+    const request = h.request('call-a');
+    await vi.waitFor(() => expect(h.worker.requests.length).toBe(1));
+    const rpcId = h.worker.requests[0]!.id;
+    const save = { type: 'credential-save', reqId: 'save1', rpcId, key: 'account', identity: 'app-test', value: 'synthetic-not-a-secret' };
+    h.worker.listener?.(save);
+    await vi.waitFor(() => expect(h.worker.controls).toContainEqual({ type: 'node-host-result', reqId: 'save1', ok: false }));
+    expect(write).not.toHaveBeenCalled();
+    h.worker.listener?.({ type: 'plugin-authorize', reqId: 'auth1', rpcId,
+      request: { kind: 'device', url: 'https://provider.example/activate' } });
+    await vi.waitFor(() => expect(h.worker.controls.some(x => x.type === 'plugin-authorize-result' && x.ok)).toBe(true));
+    h.worker.listener?.({ ...save, reqId: 'save2' });
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(stored!)).toMatchObject({ nodeCredentialVersion: 1, identity: 'app-test', value: 'synthetic-not-a-secret' });
+    expect(JSON.stringify(h.worker.controls)).not.toContain('synthetic-not-a-secret');
+    h.worker.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: rpcId, result: { identity: 'app-test', leaked: 'synthetic-not-a-secret' } }) + '\n');
+    const result = await request;
+    expect(JSON.stringify(result)).not.toContain('synthetic-not-a-secret');
+    const next = h.request('call-b');
+    await vi.waitFor(() => expect(h.worker.requests.length).toBe(2));
+    expect(JSON.stringify(h.worker.requests[1]!.cindy)).toContain('synthetic-not-a-secret');
+    h.calls.get('call-b')!.abort(); await next;
+    h.worker.listener?.({ ...save, reqId: 'late' });
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+  it('rejects wrong methods, entries, cancellation and unavailable storage without writes', async () => {
+    const write = vi.fn(() => true);
+    const h = harness(true, { saveSecret: write, getCallSessionId: () => 's' });
+    const request = h.request('call-a');
+    await vi.waitFor(() => expect(h.worker.requests.length).toBe(1));
+    const rpcId = h.worker.requests[0]!.id;
+    for (const key of ['undeclared', 'other']) h.worker.listener?.({ type: 'credential-save', reqId: key, rpcId, key,
+      identity: 'app-test', value: 'synthetic' });
+    h.calls.get('call-a')!.abort(); await request;
+    expect(write).not.toHaveBeenCalled();
+  });
+});
+
+// Standard unit: a live authorization card is insufficient once its owner,
+// installation, or vault fails. These are new write-boundary outcomes.
+describe('private Host service revocation', () => {
+  it.each(['owner', 'manifest', 'disabled', 'storage'] as const)('does not report saved after %s changes', async mode => {
+    let current = true;
+    const write = vi.fn(() => mode !== 'storage');
+    const h = harness(true, { saveSecret: write, readSecret: () => null,
+      ownerScope: { capture: () => 'owner', isCurrent: () => current, isStable: () => current },
+      getCallSessionId: () => 'session',
+      openAuthorization: () => ({ result: Promise.resolve({ kind: 'opened' }), opened: Promise.resolve(), finish() {}, dispose() {} }),
+    });
+    h.ghost.manifest.node!.secretBindings = [{key:'account',label:'Account',methods:['tools/call'],saveMethods:['tools/call']}];
+    const request=h.request('call-a'); await until(()=>h.worker.requests.length===1);
+    const rpcId=h.worker.requests[0].id;
+    h.worker.listener?.({type:'plugin-authorize',reqId:'auth',rpcId,request:{kind:'device',url:'https://provider.example/auth'}});
+    await until(()=>h.worker.controls.some(x=>x.reqId==='auth'&&x.ok));
+    if(mode==='owner')current=false;
+    if(mode==='manifest')h.ghost.manifest.version='2.0.0';
+    if(mode==='disabled')h.ghost.enabled=false;
+    h.worker.listener?.({type:'credential-save',reqId:'save',rpcId,key:'account',identity:'app',value:'synthetic-value'});
+    await new Promise(r=>setImmediate(r));
+    expect(write).toHaveBeenCalledTimes(mode==='storage'?1:0);
+    expect(h.worker.controls.some(x=>x.reqId==='save'&&x.ok)).toBe(false);
+    h.calls.get('call-a')!.abort(); await request;
+  });
+  it('binds upload to the real call and aborts it when the tool ends', async () => {
+    let observedSignal!:AbortSignal;
+    let release!:(value:unknown)=>void;
+    const send=vi.fn<NonNullable<GhostNodeRuntimeBrokerDeps['authenticatedFetch']>>((_id, request, _auth, guard, signal)=>{guard();observedSignal=signal;expect(request.callId).toBe('call-a');return new Promise(resolve=>{release=resolve;});});
+    const h=harness(true,{authenticatedFetch:send});const request=h.request('call-a');await until(()=>h.worker.requests.length===1);
+    const rpcId=h.worker.requests[0].id;
+    h.worker.listener?.({type:'authenticated-fetch',reqId:'upload',rpcId,authorization:'Bearer synthetic',request:{url:'https://provider.example/u',callId:'forged'}});
+    await until(()=>send.mock.calls.length===1);
+    h.calls.get('call-a')!.abort();await request;expect(observedSignal.aborted).toBe(true);release({ok:true});
+    await new Promise(r=>setImmediate(r));expect(h.worker.controls.some(x=>x.reqId==='upload'&&x.ok)).toBe(false);
+  });
 });

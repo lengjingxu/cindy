@@ -277,6 +277,8 @@ export interface GhostNodeSecretBinding {
   label: string;
   /** 允许注入的 JSON-RPC 方法白名单(1–16 条)。 */
   methods: string[];
+  /** Methods allowed to save a credential after live authorization. */
+  saveMethods?: string[];
   /** 可选目标入口；缺省只绑定 node.entry 主入口。 */
   entry?: string;
   /** 可选输入提示。 */
@@ -353,6 +355,8 @@ export const GHOST_NODE_CHILD_MODE_FLAG = '__cindy-node-child__';
 
 /** worker → 主机:代启/喂 stdin/收 stdin/杀进程。 */
 export type GhostNodeChildToHostMessage =
+  | { type: 'credential-save'; reqId: string; rpcId: string; key: string; value: string; identity: string }
+  | { type: 'authenticated-fetch'; reqId: string; rpcId: string; authorization: string; request: Record<string, unknown> }
   | { type: 'plugin-authorize'; reqId: string; rpcId: string; request: PluginAuthorizationRequest }
   | { type: 'device-authorize'; reqId: string; rpcId: string; url: string }
   | { type: 'spawn-child'; reqId: string; entry: string; args?: string[]; rpcId?: string }
@@ -362,6 +366,7 @@ export type GhostNodeChildToHostMessage =
 
 /** 主机 → worker:代启结果/子进程输出/退出。 */
 export type GhostNodeChildToWorkerMessage =
+  | { type: 'node-host-result'; reqId: string; ok: boolean; result?: unknown }
   | { type: 'plugin-authorize-result'; reqId: string; ok: boolean; result?: PluginAuthorizationResult }
   | { type: 'device-authorize-result'; reqId: string; ok: boolean }
   | { type: 'spawn-child-result'; reqId: string; ok: true; childId: string; pid?: number }
@@ -378,6 +383,22 @@ function isChildId(v: unknown): v is string {
 export function parseGhostNodeChildToHostMessage(raw: unknown): GhostNodeChildToHostMessage | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const m = raw as Record<string, unknown>;
+  if (m.type === 'credential-save' || m.type === 'authenticated-fetch') {
+    if (!isChildId(m.reqId) || typeof m.rpcId !== 'string' || !/^\d{1,16}$/.test(m.rpcId)) return null;
+    if (m.type === 'credential-save') {
+      if (Object.keys(m).sort().join(',') !== 'identity,key,reqId,rpcId,type,value'
+        || typeof m.identity !== 'string' || !/^[A-Za-z0-9._:@-]{1,256}$/.test(m.identity)
+        || typeof m.key !== 'string' || !/^[a-z][a-z0-9_]{0,31}$/.test(m.key)
+        || typeof m.value !== 'string' || m.value.length < 1 || m.value.length > 16384) return null;
+      return { type: m.type, reqId: m.reqId, rpcId: m.rpcId, key: m.key, value: m.value, identity: m.identity };
+    }
+    if (Object.keys(m).sort().join(',') !== 'authorization,reqId,request,rpcId,type'
+      || typeof m.authorization !== 'string' || !/^Bearer [A-Za-z0-9._~+\/=-]{1,8192}$/.test(m.authorization)
+      || !m.request || typeof m.request !== 'object' || Array.isArray(m.request)
+      || JSON.stringify(m.request).length > 65536) return null;
+    return { type: m.type, reqId: m.reqId, rpcId: m.rpcId, authorization: m.authorization,
+      request: m.request as Record<string, unknown> };
+  }
   if (m.type === 'plugin-authorize') {
     if (Object.keys(m).sort().join(',') !== 'reqId,request,rpcId,type'
       || !isChildId(m.reqId) || typeof m.rpcId !== 'string' || !/^\d{1,16}$/.test(m.rpcId)) return null;
@@ -2162,6 +2183,11 @@ export function ghostPermissionItems(manifest: GhostManifest): GhostPermissionIt
     for (const binding of manifest.node.secretBindings ?? []) {
       const targetEntry = binding.entry ?? manifest.node.entry;
       const stableMethods = [...binding.methods].sort();
+      if (binding.saveMethods) items.unshift({
+        key: 'node:credential-save:' + binding.key + ':' + targetEntry + ':' + [...binding.saveMethods].sort().join(','),
+        kind: 'node', labelKey: 'nodeCredentialSave', labelArgs: { name: binding.label },
+        detailKey: 'nodeCredentialSaveDetail', detail: binding.saveMethods.join('\n'),
+      });
       items.unshift({
         key: `node:secret:${binding.key}:${targetEntry}:${stableMethods.join(',')}${binding.oauthSecret ? `:oauth:${binding.oauthSecret}` : ''}`,
         kind: 'node',
@@ -4777,6 +4803,17 @@ function validateGhostManifestInput(value: unknown, preserveHistoricalTasks: boo
           }
           methods.push(method);
         }
+        let saveMethods: string[] | undefined;
+        if (binding.saveMethods !== undefined) {
+          if (binding.oauthSecret !== undefined || !Array.isArray(binding.saveMethods)
+            || binding.saveMethods.length < 1 || binding.saveMethods.length > GHOST_NODE_MAX_SECRET_METHODS
+            || binding.saveMethods.some((m: unknown) => typeof m !== 'string'
+              || !methods.includes(m) || isGhostNodeMcpReservedMethod(m))
+            || new Set(binding.saveMethods).size !== binding.saveMethods.length) {
+            return { ok: false, reason: 'node.secretBindings[].saveMethods must be unique methods from methods, without oauthSecret' };
+          }
+          saveMethods = binding.saveMethods as string[];
+        }
         let bindingEntry: string | undefined;
         if (binding.entry !== undefined) {
           if (
@@ -4830,11 +4867,12 @@ function validateGhostManifestInput(value: unknown, preserveHistoricalTasks: boo
           return { ok: false, reason: 'node.secretBindings[].oauthSecret 必须是本插件 OAuth 凭证键' };
         }
         nodeSecretBindings.push({
-          ...unknownDeclarationFields(binding, ['key', 'label', 'methods', 'entry', 'hint', 'url', 'oauthSecret']),
+          ...unknownDeclarationFields(binding, ['key', 'label', 'methods', 'entry', 'hint', 'url', 'oauthSecret', 'saveMethods']),
           ...(binding.oauthSecret !== undefined ? { oauthSecret: binding.oauthSecret as string } : {}),
           key: binding.key,
           label: binding.label,
           methods,
+          ...(saveMethods ? { saveMethods } : {}),
           ...(bindingEntry !== undefined ? { entry: bindingEntry } : {}),
           ...(binding.hint !== undefined ? { hint: binding.hint as string } : {}),
           ...(binding.url !== undefined ? { url: binding.url as string } : {}),

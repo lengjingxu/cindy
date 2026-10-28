@@ -4976,3 +4976,32 @@ describe('ghostPermissionProjectionFingerprint', () => {
     );
   });
 });
+
+// New write privilege must not inherit a legacy read-secret approval; omitted
+// saveMethods must preserve existing manifests/projections (standard unit).
+describe('Node authorization credential capture permission', () => {
+  const raw = (extra: Record<string, unknown> = {}) => ({
+    ...goodChipManifest(), settingsHtml: 'settings.html', slots: ['panel', 'node'],
+    node: { entry: 'node/worker.cjs', protocol: 'json-rpc-stdio',
+      secretBindings: [{ key: 'account', label: 'Account', methods: ['authorize', 'read'], ...extra }] },
+  });
+  it('keeps legacy permissions unchanged and requires separate approval for saving', () => {
+    const legacy = validateGhostManifest(raw());
+    const capture = validateGhostManifest(raw({ saveMethods: ['authorize'] }));
+    expect(legacy.ok && capture.ok).toBe(true);
+    if (!legacy.ok || !capture.ok) return;
+    expect(legacy.manifest.node!.secretBindings![0]).not.toHaveProperty('saveMethods');
+    const before = ghostPermissionItems(legacy.manifest);
+    const after = ghostPermissionItems(capture.manifest);
+    const added = after.filter(a => !before.some(b => a.key === b.key));
+    expect(added).toHaveLength(1);
+    expect(added[0].key).toMatch(/^node:credential-save:/);
+    expect(after.filter(a => a.labelKey !== 'nodeCredentialSave')).toEqual(before);
+  });
+  it.each([[], ['missing'], ['authorize', 'authorize'], ['initialize']].map(saveMethods => ({ saveMethods })))('rejects invalid save methods $saveMethods', ({ saveMethods }) => {
+    expect(validateGhostManifest(raw({ saveMethods })).ok).toBe(false);
+  });
+  it('does not let an OAuth binding capture new credentials', () => {
+    expect(validateGhostManifest(raw({ saveMethods: ['authorize'], oauthSecret: 'other' })).ok).toBe(false);
+  });
+});

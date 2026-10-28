@@ -2379,6 +2379,9 @@ export function getGhostNodeRuntimeBroker(): GhostNodeRuntimeBroker {
       ownerScope: ghostOwnerScope,
       readSecret: (ghostId, secretKey) => readGhostSecret(ghostId, secretKey),
       secretSaved: ghostSecretSaved,
+      saveSecret: storeGhostSecret,
+      authenticatedFetch: (ghostId, request, authorization, assertCurrent, signal) =>
+        getGhostNetworkSlot().handleAuthenticatedNodeFetch(ghostId, request, authorization, assertCurrent, signal),
       resolveOauthSecret: async (ghostId, secretKey, accountId) => {
         const ghost = findGhostForInstanceId(ghostId);
         const source = ghost

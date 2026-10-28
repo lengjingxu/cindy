@@ -108,7 +108,7 @@ function deriveRequirementGroups(manifest: GhostManifest): GhostSetupRequirement
     implicit.push({ kind: 'secret', key: s.key });
   }
   for (const s of manifest.node?.secretBindings ?? []) {
-    if (s.oauthSecret) continue;
+    if (s.oauthSecret || s.saveMethods) continue;
     implicit.push({ kind: 'secret', key: s.key });
   }
   for (const c of manifest.network?.connections ?? []) {
