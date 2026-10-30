@@ -79,7 +79,7 @@ function fail(message) {
 const listed = spawnSync('git', ['ls-files', '-z'], {
   encoding: 'buffer',
   // The tracked-path list exceeds spawnSync's default 1 MiB in this repository.
-  maxBuffer: 16 * 1024 * 1024,
+  maxBuffer: 64 * 1024 * 1024,
 });
 
 if (listed.error) {
