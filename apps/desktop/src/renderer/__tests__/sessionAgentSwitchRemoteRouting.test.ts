@@ -118,6 +118,37 @@ describe('makerChatStore.mirrorAgentSwitchIntent', () => {
     expect(makerChatStore.getSnapshot(s)).toBe(snap); // 引用不变 = 未触发更新
   });
 
+  it('远程 Agent 换电脑:位置随意图镜像(null = 任务所在电脑),脏值按位置不变处理', async () => {
+    const { makerChatStore } = await import('@/lib/makerChatStore');
+    const s = sid();
+    makerChatStore.mirrorAgentSwitchIntent(s, {
+      targetAgentKind: 'claude-code',
+      model: 'anthropic/claude-opus-5-5[1m]',
+      providerId: 'xd',
+      agentDeviceId: null,
+    });
+    expect(makerChatStore.getSnapshot(s).agentSwitchIntent).toMatchObject({ agentDeviceId: null });
+
+    // 位置不同 = 不同的意图,不能当成同一份回声吞掉。
+    makerChatStore.mirrorAgentSwitchIntent(s, {
+      targetAgentKind: 'claude-code',
+      model: 'anthropic/claude-opus-5-5[1m]',
+      providerId: 'xd',
+      agentDeviceId: 'studio-mac',
+    });
+    expect(makerChatStore.getSnapshot(s).agentSwitchIntent?.agentDeviceId).toBe('studio-mac');
+
+    makerChatStore.mirrorAgentSwitchIntent(s, {
+      targetAgentKind: 'claude-code',
+      model: 'm',
+      providerId: 'xd',
+      agentDeviceId: 42,
+    });
+    const intent = makerChatStore.getSnapshot(s).agentSwitchIntent;
+    expect(intent?.model).toBe('m');
+    expect(intent && 'agentDeviceId' in intent).toBe(false);
+  });
+
   it('null / 非法值 = 无意图 → 清除', async () => {
     const { makerChatStore } = await import('@/lib/makerChatStore');
     const s = sid();
@@ -839,10 +870,21 @@ describe('ChatInput 的入口门控与调用路由', () => {
     expect(source).toMatch(
       /!unifiedPanelActive &&\s*\n\s*sessionId &&\s*\n\s*vendorKey &&\s*\n\s*!remoteHostId &&\s*\n\s*sessionAgentSwitchSupported/,
     );
-    expect(source).toContain('ccCaps.capabilities?.supportsSessionAgentSwitch === true');
-    expect(source).toContain('ccCaps.capabilities.supportsSessionAgentSwitchCas === true');
-    expect(source).toContain('codexCaps.capabilities?.supportsSessionAgentSwitch === true');
-    expect(source).toContain('codexCaps.capabilities.supportsSessionAgentSwitchCas === true');
+    expect(source).toContain('hostCcCaps.capabilities?.supportsSessionAgentSwitch === true');
+    expect(source).toContain('hostCcCaps.capabilities.supportsSessionAgentSwitchCas === true');
+    expect(source).toContain('hostCodexCaps.capabilities?.supportsSessionAgentSwitch === true');
+    expect(source).toContain('hostCodexCaps.capabilities.supportsSessionAgentSwitchCas === true');
+    // 能力位读**任务所在的被控电脑**,不跟模型目录走(2026-10-09 review P1):Agent 在离线的
+    // 第三台电脑时目录读不到,入口不能因此消失,否则改不回被控电脑。
+    expect(source).toMatch(
+      /const hostCcCaps = useAgentCapabilities\(\s*deviceLinkDeviceId \? 'claude-code' : null,\s*deviceLinkDeviceId \?\? undefined,\s*\);/,
+    );
+    expect(source).toMatch(
+      /const hostCodexCaps = useAgentCapabilities\(\s*deviceLinkDeviceId \? 'codex' : null,\s*deviceLinkDeviceId \?\? undefined,\s*\);/,
+    );
+    expect(source).toContain(
+      "hostCcCaps.capabilities?.supportsSessionAgentSwitchCas === true ||\n    hostCodexCaps.capabilities?.supportsSessionAgentSwitchCas === true;",
+    );
     const hostSource = readFileSync(
       resolve(process.cwd(), 'src/main/maker-ipc/register.ts'),
       'utf8',
@@ -937,7 +979,8 @@ describe('ChatInput 的入口门控与调用路由', () => {
       'const exclusiveTurn = reserveAgentSwitchExclusive(sourceSessionId);',
     );
     const invoke = source.indexOf(
-      'const result = await switchApi.switchSessionAgent(',
+      // 换电脑时多带一个位置参数,两种调用形态共用同一个 result。
+      'const result = relocateTo !== undefined',
       reservation,
     );
     const scopeGuard = source.indexOf(
@@ -963,10 +1006,12 @@ describe('ChatInput 的入口门控与调用路由', () => {
     expect(source).toContain(
       'expectedAgentSwitchRevision !== undefined || remoteAtomicModelSelectionSupported',
     );
-    expect(source).toContain('? { effort: newEffort, fastMode: restoredFast }');
-    expect(source).toContain('? { effort: targetEffort, fastMode: restoredFast }');
+    expect(source).toContain('effort: newEffort,');
+    expect(source).toContain('effort: targetEffort,');
+    expect(source).toContain('fastMode: restoredFast,');
     expect(source).toContain('if (!useAtomicSelection) {');
     expect(source).toContain('if (remoteSetModelResult?.superseded) {');
+    expect(source).not.toContain('if (!accepted || remoteSetModelResult?.superseded) {');
     expect(source).toContain('if (setModelResult?.superseded) {');
     expect(source).toContain('result.sameEngineRevision,');
   });
@@ -1202,19 +1247,19 @@ describe('ChatInput 的入口门控与调用路由', () => {
     expect(matches).toHaveLength(2);
     expect(selectorSource).not.toContain('(open || keepOpenForAgentConfirmation) && !disabled');
     expect(selectorSource).not.toContain('(open && !disabled) || keepOpenForAgentConfirmation');
-    // 切引擎成功也不收选单:applied=true 曾经会 setOpen(false),一点胶囊窗口就没了。
-    expect(selectorSource).toContain('setOpenWithoutAutoRefresh(true);');
-    expect(selectorSource).not.toContain('setOpenWithoutAutoRefresh(applied === false)');
-  });
-
-  it('换引擎确认只认任务真实引擎,不认挂着的意图', () => {
-    expect(source).toMatch(/runtimeAgentKind != null\s*&&\s*runtimeAgentKind === targetAgent/);
-    expect(source).not.toContain(
-      'makerChatStore.getAgentSwitchIntent(sessionId)?.target === targetAgent',
+    // 配置切引擎保持展开；选中模型行成功后收起。disabled 仍不得参与开关。
+    expect(selectorSource).toContain('setOpenWithoutAutoRefresh(configuring || applied === false)');
+    expect(selectorSource).toContain(
+      "onProviderChange(args.providerId, args.wireModelId, args.effort ?? '', args.config.fast)",
     );
   });
 
-  it('会话收藏锚点只认 uid,不拿正在跑的模型/引擎去对副本', () => {
+  it('换引擎确认:回原引擎或点已确认的意图目标不再弹,换第三家仍要问', () => {
+    expect(source).toContain('runtimeAgentKind === targetAgent');
+    expect(source).toContain('agentSwitchIntent?.target === targetAgent');
+  });
+
+  it('会话传入历史收藏 uid，由统一面板校验完整配置后显示选中态', () => {
     expect(source).toContain('sessionFavoriteAnchor?.uid ?? null');
     expect(source).not.toContain('sessionFavoriteAnchor.wireModelId === activeModel');
   });
@@ -1242,7 +1287,7 @@ describe('ChatInput 的入口门控与调用路由', () => {
     );
     const ensure = panel.slice(
       panel.indexOf('const ensureSelectedVisible = useCallback'),
-      panel.indexOf('}, [pickerLayout]);'),
+      panel.indexOf('  useEffect(() => {', panel.indexOf('const ensureSelectedVisible = useCallback')),
     );
     expect(ensure).not.toContain('row.focus');
     expect(ensure).toContain('computeSelectedRowScrollTop');

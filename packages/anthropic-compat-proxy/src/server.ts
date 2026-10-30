@@ -13,11 +13,13 @@
  *      详见 dispose() 内注释。
  */
 
+import { installResponseGuard } from './response-guard.js';
+import { collectRecoverableBody } from './oversized-attachments.js';
 import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest, type ClientRequest, type IncomingMessage, type RequestOptions, type Server, type ServerResponse } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { Socket, TcpSocketConnectOpts } from 'node:net';
-import type { Transform } from 'node:stream';
+import { PassThrough, Readable, type Transform } from 'node:stream';
 import { URL } from 'node:url';
 import { brotliDecompressSync, gunzipSync, inflateRawSync, inflateSync } from 'node:zlib';
 
@@ -35,6 +37,7 @@ import {
   type OutboundProxyTarget,
 } from './outbound-proxy.js';
 import { Socks5HttpAgent, Socks5HttpsAgent } from './socks5.js';
+import { describeUpstreamRequestFailure } from './upstream-failure.js';
 import { stripNonAnthropicFields, stripToolUseProviderSpecificFields } from './transform.js';
 import {
   collectToolUseIdsForResponseRewrite,
@@ -42,6 +45,8 @@ import {
   ToolUseIdRewriteTransform,
 } from './tool-use-id-stream-rewrite.js';
 import type {
+  ForwardLifecycleObserver,
+  ForwardLifecycleFailure,
   LocalRequestHandler,
   ProxyHandle,
   ProxyLogger,
@@ -525,6 +530,32 @@ function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
   );
 }
 
+/** Enforce one real start and one terminal callback across transparent retry recursion. */
+function guardForwardLifecycleObserver(
+  observer: ForwardLifecycleObserver | undefined,
+): ForwardLifecycleObserver | null {
+  if (!observer) return null;
+  let started = false;
+  let settled = false;
+  return {
+    onStart: () => {
+      if (started || settled) return;
+      started = true;
+      observer.onStart?.();
+    },
+    onComplete: (status) => {
+      if (!started || settled) return;
+      settled = true;
+      observer.onComplete?.(status);
+    },
+    onFailure: (failure, status) => {
+      if (!started || settled) return;
+      settled = true;
+      observer.onFailure?.(failure, status);
+    },
+  };
+}
+
 /**
  * 执行路由决策命中的本地 handler(见 types.LocalRequestHandler 契约)。
  *
@@ -637,10 +668,11 @@ function respondRequestTooLarge(opts: {
   /** Content-Length 预检命中时的声明字节数;流式守卫命中时为 null。 */
   declaredBytes: number | null;
   receivedBytes: number;
-  reason?: 'request_body_too_large';
+  reason?: 'request_body_too_large' | 'attachment_recovery_storage_exhausted';
 }): void {
   const { req, res, logger } = opts;
-  logger.warn?.('✖ request body exceeds proxy limit → 413', {
+  const storageExhausted = opts.reason === 'attachment_recovery_storage_exhausted';
+  logger.warn?.(storageExhausted ? 'attachment recovery has insufficient temporary disk space → 507' : '✖ request body exceeds proxy limit → 413', {
     reqId: opts.reqId,
     method: opts.method,
     url: opts.url,
@@ -653,10 +685,10 @@ function respondRequestTooLarge(opts: {
     error: {
       type: 'proxy_error',
       reason: opts.reason ?? 'request_body_too_large',
-      message: `request body too large: ${opts.declaredBytes ?? `>${opts.receivedBytes}`} bytes exceeds proxy limit of ${opts.limitBytes} bytes`,
+      message: storageExhausted ? 'Not enough free disk space to recover this request. Free disk space and retry; the original conversation is unchanged.' : `request body too large: ${opts.declaredBytes ?? `>${opts.receivedBytes}`} bytes exceeds proxy limit of ${opts.limitBytes} bytes`,
     },
   }));
-  res.writeHead(413, {
+  res.writeHead(storageExhausted ? 507 : 413, {
     'content-type': 'application/json',
     'content-length': String(payload.length),
     connection: 'close',
@@ -916,10 +948,24 @@ function forward(
   // 透明重试前再跑同一条 dispatch gate。返回 false = 已改道(典型 503),
   // 不得带着旧 headerOverride 再发一次。省略 = 与扩展前一样直接重发。
   beforeRetry?: () => Promise<boolean>,
+  // Optional request-local operational observer. It never receives raw request/response data.
+  forwardLifecycle?: ForwardLifecycleObserver | null,
+  recoverUpstreamOversized?: (body: Buffer, signal: AbortSignal) => Promise<Buffer>,
 ): void {
+  // Diagnostics are a strict side channel: callback failures must never change forwarding.
+  const notifyForwardLifecycle = (notify: () => void): void => {
+    try {
+      notify();
+    } catch {
+      // Diagnostic callback: deliberately ignored.
+    }
+  };
   // 客户端已断开(典型:400 缓冲期间断开后走到透明重试)——'close' 已经发过,
   // 下面挂的中断传播 listener 永远不会触发,直接不发起上游请求。
   if (clientRes.destroyed) {
+    if (forwardLifecycle?.onFailure) {
+      notifyForwardLifecycle(() => forwardLifecycle.onFailure?.('client-aborted'));
+    }
     logger.info?.('client already disconnected — skipping upstream forward', { reqId, method, path });
     return;
   }
@@ -982,6 +1028,9 @@ function forward(
     }
   }
   const upstreamReq = reqFn(upstreamOptions);
+  if (forwardLifecycle?.onStart) {
+    notifyForwardLifecycle(() => forwardLifecycle.onStart?.());
+  }
 
   // ── 客户端中断传播 ────────────────────────────────────────────────────────
   // CC 掐流(stall 检测 / 用户 Stop / watchdog interrupt)时只会断开与本代理的
@@ -1051,6 +1100,9 @@ function forward(
     if (proxyDestroyedClient || upstreamResponseTerminal === 'end' || clientRes.writableEnded) return;
     clientAborted = true;
     if (upstreamResponseTerminal === null) upstreamResponseTerminal = 'client-aborted';
+    if (forwardLifecycle?.onFailure) {
+      notifyForwardLifecycle(() => forwardLifecycle.onFailure?.('client-aborted'));
+    }
     logger.info?.('client disconnected mid-response — aborting upstream request', {
       reqId,
       method,
@@ -1076,15 +1128,16 @@ function forward(
     const status = upstreamRes.statusCode ?? 502;
 
     // ── 上游 400/422 的透明重试 ──────────────────────────────────────────────
-    // 只对可恢复的客户端错误(400/422)且尚未重试过、且有 enabled recovery rule 的请求:
+    // 只对启用恢复规则的客户端错误(400/422)缓冲判定:
     // 先把(很小的) 错误体完整缓冲下来, 在 'end' 找第一条 match 命中且 strip 出东西的规则,
-    // 剥字段重发一次, 对客户端透明。
+    // 剥字段重发最多一次, 对客户端透明；重试后只分类不可恢复的错误，不再重发。
     // xAI 对不可反序列化 / 解不开的 encrypted_content 可能回 422 invalid-argument, 不能只认 400。
-    // 2xx 流式响应 / 其它 4xx5xx / 已重试 / 无 enabled rule 一律走下面原有的 writeHead + pipe, 零额外延迟。
-    const activeRules = canRetry && (status === 400 || status === 422)
-      ? recoveryRules.filter((r) => r.enabled())
+    // 2xx 流式响应 / 其它 4xx5xx / 无适用规则走下面原有的 writeHead + pipe, 零额外延迟。
+    const activeRules = (status === 400 || status === 422)
+      ? recoveryRules.filter((r) => r.enabled() && (canRetry || r.unrecoverableCode))
       : [];
-    if (activeRules.length > 0) {
+    const recover413 = status === 413 && canRetry && recoverUpstreamOversized;
+    if (activeRules.length > 0 || recover413) {
       const chunks: Buffer[] = [];
       const failBufferedResponse = (
         reason: 'error' | 'aborted' | 'close',
@@ -1098,6 +1151,13 @@ function forward(
           : new Error(rawError === undefined
             ? `upstream response ${reason} before completion`
             : String(rawError));
+        if (forwardLifecycle?.onFailure) {
+          const failure: ForwardLifecycleFailure =
+            reason === 'close' ? 'response-closed' : `response-${reason}`;
+          notifyForwardLifecycle(() =>
+            forwardLifecycle.onFailure?.(failure, status),
+          );
+        }
         logger.error?.('upstream response stream error (during 400 buffering)', {
           reqId,
           err: String(err),
@@ -1115,7 +1175,7 @@ function forward(
         if (upstreamResponseTerminal !== null) return;
         chunks.push(chunk);
       });
-      upstreamRes.on('end', () => {
+      upstreamRes.on('end', async () => {
         if (upstreamResponseTerminal !== null) return;
         upstreamResponseTerminal = 'end';
         if (clientAborted || clientRes.destroyed || upstreamFailureHandled) return;
@@ -1125,8 +1185,46 @@ function forward(
         // (回客户端仍是原始 errBody + content-encoding 头透传, 客户端自己解压, 见下方 clientRes.end)
         const decodedErrBody = decodeBodyForLog(errBody, String(upstreamRes.headers['content-encoding'] ?? ''));
         const decodedText = decodedErrBody.toString('utf8');
+        if (recover413) {
+          const recoveryAbort = new AbortController();
+          const abortRecovery = (): void => recoveryAbort.abort();
+          clientRes.once('close', abortRecovery);
+          let recovered: Buffer | undefined;
+          try {
+            recovered = await recover413(body, recoveryAbort.signal);
+          } catch {
+            // Storage failure, unsupported content and cancellation must never
+            // replace the original 413 with an unrelated recovery error.
+            logger.info?.('upstream 413 attachment recovery unavailable', { reqId });
+          } finally {
+            clientRes.off('close', abortRecovery);
+          }
+          if (clientRes.destroyed || clientRes.writableEnded) return;
+          if (recovered && recovered.length < body.length) {
+            try {
+              if (beforeRetry && !(await beforeRetry())) return;
+            } catch {
+              recovered = undefined;
+            }
+            if (clientRes.destroyed || clientRes.writableEnded) return;
+            if (recovered) {
+              logger.info?.('upstream 413 attachment recovery retry', {
+                reqId, originalBytes: body.length, recoveredBytes: recovered.length,
+              });
+              forward(
+                target, method, path, headers, recovered, clientRes, logger,
+                recoveryRules, reqId, false, overrideTarget, headerOverride,
+                headerDelete, responseObserver, transformResponse, clientModel,
+                outboundProxy, pathOverride, responseToolUseIds, threadMintedIdCache,
+                requestDeclaredStream, beforeRetry, forwardLifecycle,
+              );
+              return;
+            }
+          }
+        }
         // 取第一条 match 命中且 strip 出东西的规则;命中错误文案但没东西可删 → 试下一条。
         for (const [matchedIndex, rule] of activeRules.entries()) {
+          if (!canRetry) break;
           if (!rule.matches(decodedText)) continue;
           const stripped = rule.strip(body);
           if (!stripped) continue;
@@ -1186,21 +1284,43 @@ function forward(
               threadMintedIdCache,
               requestDeclaredStream,
               beforeRetry,
+              forwardLifecycle,
             );
           };
           if (!beforeRetry) {
             retry();
             return;
           }
+          const onRetryClientClose = (): void => {
+            if (clientRes.writableEnded) return;
+            if (forwardLifecycle?.onFailure) {
+              notifyForwardLifecycle(() => forwardLifecycle.onFailure?.('client-aborted'));
+            }
+          };
+          clientRes.once('close', onRetryClientClose);
           void beforeRetry().then((proceed) => {
-            if (!proceed) return;
-            if (clientRes.destroyed) return;
+            clientRes.off('close', onRetryClientClose);
+            if (!proceed) {
+              if (forwardLifecycle?.onFailure) {
+                notifyForwardLifecycle(() => forwardLifecycle.onFailure?.('retry-rejected'));
+              }
+              return;
+            }
+            if (clientRes.destroyed) {
+              if (forwardLifecycle?.onFailure) {
+                notifyForwardLifecycle(() => forwardLifecycle.onFailure?.('client-aborted'));
+              }
+              return;
+            }
             retry();
-          }).catch((err) => {
-            logger.error?.('retry dispatch gate failed', {
-              reqId,
-              err: err instanceof Error ? err.message : String(err),
-            });
+          }).catch(() => {
+            clientRes.off('close', onRetryClientClose);
+            if (forwardLifecycle?.onFailure) {
+              notifyForwardLifecycle(() => forwardLifecycle.onFailure?.(
+                clientRes.destroyed && !clientRes.writableEnded ? 'client-aborted' : 'retry-error',
+              ));
+            }
+            logger.error?.('retry dispatch gate failed', { reqId });
             if (clientRes.destroyed || clientRes.headersSent) return;
             clientRes.writeHead(503, {
               'content-type': 'application/json',
@@ -1247,6 +1367,23 @@ function forward(
         if (errorType) baseCtx.errorType = errorType;
         if (logger.isDebugEnabled?.()) baseCtx.body = dumpBody(decodedErrBody, ERROR_RESPONSE_DUMP_MAX_BYTES);
         logger.warn?.('◀ upstream response (non-2xx)', baseCtx);
+        if (forwardLifecycle?.onComplete) {
+          notifyForwardLifecycle(() => forwardLifecycle.onComplete?.(status));
+        }
+        const recoveryCode = activeRules
+          .filter((rule) => rule.matches(decodedText))
+          .map((rule) => rule.unrecoverableCode?.(body))
+          .find((code) => !!code);
+        if (recoveryCode) {
+          // The vendor rejected the preserved compaction blob. Return a stable
+          // machine-readable error; never delete the blob or silently lose history.
+          delete respHeaders['content-encoding'];
+          delete respHeaders['content-length'];
+          respHeaders['content-type'] = 'application/json';
+          clientRes.writeHead(status, upstreamRes.statusMessage, respHeaders);
+          clientRes.end(JSON.stringify({ error: { code: recoveryCode, message: recoveryCode } }));
+          return;
+        }
         if (!clientRes.headersSent) {
           clientRes.writeHead(status, upstreamRes.statusMessage, respHeaders);
         }
@@ -1330,6 +1467,13 @@ function forward(
         : new Error(rawError === undefined
           ? `upstream response ${reason} before completion`
           : String(rawError));
+      if (forwardLifecycle?.onFailure) {
+        const failure: ForwardLifecycleFailure =
+          reason === 'close' ? 'response-closed' : `response-${reason}`;
+        notifyForwardLifecycle(() =>
+          forwardLifecycle.onFailure?.(failure, status),
+        );
+      }
       observerError(err);
       logger.error?.('upstream response stream error', {
         reqId,
@@ -1347,33 +1491,6 @@ function forward(
     };
     failActiveResponse = (err) => failStreamingResponse('error', err);
 
-    let responseBodyTransform: Transform | null = null;
-    if (transformResponse && status >= 200 && status < 300) {
-      try {
-        responseBodyTransform = transformResponse({
-          reqId,
-          method,
-          url: path,
-          upstreamBase: formatUpstreamBase(actualTarget),
-          status,
-          requestHeaders: headers,
-          outboundHeaders: actualHeaders,
-          responseHeaders: flattenResponseHeaders(upstreamRes.headers),
-          requestBody: body,
-        }) ?? null;
-      } catch (err) {
-        const responseError = err instanceof Error ? err : new Error(String(err));
-        observerError(responseError);
-        upstreamRes.resume();
-        finishClientAfterUpstreamFailure(
-          responseError,
-          `upstream response cannot be adapted safely: ${String(err)}`,
-          'response_transform_unavailable',
-        );
-        return;
-      }
-    }
-
     // kimi 撞车 id 的响应流改名(仅当请求历史带铸造形态 id 且响应是 SSE 才接管;
     // 否则保持字节级 pipe,与扩展前一致)。observer 仍吃上游原始字节(计数/错误体
     // 收集语义不变),CLI 客户端拿到的是改名后的流。
@@ -1384,15 +1501,17 @@ function forward(
     // 压缩流下保持字节透传(不删 content-length,客户端自行解压),与扩展前一致
     // (Greptile review)。identity 是合法的「不压缩」编码,不视为压缩(Greptile
     // review P1,否则明文 SSE 被误跳过改写)。
-    const isSse = String(upstreamRes.headers['content-type'] ?? '')
-      .toLowerCase()
-      .startsWith('text/event-stream');
+    const contentType = String(upstreamRes.headers['content-type'] ?? '').trim().toLowerCase();
+    const isSse = contentType.startsWith('text/event-stream');
     const contentEncoding = String(upstreamRes.headers['content-encoding'] ?? '')
       .trim()
       .toLowerCase();
     const isCompressed = contentEncoding !== '' && contentEncoding !== 'identity';
+    // Codex subscription HTTP fallback can omit Content-Type on a valid SSE response.
+    // Infer only an absent type, after a complete data event; never override an explicit MIME type.
+    const canInferSse = requestDeclaredStream && contentType === '' && !isCompressed;
     let toolUseIdRewrite: ToolUseIdRewriteTransform | null = null;
-    if (responseToolUseIds && isSse && !isCompressed) {
+    if (responseToolUseIds && (isSse || canInferSse) && !isCompressed) {
       // 压缩 SSE(gzip/br)不改写: 字节按明文换行切分会漏改/误改, 保持透传
       // (Greptile 指出此路径撞车 id 不设防; 但 LLM 流式响应不 gzip, 实测链路
       // 均明文 SSE, 属理论场景)。为压缩流做解压-改写-重压收益趋零、风险高,
@@ -1432,10 +1551,6 @@ function forward(
       toolUseIdRewrite = new ToolUseIdRewriteTransform(rewriter);
       toolUseIdRewrite.on('error', (err) => failStreamingResponse('error', err));
     }
-    if (responseBodyTransform) {
-      delete respHeaders['content-length'];
-      responseBodyTransform.on('error', (err) => failStreamingResponse('error', err));
-    }
 
     // ── 流式请求的成功响应有效性门(#2242)──────────────────────────────
     // 请求显式声明 stream:true 时,2xx 响应不再「先 writeHead 再 pipe」:上游或
@@ -1447,16 +1562,56 @@ function forward(
     // 失败语义(finishClientAfterUpstreamFailure → destroy),不补成正常结束。
     // 只约束显式流式请求:非流式 JSON 响应照旧字节透传,零行为变化。
     const gateStreamValidity = requestDeclaredStream && status >= 200 && status < 300;
-    // 合法 SSE 的首个事件必然远早于此(Anthropic 首行即 event: message_start);
-    // 上限只为封顶「持续输出无事件垃圾」时的内存与延迟。
+    // 合法 Anthropic SSE 的首个事件必然远早于此(首行即 event: message_start);
+    // 上限只为封顶「持续输出无事件垃圾」时的内存与延迟。缺 MIME 的 Responses
+    // 回退流必须等到完整事件才能确认，response.created 会回显长 instructions，
+    // 所以仅在已确认 SSE 前缀后使用独立且仍有界的首事件预算。
     const STREAM_GATE_PENDING_CAP_BYTES = 64 * 1024;
+    const STREAM_GATE_INFERRED_EVENT_CAP_BYTES = 8 * 1024 * 1024;
     const SSE_EVENT_MARKER_RE = /(^|\r?\n)(event|data):/;
+    const SSE_PREFIX_RE = /^\uFEFF?(?:(?:|:[^\r\n]*)\r?\n)*(?:event|data):/;
+    const SSE_DATA_FIELD_RE = /(?:^\uFEFF?|\r?\n)data:/;
     let streamGateCommitted = false;
     const pendingChunks: Buffer[] = [];
     let pendingBytes = 0;
     let pendingText = '';
+    let inferredSseEventStart = 0;
+    let inferredSseBoundarySearchOffset = 0;
     const commitStreamResponse = (): void => {
-      if (streamGateCommitted) return;
+      if (streamGateCommitted || upstreamFailureHandled || clientAborted || clientRes.destroyed) return;
+      // Resolve the final MIME before constructing an adapter, and construct it
+      // before committing 200. Invalid or cancelled streams never reach adapters.
+      let responseBodyTransform: Transform | null = null;
+      if (transformResponse && status >= 200 && status < 300) {
+        try {
+          responseBodyTransform = transformResponse({
+            reqId,
+            method,
+            url: path,
+            upstreamBase: formatUpstreamBase(actualTarget),
+            status,
+            requestHeaders: headers,
+            outboundHeaders: actualHeaders,
+            responseHeaders: flattenResponseHeaders(respHeaders),
+            requestBody: body,
+          }) ?? null;
+        } catch (err) {
+          upstreamResponseTerminal = 'error';
+          const responseError = err instanceof Error ? err : new Error(String(err));
+          observerError(responseError);
+          upstreamRes.resume();
+          finishClientAfterUpstreamFailure(
+            responseError,
+            `upstream response cannot be adapted safely: ${String(err)}`,
+            'response_transform_unavailable',
+          );
+          return;
+        }
+      }
+      if (responseBodyTransform) {
+        delete respHeaders['content-length'];
+        responseBodyTransform.on('error', (err) => failStreamingResponse('error', err));
+      }
       streamGateCommitted = true;
       clientRes.writeHead(status, upstreamRes.statusMessage, respHeaders);
       const responseTransforms = [responseBodyTransform, toolUseIdRewrite]
@@ -1483,7 +1638,10 @@ function forward(
         upstreamRes.pipe(clientRes);
       }
     };
-    if (!gateStreamValidity) commitStreamResponse();
+    if (!gateStreamValidity) {
+      commitStreamResponse();
+      if (upstreamFailureHandled) return;
+    }
 
     /** 未提交状态下把无效流转成结构化 502(观察器按上游真实终态另行收口)。 */
     const rejectInvalidStreamResponse = (code: string, detail: Record<string, unknown>): void => {
@@ -1524,13 +1682,70 @@ function forward(
       }
       if (!streamGateCommitted) {
         // 门控中(未提交):积累待发字节并判定是否可提交。
-        if (pendingBytes < STREAM_GATE_PENDING_CAP_BYTES) {
-          pendingChunks.push(chunk);
-          pendingBytes += chunk.length;
-        } else {
-          pendingBytes += chunk.length;
-        }
+        // 无条件入缓冲:曾用 `pendingBytes < CAP` 做入队条件, 累计恰好落在 CAP
+        // (64KiB, 回环读的常见块大小)时, 后续 chunk 只计数不入队 —— 一旦事件
+        // 标记在这些 chunk 里到达并提交, 这些字节被永久跳过, 客户端收到中间
+        // 有缺口的 200 SSE。任何把 pendingBytes 推过上限的 chunk 都会在该
+        // chunk 内提交或按 502 拒收, 缓冲仍有界(至多 CAP + 单 chunk 溢出)。
+        pendingChunks.push(chunk);
+        pendingBytes += chunk.length;
         if (!isSse) {
+          if (canInferSse) {
+            pendingText += chunk.toString('utf8');
+            // Fast-path the common first field. SSE_PREFIX_RE also admits BOM and
+            // comment preambles before that field.
+            const hasSsePrefix = pendingText.startsWith('event:')
+              || pendingText.startsWith('data:')
+              || SSE_PREFIX_RE.test(pendingText);
+            // A field prefix alone cannot dispatch an event: wait for a
+            // data-containing block to end in a blank line, including across
+            // chunks. Scan only newly appended text so a large valid first
+            // event cannot turn into repeated whole-buffer work.
+            if (hasSsePrefix) {
+              while (true) {
+                const boundary = [
+                  { value: '\n\n', offset: pendingText.indexOf('\n\n', inferredSseBoundarySearchOffset) },
+                  { value: '\n\r\n', offset: pendingText.indexOf('\n\r\n', inferredSseBoundarySearchOffset) },
+                  { value: '\r\n\n', offset: pendingText.indexOf('\r\n\n', inferredSseBoundarySearchOffset) },
+                  { value: '\r\n\r\n', offset: pendingText.indexOf('\r\n\r\n', inferredSseBoundarySearchOffset) },
+                ].filter((candidate) => candidate.offset !== -1)
+                  .sort((left, right) => left.offset - right.offset)[0];
+                if (!boundary) {
+                  // Retain three trailing characters to catch a delimiter
+                  // split across chunks (\n\n or \r\n\r\n).
+                  inferredSseBoundarySearchOffset = Math.max(
+                    inferredSseEventStart,
+                    pendingText.length - 3,
+                  );
+                  break;
+                }
+                const completeEvent = pendingText.slice(inferredSseEventStart, boundary.offset);
+                inferredSseEventStart = boundary.offset + boundary.value.length;
+                inferredSseBoundarySearchOffset = inferredSseEventStart;
+                if (SSE_DATA_FIELD_RE.test(completeEvent)) {
+                  respHeaders['content-type'] = 'text/event-stream';
+                  commitStreamResponse();
+                  return;
+                }
+              }
+            }
+            const pendingCap = hasSsePrefix
+              ? STREAM_GATE_INFERRED_EVENT_CAP_BYTES
+              : STREAM_GATE_PENDING_CAP_BYTES;
+            if (pendingBytes > pendingCap) {
+              const code = hasSsePrefix
+                ? 'sse_inference_limit_exceeded'
+                : 'non_sse_stream_response';
+              upstreamResponseTerminal = 'error';
+              observerError(new Error(`invalid streaming response (${code})`));
+              rejectInvalidStreamResponse(code, { bytes: totalBytes });
+              upstreamReq.destroy(new Error(`invalid streaming response (${code})`));
+              return;
+            }
+            // A valid prefix is waiting only for the terminator of its first data
+            // event; do not also apply the generic non-SSE 64 KiB limit below.
+            if (hasSsePrefix) return;
+          }
           // 非 SSE 2xx:留在门控里等 end 统一转 502(有界缓冲做 errorType 诊断);
           // 超上限说明上游在持续输出非流式字节,立刻转 502 并切断上游。
           if (pendingBytes > STREAM_GATE_PENDING_CAP_BYTES) {
@@ -1581,6 +1796,9 @@ function forward(
           if (errorType) detail.errorType = errorType;
         }
         rejectInvalidStreamResponse(code, detail);
+        if (forwardLifecycle?.onComplete) {
+          notifyForwardLifecycle(() => forwardLifecycle.onComplete?.(status));
+        }
         return;
       }
       // 4xx/5xx 用 warn 级别冒泡, 默认只记低风险摘要 (status / content-type / bytes / errorType),
@@ -1617,6 +1835,9 @@ function forward(
         logger.debug?.('◀ upstream response', baseCtx);
       }
       observerEnd();
+      if (forwardLifecycle?.onComplete) {
+        notifyForwardLifecycle(() => forwardLifecycle.onComplete?.(status));
+      }
     });
     upstreamRes.on('error', (err) => failStreamingResponse('error', err));
     upstreamRes.on('aborted', () => failStreamingResponse('aborted'));
@@ -1627,6 +1848,7 @@ function forward(
 
   });
 
+  let requestTimedOut = false;
   upstreamReq.on('error', (err) => {
     // 客户端主动断开触发的 destroy 是预期路径:客户端已不在,不写 502、不按
     // 上游故障记 error(上面 'close' 处已记过 info)。
@@ -1641,6 +1863,13 @@ function forward(
       failActiveResponse(err);
       return;
     }
+    if (forwardLifecycle?.onFailure) {
+      notifyForwardLifecycle(() =>
+        forwardLifecycle.onFailure?.(
+          requestTimedOut ? 'request-timeout' : 'request-error',
+        ),
+      );
+    }
     logger.error?.('upstream request failed', {
       reqId,
       err: String(err),
@@ -1650,10 +1879,13 @@ function forward(
     });
     if (upstreamResponseTerminal === null) upstreamResponseTerminal = 'error';
     const upstreamError = err instanceof Error ? err : new Error(String(err));
-    finishClientAfterUpstreamFailure(upstreamError, `upstream unreachable: ${String(err)}`);
+    // 回环端口 ECONNREFUSED 单独措辞(本机没监听 ≠ 远端服务故障,#4100);其余逐字不变。
+    const failure = describeUpstreamRequestFailure(err, { viaOutboundProxy: Boolean(outboundProxy) });
+    finishClientAfterUpstreamFailure(upstreamError, failure.message, failure.code);
   });
 
   upstreamReq.on('timeout', () => {
+    requestTimedOut = true;
     upstreamReq.destroy(new Error('upstream socket timeout'));
   });
 
@@ -1770,16 +2002,41 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
    * 响应,不再 forward。hook 抛错也 fail-closed,避免把决策时选中的 headerOverride /
    * 占位 key 打出去。
    */
+  const rejectDispatchGeneration = (message: string): RoutingDecision => ({
+    localHandler: async ({ res }) => {
+      if (res.headersSent || res.destroyed) return;
+      res.writeHead(503, {
+        'content-type': 'application/json',
+        'cache-control': 'no-store',
+        'retry-after': '1',
+      });
+      await new Promise<void>((resolve) => {
+        res.end(JSON.stringify({ error: { type: 'proxy_error', message } }), resolve);
+      });
+    },
+  });
   const applyDispatchGate = (
     decision: RoutingDecision | null,
     reqId: number,
     ctx: RequestTransformCtx,
+    propagateErrors = false,
   ): RoutingDecision | null => {
+    if (decision?.dispatchGenerationValid) {
+      try {
+        if (!decision.dispatchGenerationValid()) {
+          return rejectDispatchGeneration('dispatch generation changed');
+        }
+      } catch {
+        if (propagateErrors) throw new Error('dispatch generation validation failed');
+        return rejectDispatchGeneration('dispatch generation validation failed');
+      }
+    }
     const hook = opts.revalidateBeforeDispatch;
     if (!hook) return decision;
     try {
       return hook(decision, ctx) ?? decision;
     } catch (err) {
+      if (propagateErrors) throw err;
       logger.warn?.('revalidateBeforeDispatch threw; refusing dispatch', {
         reqId,
         err: err instanceof Error ? err.message : String(err),
@@ -1899,6 +2156,26 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     const requestCtx: RequestTransformCtx = { reqId, method, url, headers };
     const threadId = selectedHeaderValue(headers, STABLE_THREAD_ID_HEADERS) ?? '';
     const contentType = headers['content-type'] ?? '';
+    let recoverOversized: ReturnType<NonNullable<ProxyOptions['oversizedRequestRecovery']>> = null;
+    // Capture the owner before receiving bytes. Compressed/opaque bodies retain
+    // their existing behavior; recovery must never interpret compressed JSON.
+    if (contentType.toLowerCase().startsWith('application/json') && !req.headers['content-encoding']) {
+      try { recoverOversized = opts.oversizedRequestRecovery?.(requestCtx) ?? null; }
+      catch { /* No stable owner: retain the existing bounded request path. */ }
+    }
+    let requestGuard: ReturnType<NonNullable<ProxyOptions['requestGuard']>>;
+    try {
+      requestGuard = opts.requestGuard?.(requestCtx) ?? null;
+      if (requestGuard) {
+        headers['accept-encoding'] = 'identity';
+        installResponseGuard(res, () => res.statusCode >= 400
+          ? new PassThrough() // Native clients treat HTTP failures as errors, never executable output.
+          : requestGuard!.response(res.getHeaders()));
+      }
+    } catch {
+      res.writeHead(403); res.end(); req.resume(); return;
+    }
+
     // The compactor only understands JSON request histories.  Keep the normal
     // hard limit for other media types so enabling it cannot accidentally make
     // binary/form uploads consume the larger ingress window.
@@ -1911,7 +2188,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     // 会把 body 上传期间完成的 owner 切换当成「起始」scope。
     let decision: RoutingDecision | null = applyDispatchGate(null, reqId, requestCtx);
     const beforeRetry = async (): Promise<boolean> => {
-      const gated = applyDispatchGate(decision, reqId, requestCtx);
+      const gated = applyDispatchGate(decision, reqId, requestCtx, true);
       if (gated?.localHandler) {
         await runLocalHandler(
           gated.localHandler,
@@ -2008,6 +2285,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
         undefined,
         false,
         beforeRetry,
+        guardForwardLifecycleObserver(decision?.forwardLifecycle),
       );
       return;
     }
@@ -2017,7 +2295,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     // 只有 chunked 上传才落到 collectRequestBody 的流式守卫)。
     // 注意读原始 req.headers —— flattenRequestHeaders 会剥掉 content-length(转发时重算)。
     const declaredBytes = Number(req.headers['content-length'] ?? '');
-    if (Number.isFinite(declaredBytes) && declaredBytes > requestIngressBytes) {
+    if (!recoverOversized && Number.isFinite(declaredBytes) && declaredBytes > requestIngressBytes) {
       respondRequestTooLarge({
         req, res, logger, reqId, method, url, headers,
         limitBytes: maxBodyBytes,
@@ -2028,14 +2306,33 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     }
 
     let rawBody: Buffer;
+    const recoveryAbort = new AbortController();
+    const abortRecovery = () => recoveryAbort.abort();
+    res.once('close', abortRecovery);
     try {
-      rawBody = await collectRequestBody(req, requestIngressBytes);
+      rawBody = recoverOversized
+        ? await collectRecoverableBody(req, maxBodyBytes, async body => {
+            try {
+              const recovered = await recoverOversized!(body, maxBodyBytes);
+              if (recovered) logger.info?.('oversized attachments preserved outside request', {
+                reqId, originalBytes: body.bytes, recoveredBytes: recovered.length,
+              });
+              return recovered;
+            } catch (error) {
+              if (error instanceof Error && error.message === 'RECOVERY_STORAGE_EXHAUSTED') throw error;
+              // Do not leak paths, payloads or credentials in recovery errors.
+              logger.warn?.('oversized attachment recovery failed', { reqId });
+              return null;
+            }
+          }, recoveryAbort.signal)
+        : await collectRequestBody(req, requestIngressBytes);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (msg === 'REQUEST_TOO_LARGE') {
+      if (msg === 'REQUEST_TOO_LARGE' || msg === 'RECOVERY_STORAGE_EXHAUSTED') {
         respondRequestTooLarge({
           req, res, logger, reqId, method, url, headers,
           limitBytes: maxBodyBytes,
+          reason: msg === 'RECOVERY_STORAGE_EXHAUSTED' ? 'attachment_recovery_storage_exhausted' : 'request_body_too_large',
           declaredBytes: null,
           receivedBytes: (err as { receivedBytes?: number }).receivedBytes ?? 0,
         });
@@ -2045,6 +2342,13 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
       res.writeHead(400);
       res.end();
       return;
+    } finally {
+      res.off('close', abortRecovery);
+    }
+
+    if (requestGuard) {
+      try { rawBody = requestGuard.transformBody(rawBody); headers['content-length'] = String(rawBody.length); }
+      catch { res.destroy(); return; }
     }
 
     // 路由决策: 基于**原始** body(transform 链改写前)判路由 —— 能看到上游看不到的原始字段
@@ -2053,9 +2357,11 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     // runTransforms 的输出无关,提前是安全的; 这样 inbound 日志能直接打出本请求**最终**发往的
     // upstream(订阅直连 api.anthropic.com / 走网关 endpoint),而非静态默认上游。
     let rawParsed: unknown = undefined;
-    if (opts.routingTransform && contentType.toLowerCase().startsWith('application/json')) {
+    const jsonRequest = contentType.toLowerCase().startsWith('application/json');
+    const routeOpaqueRequest = !jsonRequest && opts.routeOpaqueRequestBody?.(requestCtx) === true;
+    if (opts.routingTransform && (jsonRequest || routeOpaqueRequest)) {
       try {
-        rawParsed = JSON.parse(rawBody.toString('utf8'));
+        if (jsonRequest) rawParsed = JSON.parse(rawBody.toString('utf8'));
       } catch {
         // Some native clients (notably PI's ChatGPT adapter) send compressed
         // JSON while keeping content-type=application/json. Header/path based
@@ -2086,7 +2392,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
         const originalLocalBodyBytes = rawBody.length;
         const compactStartedAt = Date.now();
         let oversizedParsed: unknown = rawParsed;
-        if (oversizedParsed === undefined && contentType.toLowerCase().startsWith('application/json')) {
+        if (oversizedParsed === undefined && jsonRequest) {
           try {
             oversizedParsed = JSON.parse(rawBody.toString('utf8'));
           } catch {
@@ -2181,7 +2487,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     if (rawBody.length > maxBodyBytes && oversizedRequestCompactor) {
       const compactStartedAt = Date.now();
       let oversizedParsed: unknown = rawParsed;
-      if (oversizedParsed === undefined && contentType.toLowerCase().startsWith('application/json')) {
+      if (oversizedParsed === undefined && jsonRequest) {
         try {
           oversizedParsed = JSON.parse(rawBody.toString('utf8'));
         } catch {
@@ -2224,14 +2530,28 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     }
     let transformed: Buffer | null;
     try {
-      transformed = await runTransforms(
-        bodyForTransforms,
-        contentType,
-        transforms,
-        transformCtx,
-        logger,
-        parsedForTransforms,
-      );
+      const bypassTransforms =
+        opts.bypassRequestTransforms?.(rawParsed ?? parsedForTransforms, transformCtx) === true;
+      transformed = bypassTransforms
+        ? null
+        : await runTransforms(
+            bodyForTransforms,
+            contentType,
+            transforms,
+            transformCtx,
+            logger,
+            parsedForTransforms,
+          );
+      if (decision?.transformRequestBody) {
+        const rewritten = await decision.transformRequestBody(
+          transformed ?? bodyForTransforms,
+          transformCtx,
+        );
+        transformed = rewritten.body;
+        if (rewritten.contentType) {
+          route.headerOverride = { ...route.headerOverride, 'content-type': rewritten.contentType };
+        }
+      }
     } catch (err) {
       transformsCompleted = true;
       notifyTransformSettlement();
@@ -2247,7 +2567,13 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     }
     transformsCompleted = true;
     notifyTransformSettlement();
-    const outBody = transformed ?? bodyForTransforms;
+    let outBody = transformed ?? bodyForTransforms;
+    if (requestGuard) {
+      // Compatibility transforms may reintroduce provider-hosted tools. Apply
+      // the same frozen policy at the final outbound boundary as well.
+      try { outBody = requestGuard.transformBody(outBody, transformCtx); }
+      catch { res.destroy(); return; }
+    }
     if (outBody.length > maxBodyBytes) {
       respondRequestTooLarge({
         req, res, logger, reqId, method, url, headers,
@@ -2259,7 +2585,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
     }
 
     let parsedForRewrite: unknown = rawParsed ?? parsedForTransforms;
-    if (parsedForRewrite === undefined && contentType.toLowerCase().startsWith('application/json')) {
+    if (parsedForRewrite === undefined && jsonRequest) {
       try {
         parsedForRewrite = JSON.parse(rawBody.toString('utf8'));
       } catch {
@@ -2336,6 +2662,8 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
       return;
     }
 
+    const forwardLifecycle = guardForwardLifecycleObserver(decision?.forwardLifecycle);
+
     forward(
       route.target,
       method,
@@ -2359,6 +2687,15 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
       threadMintedIdCache,
       requestDeclaredStream,
       beforeRetry,
+      forwardLifecycle,
+      recoverOversized
+        ? (body, signal) => collectRecoverableBody(
+            Readable.from([body]),
+            body.length - 1,
+            (spooled) => recoverOversized!({ ...spooled, upstreamRejected: true }, body.length - 1),
+            signal,
+          )
+        : undefined,
     );
   });
 
@@ -2438,6 +2775,7 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
       writeUpgradeFailure(clientSocket, 426, 'Upgrade Required');
       return;
     }
+    if (opts.webSocketTransforms) delete headers['sec-websocket-extensions'];
     const resolvedWebSocketUpstream = upstreamUrl;
 
     let target: UpstreamTarget;
@@ -2674,6 +3012,9 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
           return;
         }
 
+        if (opts.webSocketTransforms && upstreamRes.headers['sec-websocket-extensions']) {
+          settle('unexpected-websocket-extension'); upstreamSocket.destroy(); clientSocket.destroy(); return;
+        }
         established = true;
         connection.upstreamSocket = upstreamSocket;
         if (opts.retryProvenWebSocketUpgrades) {
@@ -2709,13 +3050,23 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
         clientSocket.on('error', abort('client-error'));
         upstreamSocket.on('error', abort('upstream-error'));
 
+        let guarded: ReturnType<NonNullable<ProxyOptions['webSocketTransforms']>> | undefined;
+        try { guarded = opts.webSocketTransforms?.({ url, headers }); }
+        catch { abort('websocket-guard-failed')(); return; }
+        if (guarded) {
+          guarded.outbound.on('error', abort('websocket-outbound-rejected'));
+          guarded.inbound.on('error', abort('websocket-inbound-rejected'));
+          clientSocket.once('close', () => { guarded?.outbound.destroy(); guarded?.inbound.destroy(); });
+          guarded.outbound.pipe(upstreamSocket);
+          guarded.inbound.pipe(clientSocket);
+        }
         try {
           if (!locallyAcceptedForReconnect) {
             clientSocket.write(serializeResponseHead(upstreamRes));
           }
           // 双向把握手时已缓冲的首包补上, 再对接。
-          if (upstreamHead?.length) clientSocket.write(upstreamHead);
-          if (head?.length) upstreamSocket.write(head);
+          if (upstreamHead?.length) (guarded?.inbound ?? clientSocket).write(upstreamHead);
+          if (head?.length) (guarded?.outbound ?? upstreamSocket).write(head);
 
           clientSocket.setNoDelay(true);
           upstreamSocket.setNoDelay(true);
@@ -2726,8 +3077,8 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
           return;
         }
 
-        upstreamSocket.pipe(clientSocket);
-        clientSocket.pipe(upstreamSocket);
+        upstreamSocket.pipe(guarded?.inbound ?? clientSocket);
+        clientSocket.pipe(guarded?.outbound ?? upstreamSocket);
         if (locallyAcceptedForReconnect) clientSocket.resume();
         logger.info?.('◀ websocket established', {
           reqId, status: upstreamRes.statusCode, live: liveWebSockets,
@@ -2889,6 +3240,10 @@ export async function createAnthropicCompatProxy(opts: ProxyOptions): Promise<Pr
       if (!normalized) return 0;
       provenWebSocketHandshakes.delete(normalized);
       return disconnectWebSocketsForThread(normalized);
+    },
+    hasProvenWebSocketForThread(threadId) {
+      const normalized = threadId.trim();
+      return normalized !== '' && provenWebSocketHandshakes.has(normalized);
     },
     async dispose() {
       logger.debug?.('anthropic-compat-proxy disposing', { inflight });

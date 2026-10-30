@@ -1,3 +1,4 @@
+import { isOpenAiSubscriptionProvider } from '@cindy/model-providers';
 /**
  * textOneshotPinOptions.ts — 快问快答(text.oneshot)钉档的目录模型清单与路由解析。
  *
@@ -39,12 +40,11 @@ import {
 const ONESHOT_ROUTE_AGENTS = ['codex', 'claude-code'] as const;
 
 /**
- * 执行侧(requestBuiltinProviderText)硬编码认的四家内置供应商。清单侧必须
- * 按同一集合过滤——否则将来新增第五个聊天型内置供应商(如 gemini 配上
- * agent)时,清单会列出执行侧 fallthrough agent_unavailable 的模型,"可见但
- * 不可执行"。两边任一处变动都要同步另一处。
+ * 执行侧(requestBuiltinProviderText)可执行的内置供应商。清单侧必须按同一集合过滤——
+ * 否则清单会列出执行侧 fallthrough / 拒绝的模型,"可见但不可执行"。两边任一处变动都要
+ * 同步另一处。Claude 订阅(anthropic)不在内:它只供内置 Claude Code CLI 自己使用。
  */
-const ONESHOT_EXECUTABLE_BUILTIN_PROVIDERS = new Set(['xd', 'anthropic', 'openai', 'xai']);
+const ONESHOT_EXECUTABLE_BUILTIN_PROVIDERS = new Set(['xd', 'openai', 'xai']);
 
 /** 一次快问快答的路由:用户钉档或插件声明解析出的终态。 */
 export type OneshotRoute =
@@ -79,6 +79,8 @@ function isRoutableForOneshot(provider: Provider, agentKind: AgentKind): boolean
   if (!provider.agents.includes(agentKind)) return false;
   const routing = provider.routing[agentKind];
   if (!routing || routing.disabled) return false;
+  if (provider.auth.native === 'claude') return false;
+  if (isOpenAiSubscriptionProvider(provider) || provider.auth.native === 'xai') return true;
   if (provider.source === 'builtin') return ONESHOT_EXECUTABLE_BUILTIN_PROVIDERS.has(provider.id);
   if (agentKind === 'claude-code') {
     if (routing.wireProtocol !== undefined && routing.wireProtocol !== 'anthropic-messages') return false;
@@ -167,6 +169,11 @@ function displayOrderedModels(models: readonly CatalogModel[]): CatalogModel[] {
   );
 }
 
+/** Product-facing provider name for the picker; keep the catalog id stable. */
+function displayProviderName(provider: Provider): string {
+  return provider.id === 'xd' ? 'Cindy AI' : provider.name;
+}
+
 /**
  * 凭证探测(可选):传入时只收当下有可用凭证的 (供应商 × agent)——没配
  * key / 没登录的供应商钉上也只会在执行期 NO_CANDIDATE,不给了没用的选项。
@@ -205,11 +212,12 @@ export function buildTextOneshotPinOptions(
     }
   }
   return entries.map((e) => {
-    const base = `${e.model.name} · ${e.provider.name}`;
+    const providerName = displayProviderName(e.provider);
+    const base = `${e.model.name} · ${providerName}`;
     return {
       id: encodeCatalogPin(e.provider.id, e.agentKind, e.model.id),
       label: `${AGENT_LABEL[e.agentKind]} · ${base}`,
-      group: e.provider.name,
+      group: providerName,
       providerId: e.provider.id,
       agentKind: e.agentKind,
       modelId: e.model.id,

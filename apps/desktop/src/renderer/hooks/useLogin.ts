@@ -6,6 +6,7 @@ import type { DesktopLoginAction } from '@/lib/authService';
 interface UseLoginReturn {
   isLoading: boolean;
   errorCode: string | null;
+  retryAt: number | undefined;
   loginState: ReturnType<typeof useAuth>['loginState'];
   hasAccountDeletionReceipt: boolean;
   getAccountDeletionStatus: ReturnType<typeof useAuth>['getAccountDeletionStatus'];
@@ -31,7 +32,7 @@ interface UseLoginReturn {
 }
 
 /** Coordinates presentation state while all credentials and tickets stay in main. */
-export function useLogin(): UseLoginReturn {
+export function useLogin({ autoLoad = true }: { autoLoad?: boolean } = {}): UseLoginReturn {
   const {
     loginState,
     loadLoginState,
@@ -47,19 +48,21 @@ export function useLogin(): UseLoginReturn {
   const loadingRef = useRef(false);
 
   useEffect(() => {
-    if (loginState || loadingRef.current) return;
+    if (!autoLoad || loginState || loadingRef.current) return;
     loadingRef.current = true;
     setIsLoading(true);
     void loadLoginState()
       .then((result) => {
-        if (!result.success) setErrorCode(result.code);
+        if (!result.success) {
+          setErrorCode(result.code);
+        }
       })
       .catch(() => setErrorCode('AUTH_SERVICE_UNAVAILABLE'))
       .finally(() => {
         loadingRef.current = false;
         setIsLoading(false);
       });
-  }, [loadLoginState, loginState]);
+  }, [autoLoad, loadLoginState, loginState]);
 
   const dispatchWithResult = useCallback(
     async (action: DesktopLoginAction): Promise<{ success: boolean; code: string | null }> => {
@@ -96,6 +99,10 @@ export function useLogin(): UseLoginReturn {
   return {
     isLoading,
     errorCode,
+    retryAt:
+      (errorCode ?? (loginState?.step === 'error' ? loginState.code : null)) === 'RATE_LIMITED'
+        ? loginState?.retryAt
+        : undefined,
     loginState,
     hasAccountDeletionReceipt,
     getAccountDeletionStatus,
@@ -103,7 +110,9 @@ export function useLogin(): UseLoginReturn {
     listAccounts,
     dispatch,
     dispatchWithResult,
-    clearError: () => setErrorCode(null),
+    clearError: () => {
+      setErrorCode(null);
+    },
     enterLocalMode,
   };
 }

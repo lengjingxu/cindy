@@ -1,17 +1,42 @@
 /**
- * Regression coverage for Plugin detail section content and interaction behavior.
+ * Regression coverage for Plugin detail sections, shared Switch wiring and interaction behavior.
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  * @vitest-environment jsdom
  */
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InstalledGhost } from '../../../../shared/ghost';
 
 const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 
+vi.mock('@/hooks/useModelPricing', () => ({
+  useGatewayModelPricing: () => null,
+  useReferenceModelPricing: () => null,
+}));
+vi.mock('@/hooks/useProviders', () => ({
+  useProviders: () => ({ providers: [], providerOrder: [], loading: false }),
+}));
+vi.mock('@/hooks/useDeviceProviders', () => ({
+  useDeviceProviders: () => ({ providers: [], loading: false, unsupported: false }),
+}));
+vi.mock('@/hooks/useAgentCapabilities', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useAgentCapabilities')>()),
+  useAgentCapabilities: () => ({ capabilities: null, loading: false }),
+}));
+vi.mock('@/hooks/useApiKey', () => ({ useApiKey: () => ({ hasSavedKey: true }) }));
+vi.mock('@/hooks/useConnectedSource', () => ({
+  useConnectedSource: () => ({ hasConnectedSource: true, loading: false }),
+}));
+
 vi.mock('@/lib/toast', () => ({ toast: toastMocks }));
 vi.mock('@/cindy-brain/GhostSettingsWebview', () => ({
-  GhostSettingsWebview: () => <div data-testid="ghost-settings-webview" />,
+  GhostSettingsWebview: ({ account, reloadKey }: any) => (
+    <>
+      {account}
+      <div key={reloadKey} data-testid="ghost-settings-webview" />
+    </>
+  ),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -51,6 +76,8 @@ vi.mock('react-i18next', () => ({
         'settings.ghosts.detail.collapseInfoValue': `Collapse ${String(options?.label ?? '')}`,
         'settings.ghosts.detail.panelNotDocked': 'Not docked',
         'settings.ghosts.detail.cindyPrefs.noModels': 'No models available',
+        'settings.providers.openai.title': 'OpenAI',
+        'settings.providers.xd.title': 'Cindy AI',
         'settings.defaults.restore': 'Restore default',
         'settings.ghosts.detail.oauthScopeStale':
           'This authorization does not include newly added permissions. Reconnect to enable them.',
@@ -119,14 +146,13 @@ const detail: GhostPluginDetail = {
   tabPanel: false,
   hasMainView: false,
   mainViewTitle: null,
-  hostCapability: null,
   author: 'XD',
   contents: ['code'],
   permissions: [],
   tools: [],
   hasSettingsUi: false,
   cindyCapabilities: [],
-  hasErrand: false,
+  hasTaskPreferences: false,
   panelMinWidth: 320,
   installDir: '/tmp/cindy-brain/builtin.example',
   trust: {
@@ -138,6 +164,15 @@ const detail: GhostPluginDetail = {
   },
 };
 
+beforeEach(() => {
+  Object.defineProperty(window, 'electronAPI', {
+    configurable: true,
+    value: {
+
+    },
+  });
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -147,6 +182,146 @@ afterEach(() => {
 });
 
 describe('Ghost plugin detail sections', () => {
+  it('does not advertise host login for a locally imported unverified GitHub plugin', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const verify = vi.fn();
+    Object.assign(window.electronAPI, { gitContext: { githubConnection: verify } });
+    render(
+      <GhostPluginDetailView
+        ghost={
+          { manifest: { id: 'cindy-github' }, enabled: true, trust: { level: 'unverified' } } as any
+        }
+        detail={{ ...detail, id: 'cindy-github', hasSettingsUi: true }}
+        panelStatus={null}
+        onBack={vi.fn()}
+        onToggle={vi.fn()}
+        onUse={vi.fn()}
+        onUpdate={vi.fn()}
+        onUpdateFromFile={vi.fn()}
+        onUninstall={vi.fn()}
+        toggleDisabled={false}
+      />,
+    );
+    expect(verify).not.toHaveBeenCalled();
+  });
+  it.each([{ status: 'missing' }, { status: 'auth', source: 'token' }])(
+    'connects GitHub from $status and reloads the installed plugin settings after authorization',
+    async (connection) => {
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe() {}
+          unobserve() {}
+          disconnect() {}
+        },
+      );
+      Object.assign(window.electronAPI, {
+        gitContext: {
+          githubConnection: async () => connection,
+          onGithubConnected: () => () => {},
+          githubSetupStatus: async () => ({ phase: 'connected' }),
+          startGithubSetup: async () => ({ phase: 'connected' }),
+        },
+      });
+      const { unmount } = render(
+        <GhostPluginDetailView
+          ghost={
+            {
+              manifest: { id: 'cindy-github' },
+              enabled: true,
+              trust: { ...detail.trust, publisherName: 'Cindy Plugin Market' },
+            } as any
+          }
+          detail={{ ...detail, id: 'cindy-github', hasSettingsUi: true }}
+          panelStatus={null}
+          onBack={vi.fn()}
+          onToggle={vi.fn()}
+          onUse={vi.fn()}
+          onUpdate={vi.fn()}
+          onUpdateFromFile={vi.fn()}
+          onUninstall={vi.fn()}
+          toggleDisabled={false}
+        />,
+      );
+      const previousSettings = screen.getByTestId('ghost-settings-webview');
+      fireEvent.click(await screen.findByText('ccAgent.gitContext.pr.setup.stages.login.title'));
+      fireEvent.click(await screen.findByText('ccAgent.gitContext.pr.setup.connect'));
+      await waitFor(() =>
+        expect(screen.getByTestId('ghost-settings-webview')).not.toBe(previousSettings),
+      );
+      expect(screen.getByText('ccAgent.gitContext.pr.setup.done')).toBeTruthy();
+      unmount();
+    },
+  );
+  it('lets the user retry task permission, disables duplicate clicks, and hides after approval', async () => {
+    vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
+    let finish!: (value: { granted: boolean }) => void;
+    const requestTaskApproval = vi.fn(() => new Promise<{ granted: boolean }>(resolve => { finish = resolve; }));
+    Object.assign(window.electronAPI, { ghosts: { requestTaskApproval } });
+    const ghost = { manifest: { agent: { tasks: true } }, enabled: true } as InstalledGhost;
+    const view = (approved = false) => <GhostPluginDetailView ghost={{ ...ghost, ...(approved ? { taskCapabilityApproved: true as const } : {}) }} detail={detail} panelStatus="Docked" onBack={vi.fn()} onToggle={vi.fn()} onUse={vi.fn()} onUpdate={vi.fn()} onUpdateFromFile={vi.fn()} onUninstall={vi.fn()} toggleDisabled={false} />;
+    const { rerender } = render(view());
+    const button = screen.getByRole('button', { name: 'settings.ghosts.perm.agentTasksRequest' }) as HTMLButtonElement;
+    fireEvent.click(button); fireEvent.click(button);
+    expect(requestTaskApproval).toHaveBeenCalledOnce();
+    expect(requestTaskApproval).toHaveBeenCalledWith(detail.id);
+    expect(button.disabled).toBe(true);
+    finish({ granted: false });
+    await waitFor(() => expect(button.disabled).toBe(false));
+    rerender(view(true));
+    expect(screen.queryByRole('button', { name: 'settings.ghosts.perm.agentTasksRequest' })).toBeNull();
+  });
+  it('uses the shared Cindy Switch for the plugin enabled control', () => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const onToggle = vi.fn();
+    const view = (disabled = false) => (
+      <GhostPluginDetailView
+        ghost={null}
+        detail={detail}
+        panelStatus="Docked"
+        onBack={vi.fn()}
+        onToggle={onToggle}
+        onUse={vi.fn()}
+        onUpdate={vi.fn()}
+        onUpdateFromFile={vi.fn()}
+        onUninstall={vi.fn()}
+        toggleDisabled={disabled}
+      />
+    );
+    const { rerender } = render(view());
+
+    const toggle = screen.getByRole('switch', {
+      name: 'settings.ghosts.enableAria',
+    });
+    expect(toggle.className).toContain('cindy-switch');
+    expect(toggle.className).toContain('data-[state=checked]:bg-[var(--switch-track-on)]');
+    expect(toggle.firstElementChild?.className).toContain(
+      'data-[state=checked]:bg-[var(--switch-thumb-on)]',
+    );
+    fireEvent.click(toggle);
+    expect(onToggle.mock.calls).toEqual([[false]]);
+    fireEvent.click(screen.getByText('settings.ghosts.detail.enabledLabel'));
+    expect(onToggle.mock.calls).toEqual([[false], [false]]);
+    rerender(view(true));
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByText('settings.ghosts.detail.enabledLabel'));
+    expect(onToggle).toHaveBeenCalledTimes(2);
+  });
+
   it('shows the main-view preference alongside the plugin settings UI', () => {
     vi.stubGlobal(
       'ResizeObserver',
@@ -328,35 +503,6 @@ describe('Ghost plugin detail sections', () => {
     expect(detailActions?.className).toContain('flex-nowrap');
   });
 
-  it('renders an enabled Host capability as a conversation action', () => {
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        observe() {}
-        unobserve() {}
-        disconnect() {}
-      },
-    );
-    const onUse = vi.fn();
-    render(
-      <GhostPluginDetailView
-        ghost={null}
-        detail={{ ...detail, canUse: false, hostCapability: 'ios-simulator' }}
-        panelStatus={null}
-        onBack={vi.fn()}
-        onToggle={vi.fn()}
-        onUse={onUse}
-        onUpdate={vi.fn()}
-        onUpdateFromFile={vi.fn()}
-        onUninstall={vi.fn()}
-        toggleDisabled={false}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'settings.ghosts.detail.chatAction' }));
-    expect(onUse).toHaveBeenCalledTimes(1);
-  });
-
   it('routes a projected detail icon failure to market recovery', () => {
     vi.stubGlobal(
       'ResizeObserver',
@@ -476,7 +622,7 @@ describe('Ghost plugin detail sections', () => {
         ).disabled,
       ).toBe(true);
 
-      // 启用区域是单个 switch 按钮；点文字或轨道都由同一交互处理。
+      // 共享 Switch 和关联文字标签遵循同一禁用门控。
       const toggle = screen.getByRole('switch', {
         name: 'settings.ghosts.enableAria',
       }) as HTMLButtonElement;
@@ -766,7 +912,7 @@ describe('Ghost plugin detail sections', () => {
 
   // 2026-08-05:快问快答钉档扩展为目录全量文本模型——富列表选择器(供应商
   // 分组 / 折扣与订阅徽标 / 搜索),身份卡声明偏好时"跟随默认"行如实展示。
-  it('text capability renders the rich pin picker with provider groups and budget badge', async () => {
+  it('text capability uses the shared picker and preserves exact subscription route selection', async () => {
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -790,8 +936,8 @@ describe('Ghost plugin detail sections', () => {
               options: [
                 {
                   id: 'cat:xd:codex:codex/gpt-5.5',
-                  label: 'Codex · GPT 5.5 折扣 · GW',
-                  group: 'GW',
+                  label: 'Codex · GPT 5.5 折扣 · Cindy AI',
+                  group: 'Cindy AI',
                   providerId: 'xd',
                   agentKind: 'codex',
                   modelId: 'codex/gpt-5.5',
@@ -854,55 +1000,48 @@ describe('Ghost plugin detail sections', () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole('button', { name: 'settings.ghosts.detail.cindyPrefs.cap.text.oneshot' }),
+      screen.getByRole('button', { name: /settings.ghosts.detail.cindyPrefs.cap.text.oneshot/ }),
     );
 
-    const agentList = await screen.findByRole('listbox');
-    // 第一层只显示自动选择和 Agent，不混入模型排列组合。
-    expect(within(agentList).queryByText('GW')).toBeNull();
-    expect(within(agentList).queryByText('OpenAI')).toBeNull();
-    const defaultRow = within(agentList).getAllByRole('option')[0]!;
-    expect(defaultRow.textContent).toContain(
-      'settings.ghosts.detail.cindyPrefs.defaultOptionDeclared',
-    );
-    fireEvent.click(agentList.querySelector('[data-agent-kind="codex"]')!);
-
-    let codexModels = await screen.findByRole('listbox');
-    expect(within(codexModels).getByText('GW')).toBeTruthy();
-    expect(within(codexModels).getByText('OpenAI')).toBeTruthy();
-    expect(codexModels.querySelector('[data-pin-id*="claude-code"]')).toBeNull();
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'settings.auxiliaryModels.backToAgents' }),
-    );
-    const agentListAgain = await screen.findByRole('listbox');
-    fireEvent.click(agentListAgain.querySelector('[data-agent-kind="claude-code"]')!);
-    const claudeModels = await screen.findByRole('listbox');
-    expect(claudeModels.querySelector('[data-pin-id*="claude-code"]')).toBeTruthy();
-    expect(claudeModels.querySelector('[data-pin-id*="openai:codex:"]')).toBeNull();
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'settings.auxiliaryModels.backToAgents' }),
-    );
-    fireEvent.click(
-      (await screen.findByRole('listbox')).querySelector('[data-agent-kind="codex"]')!,
-    );
-    codexModels = await screen.findByRole('listbox');
-    // 同 Agent 的同名别名折叠；另一个 Agent 的同名模型不混在本层。
-    const budgetRow = within(codexModels).getByText('GPT 5.5 折扣').closest('button')!;
-    expect(within(budgetRow).getByText('settings.ghosts.detail.cindyPrefs.budgetBadge')).toBeTruthy();
-    const plainRow = within(codexModels).getByText('GPT 5.5', { exact: true }).closest('button')!;
-    expect(
-      within(plainRow).queryByText('settings.ghosts.detail.cindyPrefs.budgetBadge'),
-    ).toBeNull();
-    expect(within(plainRow).getByText('settings.providers.models.subscription')).toBeTruthy();
-    // 点行钉档:写回 cat: 编码钉值。
+    const listbox = await screen.findByRole('listbox');
+    expect(document.querySelector('[data-unified-model-panel]')).toBeTruthy();
+    expect(within(listbox).getByRole('group', { name: 'Cindy AI' })).toBeTruthy();
+    expect(within(listbox).getByRole('group', { name: 'OpenAI' })).toBeTruthy();
+    expect(listbox.querySelector('[data-row-customize]')).not.toBeNull();
+    expect(listbox.querySelector('[data-agent-kind]')).toBeNull();
+    const plainRow = within(listbox)
+      .getByText('GPT 5.5', { exact: true })
+      .closest<HTMLElement>('[role="option"]')!;
+    expect(within(plainRow).queryByText('settings.providers.models.subscription')).toBeNull();
     fireEvent.click(plainRow);
-    expect(setCindyPref).toHaveBeenCalledWith(
-      'xdt-knowledge',
-      'text.oneshot',
-      'cat:openai:codex:gpt-5.5',
+    await waitFor(() =>
+      expect(setCindyPref).toHaveBeenCalledWith(
+        'xdt-knowledge',
+        'text.oneshot',
+        'cat:openai:codex:gpt-5.5',
+      ),
     );
+    // A different supported Harness must remain reachable after replacing the old Agent step.
+    fireEvent.click(
+      screen.getByRole('button', { name: /settings.ghosts.detail.cindyPrefs.cap.text.oneshot/ }),
+    );
+    const reopened = await screen.findByRole('listbox');
+    const routeRow = within(reopened)
+      .getByText('GPT 5.5', { exact: true })
+      .closest<HTMLElement>('[role="option"]')!;
+    fireEvent.click(routeRow.querySelector('[data-row-customize]')!);
+    const flyout = await screen.findByTestId('unified-model-config-flyout');
+    expect(flyout.querySelector('[role="slider"], [data-fast-toggle]')).toBeNull();
+    fireEvent.click(flyout.querySelector('[data-engine-capsule="cc"]')!);
+    fireEvent.click(routeRow);
+    await waitFor(() =>
+      expect(setCindyPref).toHaveBeenLastCalledWith(
+        'xdt-knowledge',
+        'text.oneshot',
+        'cat:openai:claude-code:chatgpt/gpt-5.5',
+      ),
+    );
+
     vi.unstubAllEnvs();
   });
 
@@ -931,8 +1070,8 @@ describe('Ghost plugin detail sections', () => {
               options: [
                 {
                   id: 'cat:xd:codex:codex/gpt-5.5',
-                  label: 'Codex · GPT 5.5 折扣 · GW',
-                  group: 'GW',
+                  label: 'Codex · GPT 5.5 折扣 · Cindy AI',
+                  group: 'Cindy AI',
                   providerId: 'xd',
                   agentKind: 'codex',
                   modelId: 'codex/gpt-5.5',
@@ -958,7 +1097,7 @@ describe('Ghost plugin detail sections', () => {
       />,
     );
     const trigger = screen.getByRole('button', {
-      name: 'settings.ghosts.detail.cindyPrefs.cap.text.oneshot',
+      name: /settings.ghosts.detail.cindyPrefs.cap.text.oneshot/,
     });
     expect(trigger.textContent).toContain('kimi-k2.6 · Gateway');
     expect(trigger.textContent).not.toContain('litellm-kimi-k2.6');
@@ -967,7 +1106,7 @@ describe('Ghost plugin detail sections', () => {
 
   // 2026-08-05 review:stale 目录钉(模型已下架)点中 = 当前值,只收起不回写
   // (回写必被白名单拒成「操作失败」);清钉走「跟随默认」行。
-  it('stale catalog pin row closes without rewriting; clearing goes through the default row', async () => {
+  it('stale catalog pin is not rewritten and can be cleared through the default row', async () => {
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -991,8 +1130,8 @@ describe('Ghost plugin detail sections', () => {
               options: [
                 {
                   id: 'cat:xd:codex:codex/gpt-5.5',
-                  label: 'Codex · GPT 5.5 折扣 · GW',
-                  group: 'GW',
+                  label: 'Codex · GPT 5.5 折扣 · Cindy AI',
+                  group: 'Cindy AI',
                   providerId: 'xd',
                   agentKind: 'codex',
                   modelId: 'codex/gpt-5.5',
@@ -1018,24 +1157,20 @@ describe('Ghost plugin detail sections', () => {
       />,
     );
     fireEvent.click(
-      screen.getByRole('button', { name: 'settings.ghosts.detail.cindyPrefs.cap.text.oneshot' }),
+      screen.getByRole('button', { name: /settings.ghosts.detail.cindyPrefs.cap.text.oneshot/ }),
     );
-    const agentList = await screen.findByRole('listbox');
-    fireEvent.click(agentList.querySelector('[data-agent-kind="codex"]')!);
     const listbox = await screen.findByRole('listbox');
-    // stale 行如实显示原值且为当前选中;点它不回写。
-    const staleRow = within(listbox).getByText('cat:gone:codex:retired-model').closest('button')!;
-    expect(staleRow.getAttribute('aria-selected')).toBe('true');
-    fireEvent.click(staleRow);
+    // Retired pins remain visible on the trigger, but never become selectable routes.
+    expect(
+      screen.getByRole('button', { name: /settings.ghosts.detail.cindyPrefs.cap.text.oneshot/ })
+        .textContent,
+    ).toContain('retired-model');
+    expect(within(listbox).queryByText('cat:gone:codex:retired-model')).toBeNull();
     expect(setCindyPref).not.toHaveBeenCalled();
-
-    // 重新展开,点「跟随默认」清钉(model=null)。
-    fireEvent.click(
-      screen.getByRole('button', { name: 'settings.ghosts.detail.cindyPrefs.cap.text.oneshot' }),
+    fireEvent.click(within(listbox).getAllByRole('option')[0]!);
+    await waitFor(() =>
+      expect(setCindyPref).toHaveBeenCalledWith('xdt-knowledge', 'text.oneshot', null),
     );
-    const reopened = await screen.findByRole('listbox');
-    fireEvent.click(within(reopened).getAllByRole('option')[0]!);
-    expect(setCindyPref).toHaveBeenCalledWith('xdt-knowledge', 'text.oneshot', null);
     vi.unstubAllEnvs();
   });
 

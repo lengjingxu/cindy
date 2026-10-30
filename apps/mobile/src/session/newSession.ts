@@ -1,3 +1,4 @@
+import { modelNeedsReselection } from './modelReselection';
 import { stripTrailingPathSeparators } from '@cindy/maker-shared/path-text';
 import { collapseWorktreeDirForGrouping } from '@cindy/maker-shared/worktree-paths';
 import {
@@ -5,7 +6,11 @@ import {
   deriveOptimisticSessionTitle,
 } from '@cindy/maker-shared/session-title';
 import { i18n } from '@/i18n';
-import type { CreateSessionOptions, RemoteDirectoryEntry } from '@/device-link/mobileMakerTransport';
+import type {
+  CreateSessionOptions,
+  RemoteDirectoryDrive,
+  RemoteDirectoryEntry,
+} from '@/device-link/mobileMakerTransport';
 import type { DeviceProvidersPayload } from '@/device-link/deviceProvidersCache';
 import type { MobileModelOption } from './agentCapabilities';
 import { effectiveSourceIdForModel } from '@cindy/model-providers/registry';
@@ -51,6 +56,42 @@ export interface NewSessionDraft {
   fastMode: boolean;
   firstMessage: string;
   extraDirs?: string[];
+  /**
+   * 远程 Agent:Agent 在哪台电脑运行——同账号另一台电脑的 deviceId,或别人分享给被控电脑的
+   * 供应商(`share:<shareId>`)。缺省 / null = 被控电脑自己。只在创建时由选中的远程模型写入
+   * (见 applyRemoteAgentPick),模型与来源随之属于那台电脑的目录。
+   */
+  agentDeviceId?: string | null;
+}
+
+/**
+ * 新建任务里选中的另一台电脑上的模型(同账号远程供应商或分享来的供应商)。与草稿分开存:
+ * 草稿的模型 / 来源一直按被控电脑的目录校准,这份不受那些校准影响,创建时整体覆盖进草稿。
+ */
+export interface NewSessionRemoteAgentPick {
+  deviceId: string;
+  agentKind: NewSessionAgentKind;
+  model: string;
+  providerId: string | null;
+  effort: string;
+  fastMode: boolean;
+}
+
+/** 把选中的远程模型落进要创建的草稿;没选时原样返回。 */
+export function applyRemoteAgentPick(
+  draft: NewSessionDraft,
+  pick: NewSessionRemoteAgentPick | null,
+): NewSessionDraft {
+  if (!pick) return draft;
+  return {
+    ...draft,
+    agentKind: pick.agentKind,
+    model: pick.model,
+    providerId: pick.providerId,
+    effort: pick.effort,
+    fastMode: pick.fastMode,
+    agentDeviceId: pick.deviceId,
+  };
 }
 
 export interface CreateSessionResult {
@@ -76,11 +117,19 @@ export interface NewSessionDeviceOption {
 export interface NewSessionStoredPreferences {
   agentKind: NewSessionAgentKind | null;
   device: NewSessionDeviceOption | null;
+  /** 上次显式选择的项目/对话模式；null 表示尚未选择，沿用入口默认。 */
+  workspaceKind: NewSessionWorkspaceKind | null;
   /**
    * 每个 agent 上次在新建页显式选过的权限档(对齐桌面 lastByVendor 的权限记忆语义);
    * 没选过 = 缺失,回落该 agent 的安全种子默认。'plan' 不入记忆(计划模式是独立开关)。
    */
   permissionModeByAgent: Partial<Record<NewSessionAgentKind, string>>;
+  /**
+   * 每台被控电脑上次在新建页**显式选择**的项目目录(deviceId → 绝对路径,#4103)。
+   * 只在用户点选最近项目 / 在目录浏览器里确认时写入;自动取最近项目首项不算显式选择。
+   * 按设备归属,避免把一台电脑的路径套到另一台;没有记忆的设备沿用最近项目默认逻辑。
+   */
+  workingDirByDevice: Record<string, string>;
 }
 
 export interface NewSessionDraftSummary {
@@ -274,6 +323,41 @@ export function filterRemoteDirectoryEntries(
   return entries.filter((entry) => !entry.name.startsWith('.'));
 }
 
+/**
+ * 远端目录浏览的盘符切换项(Windows 被控端 fs:list-dir 的可选 `drives`)。旧被控端缺省、
+ * 字段畸形或只有一个盘时返回空数组——没有可切换的目标就不显示盘符切换。
+ */
+export function normalizeRemoteDirectoryDrives(value: unknown): RemoteDirectoryDrive[] {
+  if (!Array.isArray(value)) return [];
+  const drives: RemoteDirectoryDrive[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const { name, path, current } = item as Record<string, unknown>;
+    if (typeof path !== 'string' || !path || seen.has(path)) continue;
+    seen.add(path);
+    drives.push({ name: typeof name === 'string' && name ? name : path, path, current: current === true });
+  }
+  return drives.length > 1 ? drives : [];
+}
+
+/** 目录请求是否仍属于当前被控电脑;切电脑后旧请求即使序号未变也不能写回。 */
+export function isCurrentRemoteBrowseRequest(
+  request: { seq: number; deviceId: string },
+  current: { seq: number; deviceId: string },
+): boolean {
+  return Boolean(request.deviceId)
+    && request.deviceId === current.deviceId
+    && request.seq === current.seq;
+}
+
+/** 首次盘符枚举超时后,最多再拉几次当前目录;超过即停,避免空转。 */
+const REMOTE_BROWSE_DRIVE_RETRY_LIMIT = 3;
+
+export function shouldRetryRemoteBrowseDrives(drivesPending: unknown, attempt: number): boolean {
+  return drivesPending === true && attempt >= 0 && attempt < REMOTE_BROWSE_DRIVE_RETRY_LIMIT;
+}
+
 export function buildRecentWorkspaceOptions(
   sessions: readonly RemoteSession[],
   deviceId?: string,
@@ -284,6 +368,7 @@ export function buildRecentWorkspaceOptions(
     if (deviceId && session.deviceLinkDeviceId && session.deviceLinkDeviceId !== deviceId) continue;
     if (session.status === 'deleted') continue;
     if (session.workspaceKind !== 'project') continue;
+    if (session.orcaRole === 'worker') continue;
     const rawWorkingDir = session.workingDir?.trim();
     if (!rawWorkingDir) continue;
     const workingDir = collapseWorktreeDirForGrouping(rawWorkingDir);
@@ -385,8 +470,11 @@ export function resolveRecentModelAndProvider(
   recent: { model: string; providerId: string | null },
   agentKind: NewSessionAgentKind,
   catalogReady: boolean,
+  visibilityOverrides?: Record<string, boolean> | null,
 ): { model: string; providerId: string | null } {
-  if (!catalogReady) return { model: recent.model, providerId: recent.providerId };
+  if (!catalogReady || modelNeedsReselection(visibilityOverrides, agentKind, recent.model, recent.providerId)) {
+    return { model: recent.model, providerId: recent.providerId };
+  }
   // providerId 为 null 分两种:①该会话本来就走被控端默认路由(合法来源);
   // ②历史版本遗留的「自定义供应商模型 + providerId=NULL」坏数据(#1898 典型
   // 现场)——目录就绪且 modelRows 存在同名模型行时补全为该行 provider,让自动
@@ -449,6 +537,8 @@ export function resolveRecentModelAndProvider(
  *   (循环 ≤3,防代际持续抖动死循环);重拉失败且代际稳定 → 未知 → 信任(fail-open)。
  */
 export async function resolveSubmitGuardCatalog(args: {
+  /** 普通创建保留用户选择，由后台建链后的权威目录终检；Goal 不适用。 */
+  deferRefreshToCreation?: boolean;
   /** 设备缓存读取(驱逐即清空;写入受代际门控)。 */
   cached: () => DeviceProvidersPayload | undefined;
   /** 当前设备缓存代际(驱逐 +1;0 = 从未驱逐)。 */
@@ -457,8 +547,12 @@ export async function resolveSubmitGuardCatalog(args: {
   fetch: () => Promise<DeviceProvidersPayload>;
   /** 把 payload 重建为守卫 rows(含 keepSelected 豁免)。 */
   buildRows: (payload: DeviceProvidersPayload) => readonly ProviderModelRow[];
-}): Promise<{ rows: readonly ProviderModelRow[]; catalogKnown: boolean; genAt: number }> {
+}): Promise<{ rows: readonly ProviderModelRow[]; catalogKnown: boolean; genAt: number; visibilityOverrides?: Record<string, boolean> }> {
   const { cached, gen, fetch, buildRows } = args;
+  if (args.deferRefreshToCreation) {
+    // 旧缓存可能缺少刚连接的来源，不能先把用户选择回退、再让 fresh 校验这个回退值。
+    return { rows: [], catalogKnown: false, genAt: gen() };
+  }
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const genAt = gen();
     const hit = cached();
@@ -471,10 +565,14 @@ export async function resolveSubmitGuardCatalog(args: {
       try {
         const fresh = await fetch();
         if (gen() !== genAt) continue; // 拉取期间换代 → join 新代
-        return { rows: buildRows(fresh), catalogKnown: true, genAt };
+        return { rows: buildRows(fresh), catalogKnown: true, genAt,
+          ...(fresh.modelVisibilityOverrides ? { visibilityOverrides: fresh.modelVisibilityOverrides } : {}),
+        };
       } catch {
         if (gen() !== genAt) continue;
-        return { rows: buildRows(hit), catalogKnown: true, genAt };
+        return { rows: buildRows(hit), catalogKnown: true, genAt,
+          ...(hit.modelVisibilityOverrides ? { visibilityOverrides: hit.modelVisibilityOverrides } : {}),
+        };
       }
     }
     if (genAt === 0) {
@@ -485,7 +583,9 @@ export async function resolveSubmitGuardCatalog(args: {
       try {
         const fresh = await fetch();
         if (gen() !== genAt) continue; // 拉取期间换代 → join 新代
-        return { rows: buildRows(fresh), catalogKnown: true, genAt };
+        return { rows: buildRows(fresh), catalogKnown: true, genAt,
+          ...(fresh.modelVisibilityOverrides ? { visibilityOverrides: fresh.modelVisibilityOverrides } : {}),
+        };
       } catch {
         if (gen() !== genAt) continue;
         return { rows: [], catalogKnown: false, genAt };
@@ -496,7 +596,9 @@ export async function resolveSubmitGuardCatalog(args: {
       // await 期间换代 → 旧 promise 返回值已过期(缓存层只拒绝回写、仍 resolve),
       // 弃用并 join 新代(下一轮循环重读缓存/新 inflight)。
       if (gen() !== genAt) continue;
-      return { rows: buildRows(fresh), catalogKnown: true, genAt };
+      return { rows: buildRows(fresh), catalogKnown: true, genAt,
+          ...(fresh.modelVisibilityOverrides ? { visibilityOverrides: fresh.modelVisibilityOverrides } : {}),
+        };
     } catch {
       if (gen() !== genAt) continue;
       return { rows: [], catalogKnown: false, genAt };
@@ -663,6 +765,7 @@ export function pickAgentDefaultRuntime(args: {
   deviceId?: string;
   /** 供应商目录是否已就绪(加载完成);未就绪时来源校验信任最近会话(见 validateModelProviderId)。 */
   catalogReady: boolean;
+  visibilityOverrides?: Record<string, boolean> | null;
 }): NewSessionRuntime {
   const { agentKind, sessions, modelRows, currentEffort, deviceId, catalogReady } = args;
   const recent = pickMostRecentSessionRuntime(sessions, { deviceId, agentKind });
@@ -677,6 +780,7 @@ export function pickAgentDefaultRuntime(args: {
       { model: recent.model, providerId: recent.providerId },
       agentKind,
       catalogReady,
+      args.visibilityOverrides,
     ));
   } else if (catalogReady && modelRows[0]) {
     // 首项分支只在目录就绪时取——切到未缓存设备瞬间旧设备目录会短暂残留
@@ -703,8 +807,71 @@ export function pickAgentDefaultRuntime(args: {
   const sectionModel = catalogReady ? findSectionModelRow(modelRows, model, providerId)?.model : undefined;
   const effort = sectionModel
     ? reconcileEffortForModel(sectionModel, baseEffort)
-    : catalogReady ? '' : baseEffort;
+    : catalogReady && !modelNeedsReselection(args.visibilityOverrides, agentKind, model, providerId) ? '' : baseEffort;
   return { agentKind, model, effort, providerId };
+}
+
+/**
+ * 「恢复上次选过的 agent」是否仍待落定:有记忆的 agent、模型尚未落定,且当前设备就是恢复
+ * 目标(没有偏好设备 = 不限设备)。
+ */
+export function isStoredAgentRestorePending(input: {
+  storedAgentKind: NewSessionAgentKind | null | undefined;
+  appliedStoredAgentKind: NewSessionAgentKind | null;
+  expectedDeviceId: string;
+  selectedDeviceId: string;
+}): boolean {
+  if (!input.storedAgentKind) return false;
+  if (input.appliedStoredAgentKind === input.storedAgentKind) return false;
+  return !input.expectedDeviceId || input.selectedDeviceId === input.expectedDeviceId;
+}
+
+/** 上次 agent 的恢复进度:agent = 已恢复 agent 与权限、模型仍是占位;done = 模型也已落定。 */
+export interface StoredAgentRestoreState {
+  agentKind: NewSessionAgentKind;
+  phase: 'agent' | 'done';
+}
+
+/**
+ * 恢复上次 agent 的下一步。不变量:agent 不依赖任何数据,偏好一到就恢复;只有模型要等
+ * 目录或该 agent 的最近任务(canResolveStoredAgentRuntime),且只补一次。
+ * - 'full':数据已够,agent + 权限 + 模型一次恢复;
+ * - 'agent':数据未到,先恢复 agent + 权限,模型用占位——否则目录一直拉不到时草稿停在
+ *   别的 agent,创建会建错 agent 并把它存成新偏好;
+ * - 'model':agent 已恢复、数据刚到,只补 model / effort / providerId,不动 agent 与权限;
+ * - null:已落定,或 agent 已恢复但数据仍未到。
+ */
+export function nextStoredAgentRestoreStep(input: {
+  storedAgentKind: NewSessionAgentKind;
+  restored: StoredAgentRestoreState | null;
+  modelReady: boolean;
+}): 'full' | 'agent' | 'model' | null {
+  const restored = input.restored?.agentKind === input.storedAgentKind ? input.restored : null;
+  if (restored?.phase === 'done') return null;
+  if (restored?.phase === 'agent') return input.modelReady ? 'model' : null;
+  return input.modelReady ? 'full' : 'agent';
+}
+
+/**
+ * 恢复上次的 agent 时,是否已有足够数据选模型(pickAgentDefaultRuntime 的输入):
+ * 供应商目录已就绪 / 被控端明确不支持目录,或该设备上已有这个 agent 的最近任务。
+ * 两者都没有时 pickAgentDefaultRuntime 只能落到内置兜底模型(Claude 为 Sonnet 4.6),
+ * 这时只先恢复 agent(见 nextStoredAgentRestoreStep),模型等数据到了再补。
+ * 不能用 `loading === false` 代替:useDeviceProviders 的 loading 初值就是 false,拉取失败后也是。
+ */
+export function canResolveStoredAgentRuntime(input: {
+  agentKind: NewSessionAgentKind;
+  sessions: readonly RemoteSession[];
+  deviceId: string;
+  catalogReady: boolean;
+  providersUnsupported: boolean;
+}): boolean {
+  if (!input.deviceId) return true;
+  if (input.catalogReady || input.providersUnsupported) return true;
+  return pickMostRecentSessionRuntime(input.sessions, {
+    deviceId: input.deviceId,
+    agentKind: input.agentKind,
+  }) !== null;
 }
 
 /**
@@ -732,11 +899,9 @@ export function resolveNewSessionAutoDefault(input: {
   rowsAgentKind: NewSessionAgentKind;
   /** 供应商目录是否已就绪;未就绪时来源校验信任最近会话(见 validateModelProviderId)。 */
   catalogReady: boolean;
-  /** 目录是否「明确不可用」(拉取失败,典型:旧被控端无 maker:provider:list 通道)。
-   *  与 catalogReady=false(仍在加载/切设备间隙)区分:仅明确不可用才放行
-   *  capabilities 扁平回退,否则回退被 !catalogReady 的 return null 挡死
-   *  (codex review P2)。 */
-  providersUnavailable?: boolean;
+  visibilityOverrides?: Record<string, boolean> | null;
+  /** Only an explicitly unsupported provider:list channel permits capabilities fallback. */
+  providersUnsupported?: boolean;
   /** 仅在 provider-aware 列表不可用时传入,避免绕过被控端的模型可见性设置(上游 main 移植)。 */
   availableModels?: readonly MobileModelOption[];
   currentEffort: string;
@@ -749,7 +914,7 @@ export function resolveNewSessionAutoDefault(input: {
     modelRows,
     rowsAgentKind,
     catalogReady,
-    providersUnavailable = false,
+    providersUnsupported = false,
     availableModels = [],
     currentEffort,
   } = input;
@@ -765,6 +930,7 @@ export function resolveNewSessionAutoDefault(input: {
       { model: recent.model, providerId: recent.providerId },
       recent.agentKind,
       catalogReady && recent.agentKind === rowsAgentKind,
+      input.visibilityOverrides,
     );
     // 跨 agent 跟随时 modelRows 按当前 agent 构建,其档位表对目标 agent 无权威——
     // 命中同名模型行会把 recent.effort 错 reconcile 成当前 agent 的默认档(独立
@@ -790,9 +956,9 @@ export function resolveNewSessionAutoDefault(input: {
   // (上游 main 移植);provider-aware 列表由调用方传空 availableModels,避免区域
   // 默认绕过用户隐藏设置。目录未就绪(加载中/切设备间隙残留旧设备目录,
   // ready=false)则不动,等就绪后 effect 重算(codex review P1);目录「明确不可用」
-  // (旧被控端无 provider:list 通道或请求持续失败,error 非空)则放行扁平回退,
+  // (旧被控端明确不支持 provider:list 通道)才放行扁平回退,
   // 否则下方 availableModels 分支永远不可达(codex review P2)。
-  if (!catalogReady && !providersUnavailable) return null;
+  if (!catalogReady && !providersUnsupported) return null;
   // 在 ProviderModelRow 层面选行,保留来源身份(codex review P2):同 modelId 多
   // provider 时按 id 回查会把标记行错绑到首见 provider;标记行优先、无标记取
   // 首行,模型与 provider 同源。modelRows 为空(旧被控端/目录不可用)才走扁平回退。
@@ -802,7 +968,7 @@ export function resolveNewSessionAutoDefault(input: {
     : undefined;
   const flatDefault = providerRow
     ? undefined
-    : pickRegionalNewSessionDefault(availableModels, rowsAgentKind);
+    : providersUnsupported ? pickRegionalNewSessionDefault(availableModels, rowsAgentKind) : undefined;
   const defaultModel = providerRow?.model ?? flatDefault;
   if (!defaultModel) return null;
   return {
@@ -816,11 +982,19 @@ export function resolveNewSessionAutoDefault(input: {
   };
 }
 
+/**
+ * 空白新建的初始项目目录:草稿已有目录 → 不动;否则先用该设备记住的上次显式选择
+ * (#4103,不要求它仍在最近列表里——列表只保留 6 项,且用户本就有目录浏览入口),
+ * 没有记忆再取最近项目首项。
+ */
 export function pickInitialNewSessionWorkspace(
   currentWorkingDir: string,
   recentWorkspaces: readonly RecentWorkspaceOption[],
+  rememberedWorkingDir?: string | null,
 ): string | null {
   if (currentWorkingDir.trim()) return null;
+  // 记忆目录原样返回(首尾空格可能是路径的一部分),只用 trim 判空。
+  if (rememberedWorkingDir?.trim()) return rememberedWorkingDir;
   return recentWorkspaces[0]?.workingDir ?? null;
 }
 
@@ -837,6 +1011,8 @@ export function buildRemoteCreateSessionOptions(draft: NewSessionDraft): CreateS
     ...(effort ? { effort } : {}),
     // 仅显式选了非空来源才带 providerId(空 = NULL = 被控端默认路由,对齐桌面 deviceLinkCreateArgs)。
     ...(providerId ? { providerId } : {}),
+    // Agent 在另一台电脑运行:与桌面新建任务同一个参数,被控电脑记进任务并经那台运行 Agent。
+    ...(draft.agentDeviceId ? { agentDeviceId: draft.agentDeviceId } : {}),
   };
   if (draft.workspaceKind === 'dialogue') return base;
   return {
@@ -862,7 +1038,7 @@ export function normalizeCreateSessionResult(value: unknown): CreateSessionResul
 
 export function sessionFromCreateResult(
   result: CreateSessionResult,
-  fallback: Pick<NewSessionDraft, 'agentKind' | 'workspaceKind' | 'model' | 'effort' | 'permissionMode' | 'fastMode' | 'workingDir' | 'providerId'> & {
+  fallback: Pick<NewSessionDraft, 'agentKind' | 'workspaceKind' | 'model' | 'effort' | 'permissionMode' | 'fastMode' | 'workingDir' | 'providerId' | 'agentDeviceId'> & {
     firstMessage?: string;
     attachments?: readonly { name?: string; originalName?: string; path?: string; category?: string }[];
   },
@@ -898,6 +1074,8 @@ export function sessionFromCreateResult(
     // 兜底/乐观会话必须带出来源:buildQueuedTextMessage 从这里复制 providerId 进
     // createOpts,缺了它,创建确认前排队的首条消息会丢来源路由(codex review P1)。
     providerId: fallback.providerId ?? null,
+    // 乐观行就带上 Agent 所在电脑:会话页的模型药丸与目录从一开始就按那台显示。
+    ...(fallback.agentDeviceId ? { agentDeviceId: fallback.agentDeviceId } : {}),
     _count: { messages: 0 },
   };
 }

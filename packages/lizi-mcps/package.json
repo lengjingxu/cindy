@@ -7,7 +7,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./computer": "./src/computer/index.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
@@ -22,7 +23,6 @@
     "@cindy/browser-control-runtime": "workspace:*",
     "@cindy/github-client": "workspace:*",
     "@cindy/gitlab-client": "workspace:*",
-    "@cindy/ios-simulator-runtime": "workspace:*",
     "@cindy/maker-core": "workspace:*",
     "@cindy/maker-scheduler": "workspace:*",
     "@cindy/maker-shared": "workspace:*",

@@ -6,10 +6,13 @@ import {
   isMobileMarkdownImageDirectUrl,
   mobileMarkdownImageTitle,
   mobileMarkdownImageUrlForWorkdir,
+  mobileMarkdownManagedImagePreviewUrl,
   mobileMarkdownImageAltChipText,
   MOBILE_MARKDOWN_IMAGE_ALT_CHIP_MAX_UTF16_LENGTH,
   mobileMarkdownInlineImageSize,
   parseMobileMarkdown,
+  parseMobileMarkdownDocument,
+  parseMobileMarkdownIncremental,
   parseMobileMarkdownInlines,
   groupMobileMarkdownSelectableBlocks,
 } from '@/session/messageMarkdown';
@@ -17,6 +20,102 @@ import {
 // 文案已 i18n 化;固定 zh-CN 让字面量断言与语言环境解耦(全局 mock 默认 en-US)。
 beforeAll(async () => {
   await i18n.changeLanguage('zh-CN');
+});
+
+describe('incremental mobile Markdown parsing', () => {
+  it('reuses completed blocks after a safe blank-line checkpoint', () => {
+    const first = parseMobileMarkdownDocument('# title\n\nfirst paragraph');
+    const next = parseMobileMarkdownIncremental(
+      '# title\n\nfirst paragraph\n\nsecond paragraph',
+      first,
+    );
+    const full = parseMobileMarkdownDocument(next.source);
+
+    expect(next.incremental).toBe(true);
+    expect(next.reusedBlockCount).toBe(1);
+    expect(next.blocks).toEqual(full.blocks);
+    expect(next.blocks[0]).toBe(first.blocks[0]);
+    expect(next.parsedSourceUtf16Length).toBe('first paragraph\n\nsecond paragraph'.length);
+  });
+
+  it('falls back to a full parse for an edit in the existing prefix', () => {
+    const first = parseMobileMarkdownDocument('# title\n\nfirst paragraph');
+    const next = parseMobileMarkdownIncremental(
+      '# changed\n\nfirst paragraph\n\nsecond paragraph',
+      first,
+    );
+
+    expect(next.incremental).toBe(false);
+    expect(next.reusedBlockCount).toBe(0);
+    expect(next.blocks).toEqual(parseMobileMarkdownDocument(next.source).blocks);
+  });
+
+  it('keeps fenced code and display math semantics when appending', () => {
+    const codeFirst = parseMobileMarkdownDocument('intro\n\n```ts\nconst x = 1;\n```');
+    const codeNext = parseMobileMarkdownIncremental(
+      `${codeFirst.source}\n\nend`,
+      codeFirst,
+    );
+    expect(codeNext.blocks).toEqual(parseMobileMarkdownDocument(codeNext.source).blocks);
+
+    const mathFirst = parseMobileMarkdownDocument('intro\n\n$$\nx = 1\n$$');
+    const mathNext = parseMobileMarkdownIncremental(
+      `${mathFirst.source}\n\nend`,
+      mathFirst,
+    );
+    expect(mathNext.blocks).toEqual(parseMobileMarkdownDocument(mathNext.source).blocks);
+  });
+
+  it('falls back when an escaped inline math opener is closed by a later flush', () => {
+    const first = parseMobileMarkdownDocument('intro\n\nvalue \\(');
+    const next = parseMobileMarkdownIncremental(`${first.source}x\\)`, first);
+    const full = parseMobileMarkdownDocument(next.source);
+
+    expect(next.incremental).toBe(false);
+    expect(next.reusedBlockCount).toBe(0);
+    expect(next.blocks).toEqual(full.blocks);
+  });
+
+  it('keeps line offsets when appending after a closed fence without a trailing newline', () => {
+    const first = parseMobileMarkdownDocument('intro\n\n```ts\nconst x = 1;\n```');
+    const next = parseMobileMarkdownIncremental(`${first.source}\n\nend`, first);
+    const full = parseMobileMarkdownDocument(next.source);
+
+    expect(next.blocks).toEqual(full.blocks);
+    expect(next.blocks.at(-1)?.key).toBe(full.blocks.at(-1)?.key);
+  });
+
+  it('does not reuse an EOF checkpoint when an append mutates its last line', () => {
+    const first = parseMobileMarkdownDocument('```ts\nconst x = 1;\n```');
+    const next = parseMobileMarkdownIncremental(`${first.source}continued`, first);
+
+    expect(next.incremental).toBe(false);
+    expect(next.blocks).toEqual(parseMobileMarkdownDocument(next.source).blocks);
+  });
+
+  it('preserves full-parser semantics across character-by-character streaming flushes', () => {
+    const fixtures = [
+      '# heading\n\nplain text\n\n- item\n\nend',
+      'intro\n\n```ts\nconst x = 1;\n```\n\nresult',
+      'intro\n\n$$\nx = 1\n$$\n\nresult',
+      'prefix \\(x + 1\\) suffix\n\nnext',
+      '<!-- hidden\n\ntext -->\n\nvisible',
+    ];
+    for (const fixture of fixtures) {
+      let previous: ReturnType<typeof parseMobileMarkdownDocument> | null = null;
+      for (let end = 1; end <= fixture.length; end += 1) {
+        const source = fixture.slice(0, end);
+        const result = parseMobileMarkdownIncremental(source, previous);
+        expect(result.blocks, `prefix length ${end}`).toEqual(
+          parseMobileMarkdownDocument(source).blocks,
+        );
+        expect(result.ranges, `ranges at prefix length ${end}`).toEqual(
+          parseMobileMarkdownDocument(source).ranges,
+        );
+        previous = result;
+      }
+    }
+  });
 });
 
 describe('messageMarkdown', () => {
@@ -249,6 +348,44 @@ describe('messageMarkdown', () => {
       { type: 'link', text: 'https://example.com/path', url: 'https://example.com/path' },
       { type: 'text', text: ', then continue' },
     ]);
+  });
+
+  it('classifies managed video Markdown links for the mobile media viewer', () => {
+    const hash = 'a'.repeat(64);
+    expect(parseMobileMarkdownInlines(
+      `播放 [海洋视频](cindy-media://blobs/${hash}.mp4) 继续`,
+    )).toEqual([
+      { type: 'text', text: '播放 ' },
+      {
+        type: 'link',
+        text: '海洋视频',
+        url: `cindy-media://blobs/${hash}.mp4`,
+        managedMediaKind: 'video',
+      },
+      { type: 'text', text: ' 继续' },
+    ]);
+
+    for (const extension of ['webm', 'mov']) {
+      expect(parseMobileMarkdownInlines(
+        `[video](cindy-media://blobs/${hash}.${extension})`,
+      )).toEqual([{
+        type: 'link',
+        text: 'video',
+        url: `cindy-media://blobs/${hash}.${extension}`,
+        managedMediaKind: 'video',
+      }]);
+    }
+  });
+
+  it('keeps unsupported or malformed cindy-media links as literal text', () => {
+    const hash = 'a'.repeat(64);
+    for (const input of [
+      `[image](cindy-media://blobs/${hash}.png)`,
+      '[video](cindy-media://blobs/not-a-sha.mp4)',
+      `[video](cindy-media://other/${hash}.mp4)`,
+    ]) {
+      expect(parseMobileMarkdownInlines(input)).toEqual([{ type: 'text', text: input }]);
+    }
   });
 
   it('does not swallow fullwidth parentheses or CJK punctuation after a bare URL', () => {
@@ -871,6 +1008,17 @@ describe('messageMarkdown', () => {
     expect(isMobileMarkdownImageDirectUrl('cindy-media://blobs/a.png')).toBe(false);
   });
 
+  it('parses remote images with standard optional titles without exposing Markdown source', () => {
+    for (const url of ['cindy-media://blobs/a.png', 'xdt-image://cache/a.png', 'https://example.com/shot(1).png']) {
+      for (const destination of [`${url} "真实截图"`, `${url} '截图'`, `${url} (截图)`, `<${url}> "截图"`]) {
+        expect(parseMobileMarkdownInlines(`![验收](${destination})`)).toEqual([
+          { type: 'image', alt: '验收', url },
+        ]);
+      }
+    }
+    expect(parseMobileMarkdownInlines('![x](javascript:alert(1) "title")').some((inline) => inline.type === 'image')).toBe(false);
+  });
+
   it('rejects img-prefixed non-img tags exactly (img must be followed by whitespace, / or >)', () => {
     // \b 把 -/./: 当边界,<img-wrapper src=...> 会被误当 img 解析出 src(codex P2);
     // 守卫与匹配器都要求标签名"恰好是 img"。
@@ -1444,7 +1592,72 @@ describe('bare file paths(正文纯文本形态)', () => {
   });
 });
 
+describe('automatic Markdown image fetch scope', () => {
+  const pathUrl = (file: string, extra = '') => `xdt-file://open?path=${encodeURIComponent(file)}${extra}`;
+
+  it.each(['/private/photo.png', '/repo-other/photo.png', '/repo/../private/photo.png'])(
+    'does not automatically fetch outside or escaping path %s', (file) => {
+      expect(mobileMarkdownManagedImagePreviewUrl(file, '/repo')).toBeNull();
+      expect(mobileMarkdownManagedImagePreviewUrl(pathUrl(file), '/repo')).toBeNull();
+      // Explicitly opening the chip still uses the established viewer path.
+      expect(mobileMarkdownImageUrlForWorkdir(file, '/repo')).not.toBeNull();
+    },
+  );
+
+  it('requires workdir for file previews but not for already managed media', () => {
+    expect(mobileMarkdownManagedImagePreviewUrl(pathUrl('/repo/a.png'))).toBeNull();
+    expect(mobileMarkdownManagedImagePreviewUrl('shot.png')).toBeNull();
+    expect(mobileMarkdownManagedImagePreviewUrl('cindy-media://blobs/a.png')).toBe('cindy-media://blobs/a.png');
+    expect(mobileMarkdownManagedImagePreviewUrl('xdt-image://session/a.png')).toBe('xdt-image://session/a.png');
+  });
+
+  it('overwrites supplied baseDir with the task root for Host realpath checks', () => {
+    const result = mobileMarkdownManagedImagePreviewUrl(pathUrl('/repo/link/a.png', '&baseDir=%2F&baseDir=%2Fprivate'), '/repo', 'message:2');
+    const parsed = new URL(result!);
+    expect(parsed.searchParams.getAll('baseDir')).toEqual(['/repo']);
+    expect(parsed.searchParams.get('path')).toBe('/repo/link/a.png');
+    expect(parsed.searchParams.get('v')).toBe('message:2');
+    expect(new URL(mobileMarkdownManagedImagePreviewUrl('out/a.png', '/repo')!).searchParams.get('baseDir')).toBe('/repo');
+  });
+
+  it('handles Windows separators and roots without treating neighboring directories as children', () => {
+    const root = 'C:\\Repo';
+    const preview = mobileMarkdownManagedImagePreviewUrl(pathUrl('c:\\repo\\out\\a.png'), root);
+    expect(new URL(preview!).searchParams.get('baseDir')).toBe(root);
+    expect(mobileMarkdownManagedImagePreviewUrl(pathUrl('C:\\Repo-other\\a.png'), root)).toBeNull();
+    expect(mobileMarkdownManagedImagePreviewUrl(pathUrl('D:\\Repo\\a.png'), root)).toBeNull();
+    expect(mobileMarkdownManagedImagePreviewUrl(pathUrl('C:\\Repo\\..\\private\\a.png'), root)).toBeNull();
+  });
+
+  it('keeps SSH task provenance and supplies the same remote root constraint', () => {
+    const result = mobileMarkdownManagedImagePreviewUrl(pathUrl('/srv/work/out/a.png', '&remoteHostId=other&baseDir=%2F'), '/srv/work', 'm', 'host', 'task');
+    const parsed = new URL(result!);
+    expect(parsed.searchParams.get('remoteHostId')).toBe('host');
+    expect(parsed.searchParams.get('sessionId')).toBe('task');
+    expect(parsed.searchParams.get('baseDir')).toBe('/srv/work');
+    expect(mobileMarkdownManagedImagePreviewUrl('a.png', '/srv/work', 'm', 'host')).toBeNull();
+  });
+});
+
 describe('groupMobileMarkdownSelectableBlocks', () => {
+  it('keeps fallback image chips and surrounding paragraphs in the selectable text run', () => {
+    const blocks = parseMobileMarkdown('前段\n\n正文 ![图](shot.png) 结尾\n\n后段');
+    // No resolver or no workdir: the renderer can only show the existing text chip.
+    for (const imageRendersPreview of [() => false, (image: { url: string }) => mobileMarkdownManagedImagePreviewUrl(image.url) !== null]) {
+      const groups = groupMobileMarkdownSelectableBlocks(blocks, { imageRendersPreview });
+      expect(groups).toHaveLength(1);
+      expect(groups[0].type).toBe('text_run');
+    }
+  });
+
+  it('separates actual managed previews while keeping outside-workdir chips selectable', () => {
+    const imageRendersPreview = (image: { url: string }) => mobileMarkdownManagedImagePreviewUrl(image.url, '/repo') !== null;
+    const groups = groupMobileMarkdownSelectableBlocks(
+      parseMobileMarkdown('前段\n\n![图](shot.png)\n\n说明 ![外部图](/private/photo.png) 结尾'),
+      { imageRendersPreview },
+    );
+    expect(groups.map((group) => group.type)).toEqual(['text_run', 'single', 'text_run']);
+  });
   it('merges consecutive text blocks into one run so native selection can cross paragraphs', () => {
     const blocks = parseMobileMarkdown([
       '# 标题',
@@ -1513,6 +1726,43 @@ describe('groupMobileMarkdownSelectableBlocks', () => {
     expect(groups.map((group) => (group.type === 'text_run' ? group.blocks.length : 0))).toEqual([1, 1, 2]);
   });
 
+  it('can bound one native text run by inline fragment count', () => {
+    const blocks = [{
+      type: 'paragraph' as const,
+      key: 'paragraph:0',
+      inlines: Array.from({ length: 7 }, (_, index) => ({
+        type: 'strong' as const,
+        text: String(index),
+      })),
+    }];
+    const groups = groupMobileMarkdownSelectableBlocks(blocks, {
+      maxTextRunInlineFragments: 3,
+    });
+    const chunks = groups.flatMap((group) => (group.type === 'text_run' ? group.blocks : []));
+
+    expect(groups.map((group) => group.type)).toEqual(['text_run', 'text_run', 'text_run']);
+    expect(chunks.map((block) => block.inlines.length)).toEqual([3, 3, 1]);
+    expect(chunks.map((block) => block.textRunContinuation === true)).toEqual([false, true, true]);
+    expect(chunks.flatMap((block) => block.inlines).map((inline) => (
+      inline.type === 'image' ? inline.alt : inline.text
+    )).join('')).toBe('0123456');
+  });
+
+  it('counts inline fragments across adjacent text blocks', () => {
+    const blocks = Array.from({ length: 5 }, (_, index) => ({
+      type: 'paragraph' as const,
+      key: `paragraph:${index}`,
+      inlines: [{ type: 'text' as const, text: String(index) }],
+    }));
+    const groups = groupMobileMarkdownSelectableBlocks(blocks, {
+      maxTextRunInlineFragments: 2,
+    });
+
+    expect(groups.map((group) => (
+      group.type === 'text_run' ? group.blocks.length : 0
+    ))).toEqual([2, 2, 1]);
+  });
+
   it('counts rendered block separators when bounding text runs by text length', () => {
     const blocks = parseMobileMarkdown(['aaaa', '', 'bbbb'].join('\n'));
     const groups = groupMobileMarkdownSelectableBlocks(blocks, { maxTextRunUtf16Length: 8 });
@@ -1553,14 +1803,16 @@ describe('groupMobileMarkdownSelectableBlocks', () => {
     expect(chunkText.join('')).toBe(text);
   });
 
-  it('keeps oversized non-direct image alt text in one image inline while bounding rendered chip text', () => {
+  it('keeps managed image previews out of selectable text runs without splitting oversized alt text', () => {
     const alt = 'a'.repeat(MOBILE_MARKDOWN_IMAGE_ALT_CHIP_MAX_UTF16_LENGTH + 21);
     const blocks = parseMobileMarkdown(`![${alt}](docs/local-image.png)`);
-    const groups = groupMobileMarkdownSelectableBlocks(blocks, { maxTextRunUtf16Length: 1800 });
-    const chunks = groups.flatMap((group) => (group.type === 'text_run' ? group.blocks : []));
-    const imageInlines = chunks.flatMap((block) => block.inlines.filter((inline) => inline.type === 'image'));
+    const groups = groupMobileMarkdownSelectableBlocks(blocks, {
+      maxTextRunUtf16Length: 1800,
+      imageRendersPreview: (image) => mobileMarkdownManagedImagePreviewUrl(image.url, '/repo') !== null,
+    });
+    const imageInlines = blocks.flatMap((block) => 'inlines' in block ? block.inlines.filter((inline) => inline.type === 'image') : []);
 
-    expect(groups.map((group) => group.type)).toEqual(['text_run']);
+    expect(groups.map((group) => group.type)).toEqual(['single']);
     expect(imageInlines).toHaveLength(1);
     expect(imageInlines[0]).toMatchObject({ alt, url: 'docs/local-image.png' });
     expect(mobileMarkdownImageAltChipText(imageInlines[0].alt)).toHaveLength(
@@ -1595,6 +1847,7 @@ describe('groupMobileMarkdownSelectableBlocks', () => {
     const groups = groupMobileMarkdownSelectableBlocks(blocks, {
       maxTextRunBlocks: 0.5,
       maxTextRunUtf16Length: 0.5,
+      maxTextRunInlineFragments: 0.5,
     });
     expect(groups).toHaveLength(1);
     expect(groups[0].type).toBe('text_run');

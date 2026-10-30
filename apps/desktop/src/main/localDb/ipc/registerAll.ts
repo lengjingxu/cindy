@@ -1,3 +1,7 @@
+import { registerCompanionImport } from '../../bot-import/registration.js';
+import { registerTaskTagsIpc } from './taskTags';
+import { registerRoutineRemoteResources } from '../../routines/remote.js';
+import { registerRoutinesIpc } from '../../routines/service.js';
 /**
  * chat-data-localization F2/F5：聚合注册所有 localDb IPC handlers + ensure-ready。
  *
@@ -13,8 +17,8 @@ import { closeDb, ensureReady, getCurrentUserId } from '../index';
 import { getCurrentDbClientUserId, tryGetDbClient } from '../client/current';
 import {
   registerSessionIpc,
-  setSessionRemovalCancelOperations,
-  setSessionRemovalCleanup,
+  type RegisterSessionIpcOpts,
+  setSessionWorktreeRecycle,
 } from './sessions';
 import { registerMessageIpc } from './messages';
 import { registerOrcaWorkflowIpc } from './orcaTeams';
@@ -28,6 +32,10 @@ import { enqueueDurableWrite } from '../../messagePersistBroadcaster';
 import { registerDevSqliteVecIpc } from './dev/sqliteVec';
 import { registerSearchIpc } from './search';
 import { registerRemoteHistoryIpc } from './history';
+import { registerHistoryQueryIpc } from './historyQuery';
+import { recoverActiveTeammateInvitations, registerBotIpc } from './bots';
+import { botRemoteManagement } from './botRemoteManagement';
+import { registerBotRemoteResourceProvider } from './botRemoteResourceProvider';
 
 import { createLogger } from '../../logger';
 import { recordDesktopDevLocalDbStartupResult } from '../../devStartupStatus';
@@ -71,20 +79,19 @@ function startMediaRefCompensationReconcile(
 }
 
 export interface RegisterLocalDbIpcOpts {
+  isSessionTurnPendingCompletion?: (sessionId: string) => boolean;
+  readHistoryLiveMessages?: (sessionId: string) => import('../../../renderer/lib/ccAgent.types').Message[];
+  resolveContextWindow?: RegisterSessionIpcOpts['resolveContextWindow'];
   /** Current stable app-session owner. False makes queued/in-flight work stale. */
   isOwnerCurrent?: (userId: string) => boolean;
   /** Dispose any secondary DB client committed by a stale onReady callback. */
   discardStaleOwner?: (userId: string) => void | Promise<void>;
   /** ensureReady 打开/创建目标库前执行；失败时阻断，避免跳过认领后创建空库。 */
   beforeEnsureReady?: (userId: string) => void | Promise<void>;
-  /** Stop Host-owned session operations before an archived/deleted worktree is recycled. */
-  cancelSessionOperations?: (sessionId: string) => Promise<void>;
-  /** Release Host-owned runtime and ownership after task removal is revalidated. */
-  cleanupRemovedSession?: (sessionId: string) => Promise<void>;
+  /** Record worktree recycle intent before a terminal session status is persisted. */
+  requestWorktreeRecycle?: (sessionId: string, resources?: readonly string[]) => Promise<void>;
   /** Close a moved local Pi/Codex runtime after revalidating that its turn is idle. */
   closeIdleSessionForMove?: (sessionId: string) => Promise<boolean>;
-  /** Reconcile persisted Host-owned task runtimes once the owner DB is readable. */
-  reconcilePersistedSessionRuntimes?: () => Promise<void>;
   /** Serialize startup tombstone cleanup with task restore/start/send operations. */
   withSessionLock?: <T>(sessionId: string, task: () => Promise<T>) => Promise<T>;
   /**
@@ -107,8 +114,7 @@ export interface RegisterLocalDbIpcOpts {
 }
 
 export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
-  setSessionRemovalCancelOperations(opts.cancelSessionOperations ?? null);
-  setSessionRemovalCleanup(opts.cleanupRemovedSession ?? null);
+  setSessionWorktreeRecycle(opts.requestWorktreeRecycle ?? null);
   setSessionRouteLockImplementation(opts.withSessionLock ?? null);
   const runEnsureReady = createOwnerEnsureCoordinator({
     isOwnerCurrent: opts.isOwnerCurrent ?? (() => true),
@@ -128,26 +134,16 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
         tryGetDbClient() === client &&
         getCurrentDbClientUserId() === userId &&
         (opts.isOwnerCurrent?.(userId) ?? true);
+      // Resume saved invitations after the database and account boundary are ready.
+      await recoverActiveTeammateInvitations();
+      if (!isReadyOwnerCurrent()) return;
       startMediaRefCompensationReconcile(userId, client, isReadyOwnerCurrent);
-
-      const cancelSessionOperations = opts.cancelSessionOperations;
-      const cleanupRemovedSession = opts.cleanupRemovedSession;
       const withSessionLock = opts.withSessionLock;
       const db = client.drizzle;
       void (async () => {
         if (!isReadyOwnerCurrent()) return;
-        try {
-          await opts.reconcilePersistedSessionRuntimes?.();
-        } catch (error) {
-          log.warn('persisted task runtime reconcile failed', {
-            userId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
         if (
           !isReadyOwnerCurrent() ||
-          !cancelSessionOperations ||
-          !cleanupRemovedSession ||
           !withSessionLock
         ) {
           return;
@@ -156,10 +152,6 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
           db,
           isOwnerCurrent: isReadyOwnerCurrent,
           withSessionLock,
-          quiesceSession: async (sessionId) => {
-            await cancelSessionOperations(sessionId);
-            await cleanupRemovedSession(sessionId);
-          },
         });
       })().catch((error) => {
         log.warn('deleted task media reconcile failed', {
@@ -237,15 +229,23 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
   });
 
   registerSessionIpc(getCurrentDbClientUserId, {
+    resolveContextWindow: opts.resolveContextWindow,
     closeIdleSessionForMove: opts.closeIdleSessionForMove,
   });
-  registerMessageIpc();
+  registerMessageIpc(opts.isSessionTurnPendingCompletion, opts.readHistoryLiveMessages);
   registerRemoteHistoryIpc();
+  registerHistoryQueryIpc();
+  registerBotIpc();
+  registerCompanionImport();
+  registerRoutinesIpc();
+  registerRoutineRemoteResources(botRemoteManagement);
+  registerBotRemoteResourceProvider(botRemoteManagement);
   registerSessionImportIpc();
   registerSessionShareIpc();
   registerOrcaWorkflowIpc();
   registerRecentWorkdirsIpc();
   registerProjectAliasesIpc();
+  registerTaskTagsIpc();
   registerRightSidebarTabsIpc();
   // Durable Subagent projection writes share the agent event path's FIFO, so a
   // reconciliation and an agent_task_update cannot both insert the first

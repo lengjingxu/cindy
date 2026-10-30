@@ -93,18 +93,16 @@ describe('messageHandler !stop routing', () => {
   let handleSlashCommand: ReturnType<typeof vi.fn>;
   let sendMarkdownText: ReturnType<typeof vi.fn>;
   let sendText: ReturnType<typeof vi.fn>;
-  let mirrorFinalReply: ReturnType<typeof vi.fn>;
   let consumePendingOpenerCard: ReturnType<typeof vi.fn>;
   let consumePendingOpenerAsCard: ReturnType<typeof vi.fn>;
   let deliver: (event: IMMessageEvent) => void;
 
-  function wire(threadScoped: boolean): void {
+  function wire(threadScoped: boolean, notificationSessionId?: string): void {
     stopActiveTurn = vi.fn(async () => ({ stopped: true, droppedQueued: 0 }));
     runAgentTurn = vi.fn(async () => undefined);
     handleSlashCommand = vi.fn(async () => true);
     sendMarkdownText = vi.fn(async () => undefined);
     sendText = vi.fn(async () => undefined);
-    mirrorFinalReply = vi.fn(async () => undefined);
     // 群主流 @ 开话题的开场白卡收口能力(仅 feishu 实现; 这里模拟富卡渠道)。
     consumePendingOpenerCard = vi.fn(async () => false);
     consumePendingOpenerAsCard = vi.fn(async () => false);
@@ -116,13 +114,16 @@ describe('messageHandler !stop routing', () => {
       },
       sendMarkdownText,
       sendText,
-      mirrorFinalReply,
       consumePendingOpenerCard,
       consumePendingOpenerAsCard,
     } as unknown as ChannelIM;
 
     const adapter = {
       channel: 'slack',
+      ...(notificationSessionId ? {
+        resolveNotificationReply: async () => notificationSessionId,
+        notificationReplyText: { unavailable: 'unavailable', commands: 'topic commands' },
+      } : {}),
       im,
       output: { kind: 'rich-card', im },
       ui: slackUi,
@@ -142,6 +143,24 @@ describe('messageHandler !stop routing', () => {
     exitControl('bot-ctx', 'U123456789');
     activateImAccountBoundary();
     wire(true);
+  });
+
+  it('routes topic !stop to the original session even while /ctr is open elsewhere', async () => {
+    wire(false, 'original-session');
+    enterControl('bot-ctx', 'U123456789');
+    deliver(makeEvent({ replyThread: { rootMessageId: 'om_root', threadId: 'omt_topic' } }));
+    await vi.waitFor(() => expect(stopActiveTurn).toHaveBeenCalledWith({
+      botContextId: 'bot-ctx', userId: 'U123456789', scopeKey: 'om_root', notificationSessionId: 'original-session',
+    }));
+    expect(runAgentTurn).not.toHaveBeenCalled();
+  });
+
+  it('keeps slash commands in linked topics from changing the main conversation', async () => {
+    wire(false, 'original-session');
+    deliver(makeEvent({ text: '/new', replyThread: { rootMessageId: 'om_root', threadId: 'omt_topic' } }));
+    await vi.waitFor(() => expect(sendMarkdownText).toHaveBeenCalledWith('U123456789', 'topic commands', { threadTs: 'om_root' }));
+    expect(handleSlashCommand).not.toHaveBeenCalled();
+    expect(runAgentTurn).not.toHaveBeenCalled();
   });
 
   it('silently drops messages delivered after logout closes the account boundary', async () => {
@@ -490,119 +509,6 @@ describe('messageHandler !stop routing', () => {
       slackUi.agent.sendInternalError('provider exploded'),
     );
     expect(sendText).not.toHaveBeenCalled();
-  });
-
-  it('runAgentTurn 抛错时同步镜像已确认双投的群主流终态', async () => {
-    runAgentTurn.mockRejectedValueOnce(new Error('provider exploded'));
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-throw',
-    };
-    const errorText = slackUi.agent.sendInternalError('provider exploded');
-    deliver(makeEvent({ text: '帮我看看', finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(sendText).toHaveBeenCalledWith('U123456789', errorText, {
-      threadTs: '1234.5678',
-    });
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, errorText);
-  });
-
-  it('!stop 时同步镜像已确认双投的群主流终态', async () => {
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-stop',
-    };
-    deliver(makeEvent({ text: '!stop', finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(runAgentTurn).not.toHaveBeenCalled();
-    expect(sendMarkdownText).toHaveBeenCalledWith('U123456789', slackUi.agent.stopDone(0), {
-      threadTs: '1234.5678',
-    });
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, slackUi.agent.stopDone(0));
-  });
-
-  it('纯 unsupported 输入时同步镜像已确认双投的群主流终态', async () => {
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-unsupported',
-    };
-    const unsupported = [{ type: 'audio', label: '语音（暂不支持）' }] as IMMessageEvent['unsupported'];
-    const notice = slackUi.agent.unsupportedOnly(unsupported);
-    deliver(makeEvent({ text: '', unsupported, finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(runAgentTurn).not.toHaveBeenCalled();
-    expect(sendText).toHaveBeenCalledWith('U123456789', notice, { threadTs: '1234.5678' });
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, notice);
-  });
-
-  it('/ctr 控制中拦截时同步镜像已确认双投的群主流终态', async () => {
-    enterControl('bot-ctx', 'U123456789');
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-ctr',
-    };
-    deliver(makeEvent({ text: '帮我看看', finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(runAgentTurn).not.toHaveBeenCalled();
-    expect(handleSlashCommand).not.toHaveBeenCalled();
-    expect(sendMarkdownText).toHaveBeenCalledWith(
-      'U123456789',
-      slackUi.agent.controlInProgress,
-      { threadTs: '1234.5678' },
-    );
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, slackUi.agent.controlInProgress);
-  });
-
-  it('slash 抛错时同步镜像已确认双投的群主流终态', async () => {
-    handleSlashCommand.mockRejectedValueOnce(new Error('list projects failed'));
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-slash-error',
-    };
-    const errorText = slackUi.agent.sendInternalError('list projects failed');
-    deliver(makeEvent({ text: '/ctr', finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(runAgentTurn).not.toHaveBeenCalled();
-    expect(sendMarkdownText).toHaveBeenCalledWith('U123456789', errorText, {
-      threadTs: '1234.5678',
-    });
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, errorText);
-  });
-
-  it('slash 成功时把镜像回调交给命令实现', async () => {
-    let captured: Parameters<typeof handleSlashCommand>[1] | undefined;
-    handleSlashCommand.mockImplementationOnce(async (_text, ctx) => {
-      captured = ctx;
-      await ctx.mirrorTerminalReply?.('帮助正文');
-      return true;
-    });
-    const mirror = {
-      kind: 'parent-chat' as const,
-      chatId: 'oc_group',
-      accountEpoch: 1,
-      idempotencyKey: 'mirror-slash-ok',
-    };
-    deliver(makeEvent({ text: '/help', finalReplyMirror: mirror }));
-    await flushMicrotasks();
-
-    expect(captured?.mirrorTerminalReply).toBeTypeOf('function');
-    expect(runAgentTurn).not.toHaveBeenCalled();
-    expect(mirrorFinalReply).toHaveBeenCalledWith(mirror, '帮助正文');
   });
 
   it('早期拒绝终态(missing_auth)经 onEarlyReject 收口开场白卡', async () => {

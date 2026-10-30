@@ -15,8 +15,9 @@ import {
 import { buildMobileUploadedAttachment } from '@/session/attachments';
 import { parseAttachmentOssRef } from '@/session/attachmentOssRef';
 import { textComposerDocument } from '@/session/composerDocument';
-import { localizeToolLoopError } from '@/session/toolLoopErrorI18n';
+import { localizeAgentError } from '@/session/agentErrorI18n';
 import type { RemoteSession } from '@/session/types';
+import { buildOutboxItem } from '@/session/sessionOutbox';
 
 const ATTACHMENT_SHA256 = 'a'.repeat(64);
 
@@ -41,6 +42,17 @@ function session(patch: Partial<RemoteSession> = {}): RemoteSession {
 }
 
 describe('inputProjection', () => {
+  it.each([true, false, undefined])('keeps the stored Plan snapshot %s across a later host toggle and serialization', (planModeAtSend) => {
+    const original = buildOutboxItem({ clientId: 'plan-id', sessionId: 's1', text: 'plan snapshot',
+      permissionModeAtSend: 'ask', planModeAtSend, readyAttachments: [], claimedUploads: [] });
+    const recovered = JSON.parse(JSON.stringify(original));
+    const queued = buildQueuedTextMessage(session({ planModeEnabled: !planModeAtSend }), recovered.text,
+      new Date(), recovered.clientId, { planMode: recovered.planModeAtSend });
+    expect(queued.createOpts.planMode).toBe(planModeAtSend);
+    expect(queued.permissionMode).toBe('ask');
+    if (planModeAtSend === undefined) expect(queued.createOpts).not.toHaveProperty('planMode');
+  });
+
   beforeAll(async () => {
     await i18n.changeLanguage('zh-CN');
   });
@@ -396,8 +408,23 @@ describe('inputProjection', () => {
     }).toolLoop).toBeNull();
   });
 
+  it('localizes the output-limit reason carried by the live projection', () => {
+    const projection = normalizeInputProjection({
+      sessionId: 'output-limit', error: 'Pi reached the model output limit.', errorReason: 'output-limit',
+    });
+    expect(localizeAgentError(projection.errorReason, projection.toolLoop ?? null)).toBe(
+      i18n.t('session.tail.outputLimit'),
+    );
+  });
+
+  it('localizes incomplete execution without exposing the host cell diagnostic', () => {
+    expect(localizeAgentError('yield-continuation-incomplete', null)).toBe(
+      i18n.t('session.tail.executionResultUnavailable'),
+    );
+  });
+
   it('localizes live tool-loop errors instead of rendering the host message', () => {
-    const localized = localizeToolLoopError(
+    const localized = localizeAgentError(
       'tool_use_loop_detected',
       { kind: 'contract', count: 3 },
     );
@@ -456,7 +483,7 @@ describe('inputProjection', () => {
       queueExpanded: false,
       queuePaused: false,
     })).toMatchObject({
-      detail: '4 条消息 · 按桌面端顺序发送',
+      detail: '4 条消息 · 按电脑端顺序发送',
       hiddenCount: 1,
       hint: '可调整顺序、插话、编辑或删除普通队列消息。',
       title: '待发送队列',
@@ -472,7 +499,7 @@ describe('inputProjection', () => {
       queuePaused: true,
     })).toMatchObject({
       detail: '2 条消息等待恢复',
-      hint: '点“继续”后会按当前顺序继续发送到桌面端。',
+      hint: '点「继续」后会按当前顺序继续发送到电脑端。',
       title: '队列已暂停',
     });
 
@@ -484,7 +511,7 @@ describe('inputProjection', () => {
       queueExpanded: false,
       queuePaused: false,
     })).toMatchObject({
-      detail: '等待桌面端确认停止',
+      detail: '等待电脑端确认停止',
       title: '停止处理中',
       visibleCount: 0,
     });
@@ -562,7 +589,7 @@ describe('inputProjection', () => {
       },
       queueLength: projection.pendingQueue.length,
     });
-    expect(locked.hint).toBe('这条消息正在编辑中，桌面端会暂停自动发送。');
+    expect(locked.hint).toBe('这条消息正在编辑中，电脑端会暂停自动发送。');
     expect(locked.actions.edit.disabledReason).toBe('这条队列消息正在编辑中，完成后再操作。');
   });
 
@@ -620,3 +647,14 @@ describe('normalizeInputProjection — credentialSwitchWait', () => {
     ).toBeNull();
   });
 });
+
+describe('normalizeInputProjection usageLimitWait', () => {
+  it('reads the wait and treats legacy or malformed values as no wait', () => {
+    expect(normalizeInputProjection({ sessionId: 's1', usageLimitWait: { resumeAt: 123 } }).usageLimitWait)
+      .toEqual({ resumeAt: 123 });
+    expect(normalizeInputProjection({ sessionId: 's1' }).usageLimitWait).toBeNull();
+    expect(normalizeInputProjection({ sessionId: 's1', usageLimitWait: { resumeAt: 'soon' } }).usageLimitWait)
+      .toBeNull();
+  });
+});
+
