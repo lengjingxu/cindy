@@ -198,12 +198,14 @@ interface AgentIslandSessionMeta {
   sessionId: string;
   agentKind?: string;
   workingDir?: string | null;
+  projectDir?: string | null;
   workspaceKind?: string | null;
 }
 
 interface AgentIslandCachedMetadata {
   title: string | null;
   workingDir: string | null;
+  projectDir?: string | null;
   workspaceKind: string | null;
   /** undefined until the Session row has been read; null for non-companion Sessions. */
   companion?: AgentIslandCompanionIdentity | null;
@@ -1578,7 +1580,7 @@ export class AgentIslandService {
 
   handleSessionMetadataPatch(
     sessionId: string,
-    patch: { title?: string | null; workingDir?: string | null; workspaceKind?: string | null },
+    patch: { title?: string | null; workingDir?: string | null; projectDir?: string | null; workspaceKind?: string | null },
   ): void {
     const current: AgentIslandCachedMetadata = this.metadataCache.get(sessionId) ?? {
       title: null,
@@ -1589,6 +1591,7 @@ export class AgentIslandService {
       ...current,
       title: patch.title !== undefined ? patch.title : current.title,
       workingDir: patch.workingDir !== undefined ? patch.workingDir : current.workingDir,
+      projectDir: patch.projectDir !== undefined ? patch.projectDir : current.projectDir,
       workspaceKind: patch.workspaceKind !== undefined ? patch.workspaceKind : current.workspaceKind,
     };
     this.commitMetadata(sessionId, next);
@@ -1692,6 +1695,8 @@ export class AgentIslandService {
       // 原始标题:投影只在 publish 构建 payload 时做(见 commitMetadata 的说明)。
       title: cached?.title ?? null,
       workingDir: cached?.workingDir ?? meta.workingDir,
+      // A persisted clear must win over stale event metadata as well.
+      projectDir: cached?.projectDir !== undefined ? cached.projectDir : meta.projectDir,
       workspaceKind: cached?.workspaceKind ?? meta.workspaceKind,
       ...(cached?.companion !== undefined ? { companion: cached.companion?.companion ?? null } : {}),
     };
@@ -1773,6 +1778,7 @@ export class AgentIslandService {
         this.commitMetadata(sessionId, {
           title: row?.title ?? null,
           workingDir: row?.workingDir ?? null,
+          projectDir: row?.projectDir ?? null,
           workspaceKind: row?.workspaceKind ?? null,
           companion,
         });
