@@ -1687,6 +1687,8 @@ export interface GhostManifest {
   library?: true;
   /** Encrypted opaque exchange with this plugin on same-account desktops. */
   deviceSync?: true;
+  /** Official video providers embedded through the Host player document. */
+  videoPlayers?: string[];
   sessionContext?: true;
   pick?: true;
   workspace?: true;
@@ -1778,6 +1780,8 @@ export interface InstalledGhost {
   /** Read-only remote management projection; never persisted as approval. */
   uiPromptSuppressed?: true;
   delegationCapabilityApproved?: true;
+  /** Host confirmation, never inferred from historical manifest declarations. */
+  videoPlayerApprovals?: string[];
   manifest: GhostManifest;
   /** 安装目录绝对路径(userData/brain/<id> 或 userData/brain/_ns/<org>/<id>)。 */
   dir: string;
@@ -2164,6 +2168,9 @@ export function ghostPermissionItems(manifest: GhostManifest): GhostPermissionIt
       labelKey: 'networkHost',
       labelArgs: { host },
     });
+  }
+  if (Array.isArray(manifest.videoPlayers) && manifest.videoPlayers.includes('bilibili')) {
+    items.push({ key: 'videoPlayer:bilibili', kind: 'preview', labelKey: 'videoPlayerBilibili', detailKey: 'videoPlayerBilibiliDetail' });
   }
   // agent 槽:真人点击触发是基础档；后台自动触发另列一项高风险权限。
   if (manifest.agent) {
@@ -2748,7 +2755,9 @@ export function diffInstalledGhostPermissionItems(
   if (installed.approval.state === 'approved') {
     // Older Hosts preserved ui without granting page capabilities.
     const previous = { ...installed.manifest, mcpApps: installed.uiCapabilityApproved === true ? installed.manifest.mcpApps : undefined };
-    return diffGhostPermissionItems(previous, next);
+    const diff = diffGhostPermissionItems(previous, next);
+    const unapproved = diff.unchanged.filter(item => item.key === 'videoPlayer:bilibili' && !installed.videoPlayerApprovals?.includes('bilibili'));
+    return { ...diff, added: [...diff.added, ...unapproved], unchanged: diff.unchanged.filter(item => !unapproved.includes(item)) };
   }
   return {
     added: ghostPermissionItems(next),
@@ -3268,6 +3277,7 @@ const GHOST_MANIFEST_KNOWN_TOP_LEVEL_FIELDS = new Set([
   'confirm',
   'fs',
   'library',
+  'videoPlayers',
   'deviceSync',
   'sessionContext',
   'pick',
@@ -4126,6 +4136,9 @@ function validateGhostManifestInput(value: unknown, preserveHistoricalTasks: boo
   if (!preparation.ok) return preparation;
   const prepared = preparation.prepared;
   const raw = prepared.raw;
+  if (!preserveHistoricalTasks && raw.videoPlayers !== undefined && (!Array.isArray(raw.videoPlayers) || raw.videoPlayers.length > 8 || !raw.videoPlayers.every(p => typeof p === 'string' && /^[a-z][a-z0-9-]{0,31}$/.test(p)) || new Set(raw.videoPlayers).size !== raw.videoPlayers.length)) {
+    return { ok: false, reason: 'videoPlayers must be a unique list of up to 8 provider identifiers' };
+  }
   if (raw.mail !== undefined && raw.mail !== true) return { ok: false, reason: 'mail 出现时必须是 true' };
   const mailReader = raw.mailReader === undefined ? undefined : parseMailReader(raw.mailReader);
   if (raw.mailReader !== undefined && !mailReader) {
@@ -6480,6 +6493,7 @@ function validateGhostManifestInput(value: unknown, preserveHistoricalTasks: boo
     manifest: {
       ...prepared.unknownV3Fields,
       ...(mcpApps !== undefined ? { mcpApps } : {}),
+      ...(raw.videoPlayers !== undefined ? { videoPlayers: raw.videoPlayers as string[] } : {}),
       schemaVersion: prepared.schemaVersion,
       id: raw.id,
       name: raw.name,

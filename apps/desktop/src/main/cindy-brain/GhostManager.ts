@@ -3004,6 +3004,7 @@ export class GhostManager {
           ...(receipt.uiCapabilityApproved === true && pluginHasToolUi(localizedManifest) ? { uiCapabilityApproved: true as const } : {}),
           ...(receipt.targetCapabilityApproved === true ? { targetCapabilityApproved: true as const } : {}),
           ...(receipt.delegationCapabilityApproved === true ? { delegationCapabilityApproved: true as const } : {}),
+          ...(receipt.videoPlayerApprovals ? { videoPlayerApprovals: receipt.videoPlayerApprovals } : {}),
           trust: receipt.trust,
           ...(!retired && receipt.manifest.skill?.items.length
             ? {
@@ -3954,6 +3955,7 @@ export class GhostManager {
       /** Main-only provenance: immutable market release or shared installed snapshot, never local authoring. */
       manifestSource?: 'stored-release';
       delegationCapabilityApproved?: true;
+      videoPlayerApprovals?: string[];
       initiallyEnabled?: boolean;
       expectedPackageSha256?: string;
       trustOverride?: GhostHostTrustOverride;
@@ -3983,6 +3985,7 @@ export class GhostManager {
       /** Main-only provenance: immutable market release or shared installed snapshot, never local authoring. */
       manifestSource?: 'stored-release';
       delegationCapabilityApproved?: true;
+      videoPlayerApprovals?: string[];
       initiallyEnabled?: boolean;
       expectedPackageSha256?: string;
       trustOverride?: GhostHostTrustOverride;
@@ -4159,6 +4162,7 @@ export class GhostManager {
           ...(opts?.taskCapabilityApproved === true && approvedManifest.agent?.tasks === true ? {taskCapabilityApproved:true as const} : {}),
           ...(opts?.targetCapabilityApproved === true && approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true ? {targetCapabilityApproved:true as const} : {}),
           ...(opts?.delegationCapabilityApproved === true && approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true && approvedManifest.agent.delegation === true ? {delegationCapabilityApproved:true as const} : {}),
+          videoPlayerApprovals: opts?.videoPlayerApprovals?.filter(p => p === 'bilibili' && Array.isArray(approvedManifest.videoPlayers) && approvedManifest.videoPlayers.includes(p)),
           trust,
           // 指纹取自包投影而不是刚发布的 finalDir:发布后被换的字节应当在快照
           // 对账时被拒,而不是被首读钉成批准基线(P0-8)。
@@ -4286,6 +4290,7 @@ export class GhostManager {
       /** Main-only provenance: immutable market release or shared installed snapshot, never local authoring. */
       manifestSource?: 'stored-release';
       delegationCapabilityApproved?: true;
+      videoPlayerApprovals?: string[];
       expectedInstalledApproval: string;
       expectedPackageSha256?: string;
       trustOverride?: GhostHostTrustOverride;
@@ -4312,6 +4317,7 @@ export class GhostManager {
       /** Main-only provenance: immutable market release or shared installed snapshot, never local authoring. */
       manifestSource?: 'stored-release';
       delegationCapabilityApproved?: true;
+      videoPlayerApprovals?: string[];
       expectedInstalledApproval: string;
       expectedPackageSha256?: string;
       trustOverride?: GhostHostTrustOverride;
@@ -4592,6 +4598,7 @@ export class GhostManager {
           approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true ? { targetCapabilityApproved: true as const } : {}),
         ...((opts.delegationCapabilityApproved === true || (archiveId === undefined && approvalResult.state === 'approved' && approvalResult.receipt.delegationCapabilityApproved === true)) &&
           approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true && approvedManifest.agent.delegation === true ? { delegationCapabilityApproved: true as const } : {}),
+        videoPlayerApprovals: [...new Set([...(opts.videoPlayerApprovals ?? []), ...(archiveId === undefined && approvalResult.state === 'approved' ? approvalResult.receipt.videoPlayerApprovals ?? [] : [])])].filter(p => p === 'bilibili' && Array.isArray(approvedManifest.videoPlayers) && approvedManifest.videoPlayers.includes(p)),
         trust,
         // 同 install:指纹取自包投影,发布后的目录漂移在快照对账时 fail closed(P0-8)。
         skillContentSha256: await this.hashSkillContentFromPackage(
@@ -5004,6 +5011,7 @@ export class GhostManager {
           approvedManifest.agent?.tasks === true ? { taskCapabilityApproved: true as const } : {}),
         ...(current.state === 'approved' && current.receipt.targetCapabilityApproved === true &&
           approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true ? { targetCapabilityApproved: true as const } : {}),
+        videoPlayerApprovals: (current.state === 'approved' ? current.receipt.videoPlayerApprovals ?? [] : []).filter(p => Array.isArray(approvedManifest.videoPlayers) && approvedManifest.videoPlayers.includes(p)),
         ...(current.state === 'approved' && current.receipt.delegationCapabilityApproved === true &&
           approvedManifest.agent?.tasks === true && approvedManifest.agent.targets === true && approvedManifest.agent.delegation === true ? { delegationCapabilityApproved: true as const } : {}),
         ...(iconDataUrl !== undefined ? { iconDataUrl } : {}),
