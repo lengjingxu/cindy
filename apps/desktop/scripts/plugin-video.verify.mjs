@@ -82,6 +82,11 @@ app.whenReady().then(async()=>{
  }
  evidence.finalVideo=await player.executeJavaScript('JSON.stringify([...document.querySelectorAll("video")].map(v=>({paused:v.paused,time:v.currentTime,ready:v.readyState,error:v.error?.code})))').catch(()=>null);
  await writeFile(process.env.VIDEO_TEST_OUTPUT+'.png',(await guest.capturePage()).toPNG());
+ host.setContentSize(320,500);await wait(async()=>await guest.executeJavaScript('innerWidth')===320);
+ await wait(async()=>await player.executeJavaScript('innerWidth')===320);
+ evidence.checks.narrowPlaying=await player.executeJavaScript('document.documentElement.scrollWidth<=innerWidth');assert(evidence.checks.narrowPlaying);
+ await writeFile(process.env.VIDEO_TEST_OUTPUT+'.narrow-playing.png',(await guest.capturePage()).toPNG());
+ host.setContentSize(800,600);await wait(async()=>await guest.executeJavaScript('innerWidth')===800);
  evidence.checks.noHostAccess=await player.executeJavaScript('fetch("cindy-ghost://video-check/wake").then(()=>false,()=>true)');
  assert(evidence.checks.noHostAccess);
  // Close while the verified video is playing, independently of the part-switch check.
