@@ -85,7 +85,7 @@ app.whenReady().then(async()=>{
  evidence.checks.noHostAccess=await player.executeJavaScript('fetch("cindy-ghost://video-check/wake").then(()=>false,()=>true)');
  assert(evidence.checks.noHostAccess);
  // Close while the verified video is playing, independently of the part-switch check.
- await guest.executeJavaScript('document.querySelector("iframe").remove()');await wait(()=>guest.mainFrame.frames.length===0);evidence.checks.closeDestroysFrames=true;
+ await guest.executeJavaScript('document.querySelector("iframe").remove()');await wait(()=>player.detached && wrapper.detached);assert(await guest.executeJavaScript('document.querySelectorAll("iframe").length===0'));evidence.checks.closeDestroysFrames=true;
  await wait(()=>!guest.isCurrentlyAudible());evidence.checks.closeStopsAudio=true;
  await guest.executeJavaScript('const f=document.createElement("iframe");f.style.cssText="border:0;width:100%;aspect-ratio:16/9";f.src="'+prefix+'__video_player__/bilibili?bvid=BV1xx411c7mD&page=1";document.body.append(f)');
  await wait(()=>guest.mainFrame.frames.length===1);wrapper=guest.mainFrame.frames[0];
@@ -96,7 +96,7 @@ app.whenReady().then(async()=>{
  await wait(()=>{try{return old.detached;}catch{return true;}});evidence.checks.partChangeDestroysOldFrame=true;
  await guest.executeJavaScript('document.querySelector("iframe").remove()');
  assert(evidence.checks.actualPlayback,'official player did not advance');
-}).catch(e=>{evidence.errors.push(String(e));process.exitCode=1;}).finally(async()=>{await writeFile(process.env.VIDEO_TEST_OUTPUT,JSON.stringify(evidence,null,2));host?.destroy();app.exit(process.exitCode||0);});
+}).catch(e=>{evidence.errors.push(String(e.stack || e));process.exitCode=1;}).finally(async()=>{await writeFile(process.env.VIDEO_TEST_OUTPUT,JSON.stringify(evidence,null,2));host?.destroy();app.exit(process.exitCode||0);});
 `,
     },
   });
