@@ -78,8 +78,13 @@ function fail(message) {
 
 const listed = spawnSync('git', ['ls-files', '-z'], {
   encoding: 'buffer',
+  // The tracked-path list exceeds spawnSync's default 1 MiB in this repository.
+  maxBuffer: 16 * 1024 * 1024,
 });
 
+if (listed.error) {
+  fail(`git ls-files failed: ${listed.error.message}`);
+}
 if (listed.status !== 0) {
   fail(`git ls-files failed with exit ${listed.status ?? 'null'}\n${listed.stderr?.toString('utf8') ?? ''}`);
 }
