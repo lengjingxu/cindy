@@ -20,6 +20,7 @@ try {
       resolveDir: dir,
       contents: String.raw`
 import { app, BrowserWindow, protocol, session } from 'electron';
+import { createGhostThemeInjector } from '../src/renderer/cindy-brain/ghostPanelTheme.ts';
 import { writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { VIDEO_PLAYER_PATH, VIDEO_PLAYER_SCRIPT_PATH, VIDEO_PLAYER_SCRIPT, VIDEO_RESPONSE_CSP, VIDEO_PERMISSIONS_POLICY, videoPlayerDocument, videoRequestDecision, isVideoPlayerDescendant, isOfficialVideoUrl } from '../src/main/cindy-brain/runtime/pluginVideoPlayer.ts';
@@ -56,14 +57,18 @@ app.whenReady().then(async()=>{
  await host.loadURL('data:text/html,'+encodeURIComponent('<webview src="'+prefix+'panel.html" partition="video-check" webpreferences="sandbox=yes,contextIsolation=yes,nodeIntegration=no" style="position:fixed;inset:0;width:100%;height:100%"></webview>'));
  await wait(()=>guest?.mainFrame.frames.length===1);
  let wrapper=guest.mainFrame.frames[0];await wait(()=>wrapper.executeJavaScript('!!document.querySelector("button")'));
+ let themeCss='';
+ const injector=createGhostThemeInjector({insertCSS:css=>guest.insertCSS(css),removeInsertedCSS:key=>guest.removeInsertedCSS(key),executeJavaScript:code=>guest.executeJavaScript(code)},()=>themeCss);
  for (const theme of ['light','dark']) {
   host.setContentSize(320,500);
-  await guest.executeJavaScript('document.documentElement.style.colorScheme='+JSON.stringify(theme));
+  themeCss=':root{color-scheme:'+theme+';--panel-bg:'+(theme==='light'?'white':'black')+'}';injector.inject();
   await wait(async()=>await wrapper.executeJavaScript('getComputedStyle(document.documentElement).colorScheme')===theme);
   await wait(async()=>await guest.executeJavaScript('innerWidth')===320);
+  evidence.checks['insertCSS-theme-'+theme]=await wrapper.executeJavaScript('getComputedStyle(document.body).backgroundColor')===(theme==='light'?'rgb(255, 255, 255)':'rgb(0, 0, 0)');assert(evidence.checks['insertCSS-theme-'+theme]);
   evidence.checks['narrow-'+theme]=await wrapper.executeJavaScript('document.documentElement.scrollWidth<=innerWidth');
   await writeFile(process.env.VIDEO_TEST_OUTPUT+'.'+theme+'.png',(await guest.capturePage()).toPNG());
  }
+ injector.dispose();
  host.setContentSize(800,600);await wait(async()=>await guest.executeJavaScript('innerWidth')===800);
  evidence.checks.noRemoteBeforeClick=evidence.requests.length===0;assert(evidence.checks.noRemoteBeforeClick);
  const rect=await wrapper.executeJavaScript('JSON.stringify(document.querySelector("button").getBoundingClientRect().toJSON())');const r=JSON.parse(rect);

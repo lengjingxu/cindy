@@ -191,6 +191,7 @@ export const VIDEO_PLAYER_SCRIPT = String.raw`(() => {
     } catch {}
   };
   copyTheme();
+  parent.addEventListener('cindy:theme-changed', copyTheme);
   try {
     themeObserver = new MutationObserver(copyTheme);
     themeObserver.observe(parent.document.documentElement, {attributes:true, attributeFilter:['style','class']});
@@ -205,5 +206,5 @@ export const VIDEO_PLAYER_SCRIPT = String.raw`(() => {
     frame.src = template.dataset.player;
     button.replaceWith(frame);
   });
-  addEventListener('pagehide', () => { themeObserver?.disconnect(); document.querySelector('iframe')?.remove(); });
+  addEventListener('pagehide', () => { themeObserver?.disconnect(); parent.removeEventListener('cindy:theme-changed', copyTheme); document.querySelector('iframe')?.remove(); });
 })();`;
