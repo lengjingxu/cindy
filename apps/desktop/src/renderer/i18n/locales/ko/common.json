@@ -2383,7 +2383,12 @@
         "zh-TW": "繁體中文",
         "en": "English",
         "ja": "日本語",
-        "ko": "한국어"
+        "ko": "한국어",
+        "es": "Español",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt-PT": "Português (Portugal)",
+        "pt-BR": "Português (Brasil)"
       }
     },
     "userProfile": {
@@ -3604,6 +3609,7 @@
           "nameRequired": "표시 이름을 입력하세요",
           "runtimeRequired": "Runtime을 하나 이상 구성하세요(기본 URL과 모델)",
           "baseUrlInvalid": "기본 URL은 유효한 http(s) 주소여야 합니다",
+          "baseUrlRequired": "이 Runtime의 기본 URL을 입력하거나 프로토콜을 기본값으로 되돌리세요",
           "contextWindowInvalid": "컨텍스트 윈도우는 유효한 양의 정수여야 합니다(숫자 그룹 사이에 구분 기호 사용 가능)",
           "requestPathInvalid": "정확한 요청 경로는 단일 /로 시작해야 하며 프래그먼트나 . 또는 .. 경로 세그먼트를 포함하면 안 됩니다. 공백과 안전하지 않은 문자는 퍼센트 인코딩하세요.",
           "modelRequired": "모델을 하나 이상 추가하세요",
@@ -10491,8 +10497,10 @@
       },
       "mention": {
         "all": "모두",
-        "allHint": "모두 답변",
-        "label": "동료 멘션"
+        "allHint": "사람만",
+        "label": "동료 멘션",
+        "allBots": "모든 동료",
+        "allBotsHint": "동료만"
       },
       "composer": {
         "label": "그룹 채팅 메시지",
@@ -10603,7 +10611,7 @@
         "speakingMode": "발언 순서",
         "speakingModeAuto": "자동",
         "speakingModeSequential": "항상 차례대로",
-        "speakingModeAutoNote": "멘션이 없거나 @모두이면 첫 라운드는 동시에 생각하고 이후에는 번갈아 답합니다. 동료를 멘션하면 멘션 순서대로 답합니다.",
+        "speakingModeAutoNote": "멘션이 없거나 @모든 동료이면 첫 라운드는 동시에 생각하고 이후에는 번갈아 답합니다. 동료를 멘션하면 멘션 순서대로 답합니다.",
         "speakingModeSequentialNote": "한 번에 한 동료만 말하며, 뒤에 말하는 동료는 앞의 답을 보고 답합니다.",
         "speakingModeSaveFailed": "발언 순서를 저장하지 못했습니다. 다시 시도해 주세요.",
         "setOrganizer": "담당자로 지정",
@@ -10617,7 +10625,9 @@
         "projectDirClear": "지우기",
         "projectDirNote": "역할 분담으로 일할 때 동료들이 여기서 작업합니다. 선택하지 않아도 되며, 그러면 이 그룹 채팅 전용 폴더를 사용합니다. git 프로젝트를 선택하면 역할 분담마다 새 worktree와 브랜치를 만들어, 지금 작업 중인 코드는 건드리지 않습니다.",
         "autoContinueSaveFailed": "단계 넘기기를 저장하지 못했습니다. 다시 시도해 주세요.",
-        "projectDirSaveFailed": "프로젝트 폴더를 저장하지 못했습니다. 폴더가 아직 있는지 확인한 뒤 다시 시도하세요"
+        "projectDirSaveFailed": "프로젝트 폴더를 저장하지 못했습니다. 폴더가 아직 있는지 확인한 뒤 다시 시도하세요",
+        "allowMentionAllBots": "모든 동료 멘션 허용",
+        "allowMentionAllBotsHint": "그룹 소유자만 변경할 수 있습니다. 모든 동료가 답할 수 있으므로 큰 그룹에서는 신중하게 켜세요. 본인을 대신하는 AI 답변에는 영향을 주지 않습니다."
       },
       "errors": {
         "memberLimit": "그룹 채팅에는 동료가 2~6명 필요합니다",
@@ -10641,7 +10651,8 @@
         "quoteUnavailable": "인용한 메시지가 삭제되었거나 더 이상 볼 수 없습니다. 인용을 해제했으니 다시 보내세요.",
         "lifecycleUnavailable": "현재 서버 또는 컴퓨터에서 아직 이 작업을 지원하지 않습니다.",
         "groupDissolved": "이 그룹은 해산되었습니다. 열람 권한이 있는 기록은 계속 볼 수 있습니다.",
-        "lastOwner": "나가기 전에 소유권을 이전하거나 그룹을 해산하세요."
+        "lastOwner": "나가기 전에 소유권을 이전하거나 그룹을 해산하세요.",
+        "allBotsMentionDisabled": "그룹 소유자가 모든 동료 멘션을 켜지 않았습니다."
       },
       "organizer": "담당자",
       "plan": {
@@ -12606,6 +12617,7 @@
     "verificationFailed": "ChatGPT 로그인이 복구되었는지 확인할 수 없습니다. 다시 확인해 주세요."
   },
   "chat": {
+    "teammateProcess": {"record":"작업 내역","operations":"작업 기록","elapsed":"처리 중 {{duration}}","took":"소요 시간 {{duration}}","processing":"처리 중","worked":"작업 내역","thinking":"생각 중","thought":"생각함","failed_other":"호출 {{count}}회 실패","separator":" · ","actions":{"running":{"read":"파일 확인 중","edit":"파일 수정 중","search":"검색 중","web":"웹 확인 중","command":"명령 실행 중","tools":"도구 사용 중","delegate":"작업 위임 중","plan":"계획 정리 중"},"done":{"read":"파일 확인함","edit":"파일 수정함","search":"검색함","web":"웹 확인함","command":"명령 실행함","tools":"도구 사용함","delegate":"작업 위임함","plan":"계획 정리함"}}},
     "imageDelivery": {
       "stored": "이미지 전달 완료",
       "failed": "이미지 전달에 실패했습니다. 기존 이미지 전송을 다시 시도할 수 있습니다.",

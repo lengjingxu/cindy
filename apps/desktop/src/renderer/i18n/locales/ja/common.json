@@ -2383,7 +2383,12 @@
         "zh-TW": "繁體中文",
         "en": "English",
         "ja": "日本語",
-        "ko": "한국어"
+        "ko": "한국어",
+        "es": "Español",
+        "fr": "Français",
+        "de": "Deutsch",
+        "pt-PT": "Português (Portugal)",
+        "pt-BR": "Português (Brasil)"
       }
     },
     "userProfile": {
@@ -3604,6 +3609,7 @@
           "nameRequired": "表示名を入力してください",
           "runtimeRequired": "Runtime を 1 つ以上設定してください（ベース URL とモデル）",
           "baseUrlInvalid": "ベース URL は有効な http(s) アドレスである必要があります",
+          "baseUrlRequired": "この Runtime のベース URL を入力するか、プロトコルを既定に戻してください",
           "contextWindowInvalid": "コンテキストウィンドウは有効な正の整数である必要があります（数字グループの間に区切り記号を使用できます）",
           "requestPathInvalid": "正確なリクエストパスは 1 つの / で始め、フラグメントや .、.. のパスセグメントを含めないでください。空白や安全でない文字はパーセントエンコードしてください。",
           "modelRequired": "モデルを 1 つ以上追加してください",
@@ -10491,8 +10497,10 @@
       },
       "mention": {
         "all": "全員",
-        "allHint": "全員が返信",
-        "label": "仲間をメンション"
+        "allHint": "人のみ",
+        "label": "仲間をメンション",
+        "allBots": "すべての仲間",
+        "allBotsHint": "仲間のみ"
       },
       "composer": {
         "label": "グループチャットのメッセージ",
@@ -10603,7 +10611,7 @@
         "speakingMode": "発言の順番",
         "speakingModeAuto": "自動",
         "speakingModeSequential": "常に順番に",
-        "speakingModeAutoNote": "メンションなし・@全員：最初の一巡は同時に考え、その後は順番に発言。特定の仲間へのメンションは指定順です。",
+        "speakingModeAutoNote": "メンションなし・@すべての仲間：最初の一巡は同時に考え、その後は順番に発言。特定の仲間へのメンションは指定順です。",
         "speakingModeSequentialNote": "一度に一人の仲間だけが話し、後の仲間は前の返信を見てから答えます。",
         "speakingModeSaveFailed": "発言の順番を保存できませんでした。もう一度お試しください。",
         "setOrganizer": "まとめ役にする",
@@ -10617,7 +10625,9 @@
         "projectDirClear": "クリア",
         "projectDirNote": "役割分担で作業するとき、仲間はここで作業します。選ばなくてもかまいません。その場合はこのグループチャット専用のフォルダを使います。git プロジェクトを選ぶと、役割分担のたびに新しい worktree とブランチを作るので、手元のコードには触れません。",
         "autoContinueSaveFailed": "ステップの引き継ぎを保存できませんでした。もう一度お試しください。",
-        "projectDirSaveFailed": "プロジェクトフォルダを保存できませんでした。フォルダがまだあるか確認してから、もう一度お試しください"
+        "projectDirSaveFailed": "プロジェクトフォルダを保存できませんでした。フォルダがまだあるか確認してから、もう一度お試しください",
+        "allowMentionAllBots": "すべての仲間への @ を許可",
+        "allowMentionAllBotsHint": "変更できるのはグループ所有者のみです。全員が返信する可能性があるため、大人数のグループでは慎重に有効にしてください。本人に代わる AI の返信には影響しません。"
       },
       "errors": {
         "memberLimit": "グループチャットには仲間が 2〜6 人必要です",
@@ -10641,7 +10651,8 @@
         "quoteUnavailable": "引用したメッセージは削除されたか、表示できなくなりました。引用を外したので、もう一度送信してください。",
         "lifecycleUnavailable": "現在のサーバーまたはコンピューターは、この操作にまだ対応していません。",
         "groupDissolved": "このグループは解散しました。閲覧権限のある履歴は引き続き確認できます。",
-        "lastOwner": "退出する前にオーナーを譲渡するか、グループを解散してください。"
+        "lastOwner": "退出する前にオーナーを譲渡するか、グループを解散してください。",
+        "allBotsMentionDisabled": "グループ所有者がすべての仲間への @ を有効にしていません。"
       },
       "organizer": "まとめ役",
       "plan": {
@@ -12606,6 +12617,7 @@
     "verificationFailed": "ChatGPT ログインが復旧したか確認できませんでした。再確認してください。"
   },
   "chat": {
+    "teammateProcess": {"record":"作業履歴","operations":"操作履歴","elapsed":"処理中 {{duration}}","took":"所要時間 {{duration}}","processing":"処理中","worked":"作業履歴","thinking":"考えています","thought":"考えました","failed_other":"{{count}} 件の呼び出しに失敗","separator":"・","actions":{"running":{"read":"ファイルを確認しています","edit":"ファイルを編集しています","search":"検索しています","web":"ウェブを調べています","command":"コマンドを実行しています","tools":"ツールを使用しています","delegate":"作業を依頼しています","plan":"計画を更新しています"},"done":{"read":"ファイルを確認しました","edit":"ファイルを編集しました","search":"検索しました","web":"ウェブを調べました","command":"コマンドを実行しました","tools":"ツールを使用しました","delegate":"作業を依頼しました","plan":"計画を更新しました"}}},
     "imageDelivery": {
       "stored": "画像を受け取りました",
       "failed": "画像の転送に失敗しました。既存の画像の転送を再試行できます。",
