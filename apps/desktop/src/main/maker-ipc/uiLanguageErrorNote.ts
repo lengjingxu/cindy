@@ -6,6 +6,12 @@ const INTERFACE_LANGUAGE_NAME: Record<SupportedLocale, string> = {
   en: 'English',
   ja: '日本語',
   ko: '한국어',
+
+  "es": "Español",
+  "fr": "Français",
+  "de": "Deutsch",
+  "pt-PT": "Português (Portugal)",
+  "pt-BR": "Português (Brasil)",
 };
 
 export function isSupportedUiLanguage(value: unknown): value is SupportedLocale {
@@ -49,7 +55,9 @@ export function turnUiLanguageFromSendOpts(
 /**
  * Per-turn note for the model only. It is not part of the cached system prompt:
  * the viewing client can change between turns, and a locale must not enter the
- * stable prefix. The note text is fixed for each supported locale.
+ * stable prefix. The note text is fixed for each supported locale, so the send
+ * paths only repeat it when the locale changes or the native context was rebuilt,
+ * compacted or cleared (see wireNoteMemory.ts).
  */
 export function buildUiLanguageErrorNote(locale: SupportedLocale): string {
   const name = INTERFACE_LANGUAGE_NAME[locale];
