@@ -2222,7 +2222,8 @@
           "dune-sphere": "Esfera de dunas",
           "ocean-clouds": "Nuvens oceânicas",
           "rose-quartz": "Quartzo rosa",
-          "custom": "Imagem de fundo personalizada"
+          "custom": "Imagem de fundo personalizada",
+          "memory": "Papel de parede de memória"
         },
         "visibilityLabel": "Visibilidade da imagem de fundo",
         "visibilityHint": "0% oculta a imagem de fundo; 100% mostra-a sem sobreposição.",
@@ -2252,6 +2253,25 @@
         "resetFailed": "Não foi possível repor a disposição dos painéis.",
         "saved": "Posição do painel guardada. Reponha a disposição predefinida em Definições → Aparência.",
         "saveFailed": "Não foi possível guardar as posições dos painéis."
+      },
+      "desktopCompanion": {
+        "empty": "Ative para gerar o primeiro ambiente de trabalho",
+        "enableAria": "Ativar a geração do papel de parede de memória",
+        "enableHint": "Entrelaça tarefas recentes, títulos de memória e a hora do dia em pequenos detalhes visuais, verificando alterações de hora a hora. A geração usa o seu modelo de imagens configurado.",
+        "enableLabel": "Gerar a partir da memória",
+        "failed": "Esta atualização não foi concluída. Verifique a configuração do modelo ou as permissões do sistema e tente novamente.",
+        "lastTopic": "Atual: {{topic}}",
+        "locationAria": "Ativar ou desativar a localização do ambiente de trabalho",
+        "locationHint": "Pede a localização ao sistema para esboçar uma vista de janela de uma cidade aproximada. Se desativar ou recusar, apenas a hora do dia é representada.",
+        "locationLabel": "Usar localização atual",
+        "needImageModel": "Configure primeiro nas Definições um modelo de imagens que suporte referências",
+        "needVideoModel": "Configure primeiro um modelo de vídeo nas Definições",
+        "previewAlt": "Ambiente de trabalho atual",
+        "systemLabel": "Definir também como ambiente de trabalho do sistema macOS",
+        "title": "Papel de parede de memória",
+        "updateNow": "Atualizar agora",
+        "updating": "A gerar…",
+        "useInApp": "Usar como papel de parede da Cindy"
       }
     },
     "notifications": {
@@ -2435,6 +2455,25 @@
         "secret-chime": "Toque secreto",
         "custom": "Ficheiro local…",
         "customSelected": "Ficheiro local: {{name}}"
+      },
+      "desktopCompanion": {
+        "empty": "Ative para gerar o primeiro ambiente de trabalho",
+        "enableAria": "Ativar a geração do papel de parede de memória",
+        "enableHint": "Entrelaça tarefas recentes, títulos de memória e a hora do dia em pequenos detalhes visuais, verificando alterações de hora a hora. A geração usa o seu modelo de imagens configurado.",
+        "enableLabel": "Gerar a partir da memória",
+        "failed": "Esta atualização não foi concluída. Verifique a configuração do modelo ou as permissões do sistema e tente novamente.",
+        "lastTopic": "Atual: {{topic}}",
+        "locationAria": "Ativar ou desativar a localização do ambiente de trabalho",
+        "locationHint": "Pede a localização ao sistema para esboçar uma vista de janela de uma cidade aproximada. Se desativar ou recusar, apenas a hora do dia é representada.",
+        "locationLabel": "Usar localização atual",
+        "needImageModel": "Configure primeiro nas Definições um modelo de imagens que suporte referências",
+        "needVideoModel": "Configure primeiro um modelo de vídeo nas Definições",
+        "previewAlt": "Ambiente de trabalho atual",
+        "systemLabel": "Definir também como ambiente de trabalho do sistema macOS",
+        "title": "Papel de parede de memória",
+        "updateNow": "Atualizar agora",
+        "updating": "A gerar…",
+        "useInApp": "Usar como papel de parede da Cindy"
       }
     },
     "language": {
@@ -3677,7 +3716,8 @@
           "contextWindowInvalid": "A janela de contexto tem de ser um número inteiro positivo válido (são permitidos separadores entre grupos de algarismos)",
           "requestPathInvalid": "Comece o caminho exato do pedido com uma única /. Não use fragmentos nem segmentos de caminho . e ..; codifique espaços e caracteres não seguros com codificação percentual.",
           "modelRequired": "Adicione pelo menos um modelo",
-          "oauthInvalid": "Configuração OAuth incompleta: todos os campos são obrigatórios e ambos os endpoints têm de ser URLs https seguros"
+          "oauthInvalid": "Configuração OAuth incompleta: todos os campos são obrigatórios e ambos os endpoints têm de ser URLs https seguros",
+          "baseUrlRequired": "O URL base é obrigatório"
         },
         "toast": {
           "created": "Fornecedor adicionado",
@@ -10603,7 +10643,9 @@
       "mention": {
         "all": "Todos",
         "allHint": "Todos respondem",
-        "label": "Mencionar um colega"
+        "label": "Mencionar um colega",
+        "allBots": "Todos os colegas",
+        "allBotsHint": "Apenas colegas"
       },
       "composer": {
         "label": "Mensagem da conversa de grupo",
@@ -10729,7 +10771,9 @@
         "projectDirClear": "Limpar pasta",
         "projectDirNote": "Os colegas trabalham aqui quando dividem o trabalho. Pode deixar este campo vazio para usarem a pasta da própria conversa de grupo. Se escolher um projeto git, cada divisão de trabalho recebe um novo worktree e uma nova branch, para que o seu código permaneça intacto.",
         "autoContinueSaveFailed": "Não foi possível guardar as transições entre passos. Tente novamente.",
-        "projectDirSaveFailed": "Não foi possível guardar a pasta do projeto. Certifique-se de que a pasta ainda existe e tente novamente."
+        "projectDirSaveFailed": "Não foi possível guardar a pasta do projeto. Certifique-se de que a pasta ainda existe e tente novamente.",
+        "allowMentionAllBots": "Permitir @todos os colegas",
+        "allowMentionAllBotsHint": "Apenas o proprietário do grupo pode alterar isto. Todos os colegas podem responder; use com cuidado em grupos grandes. Respostas de IA em seu nome são independentes."
       },
       "errors": {
         "memberLimit": "Uma conversa de grupo precisa de 2–6 colegas",
@@ -10753,7 +10797,8 @@
         "quoteUnavailable": "A mensagem citada foi eliminada ou já não está visível. A citação foi removida. Envie novamente.",
         "lifecycleUnavailable": "O servidor ou computador atual ainda não suporta esta ação.",
         "groupDissolved": "Este grupo foi dissolvido. Ainda pode ler o histórico disponível.",
-        "lastOwner": "Transfira a propriedade ou dissolva este grupo antes de sair."
+        "lastOwner": "Transfira a propriedade ou dissolva este grupo antes de sair.",
+        "allBotsMentionDisabled": "O proprietário do grupo ainda não ativou @todos os colegas."
       },
       "organizer": "Organizador",
       "plan": {
@@ -13897,6 +13942,42 @@
       "closeDescription": "Este seguimento será interrompido e o respetivo histórico será eliminado. A tarefa principal continua em execução.",
       "closeConfirm": "Fechar e eliminar",
       "closeFailed": "Não foi possível fechar a conversa paralela. Tente novamente."
+    },
+    "teammateProcess": {
+      "actions": {
+        "done": {
+          "command": "Executou comandos",
+          "delegate": "Delegou trabalho",
+          "edit": "Editou ficheiros",
+          "plan": "Atualizou o plano",
+          "read": "Leu ficheiros",
+          "search": "Pesquisou",
+          "tools": "Usou ferramentas",
+          "web": "Consultou a web"
+        },
+        "running": {
+          "command": "A executar comandos",
+          "delegate": "A delegar trabalho",
+          "edit": "A editar ficheiros",
+          "plan": "A atualizar o plano",
+          "read": "A ler ficheiros",
+          "search": "A pesquisar",
+          "tools": "A usar ferramentas",
+          "web": "A consultar a web"
+        }
+      },
+      "elapsed": "A trabalhar há {{duration}}",
+      "operations": "Registo de atividade",
+      "processing": "A processar",
+      "record": "Atividade",
+      "separator": ", ",
+      "thinking": "A pensar",
+      "thought": "Refletiu",
+      "took": "Demorou {{duration}}",
+      "worked": "Atividade",
+      "failed_one": "Falhou {{count}} chamada",
+      "failed_many": "Falharam {{count}} chamadas",
+      "failed_other": "Falharam {{count}} chamadas"
     }
   },
   "ccAgent": {

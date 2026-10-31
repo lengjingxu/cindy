@@ -2222,7 +2222,8 @@
           "dune-sphere": "Sphère des dunes",
           "ocean-clouds": "Nuages océaniques",
           "rose-quartz": "Quartz rose",
-          "custom": "Fond d'écran personnalisé"
+          "custom": "Fond d'écran personnalisé",
+          "memory": "Fond d'écran de mémoire"
         },
         "visibilityLabel": "Visibilité du fond d'écran",
         "visibilityHint": "0 % masque le fond d'écran ; 100 % l'affiche sans superposition.",
@@ -2252,6 +2253,25 @@
         "resetFailed": "Impossible de rétablir la disposition des panneaux.",
         "saved": "Position du panneau enregistrée. Rétablissez la disposition par défaut dans Paramètres → Apparence.",
         "saveFailed": "Impossible d'enregistrer les positions des panneaux."
+      },
+      "desktopCompanion": {
+        "empty": "Activez pour générer le premier fond",
+        "enableAria": "Activer la génération du fond d'écran de mémoire",
+        "enableHint": "Tisse les tâches récentes, les titres de mémoire et l'heure du jour dans de petits détails visuels, avec une vérification horaire. La génération utilise votre modèle d'images configuré.",
+        "enableLabel": "Générer depuis la mémoire",
+        "failed": "Cette mise à jour n'a pas abouti. Vérifiez la configuration du modèle ou les autorisations système, puis réessayez.",
+        "lastTopic": "Actuel : {{topic}}",
+        "locationAria": "Activer ou désactiver la localisation du bureau",
+        "locationHint": "Demande la localisation au système pour esquisser une vue de fenêtre d'une ville approximative. En cas de refus ou de désactivation, seule l'heure du jour est représentée.",
+        "locationLabel": "Utiliser la position actuelle",
+        "needImageModel": "Configurez d'abord un modèle d'images prenant en charge les références dans Réglages",
+        "needVideoModel": "Configurez d'abord un modèle vidéo dans Réglages",
+        "previewAlt": "Bureau actuel",
+        "systemLabel": "Définir aussi comme bureau du système macOS",
+        "title": "Fond d'écran de mémoire",
+        "updateNow": "Mettre à jour",
+        "updating": "Génération…",
+        "useInApp": "Utiliser comme fond d'écran de Cindy"
       }
     },
     "notifications": {
@@ -2435,6 +2455,25 @@
         "secret-chime": "Carillon secret",
         "custom": "Fichier local…",
         "customSelected": "Fichier local : {{name}}"
+      },
+      "desktopCompanion": {
+        "empty": "Activez pour générer le premier fond",
+        "enableAria": "Activer la génération du fond d'écran de mémoire",
+        "enableHint": "Tisse les tâches récentes, les titres de mémoire et l'heure du jour dans de petits détails visuels, avec une vérification horaire. La génération utilise votre modèle d'images configuré.",
+        "enableLabel": "Générer depuis la mémoire",
+        "failed": "Cette mise à jour n'a pas abouti. Vérifiez la configuration du modèle ou les autorisations système, puis réessayez.",
+        "lastTopic": "Actuel : {{topic}}",
+        "locationAria": "Activer ou désactiver la localisation du bureau",
+        "locationHint": "Demande la localisation au système pour esquisser une vue de fenêtre d'une ville approximative. En cas de refus ou de désactivation, seule l'heure du jour est représentée.",
+        "locationLabel": "Utiliser la position actuelle",
+        "needImageModel": "Configurez d'abord un modèle d'images prenant en charge les références dans Réglages",
+        "needVideoModel": "Configurez d'abord un modèle vidéo dans Réglages",
+        "previewAlt": "Bureau actuel",
+        "systemLabel": "Définir aussi comme bureau du système macOS",
+        "title": "Fond d'écran de mémoire",
+        "updateNow": "Mettre à jour",
+        "updating": "Génération…",
+        "useInApp": "Utiliser comme fond d'écran de Cindy"
       }
     },
     "language": {
@@ -3677,7 +3716,8 @@
           "contextWindowInvalid": "La fenêtre de contexte doit être un entier positif valide (séparateurs autorisés entre les groupes de chiffres)",
           "requestPathInvalid": "Commencez le chemin de requête exact par un seul /. N'utilisez pas de fragments ni de segments de chemin . et .. ; encodez en pourcentage les espaces et les caractères non sûrs.",
           "modelRequired": "Ajoutez au moins un modèle",
-          "oauthInvalid": "Configuration OAuth incomplète : tous les champs sont obligatoires et les deux endpoints doivent être des URL https sécurisées"
+          "oauthInvalid": "Configuration OAuth incomplète : tous les champs sont obligatoires et les deux endpoints doivent être des URL https sécurisées",
+          "baseUrlRequired": "L'URL de base est requise"
         },
         "toast": {
           "created": "Fournisseur ajouté",
@@ -10603,7 +10643,9 @@
       "mention": {
         "all": "Tout le monde",
         "allHint": "Tout le monde répond",
-        "label": "Mentionner un coéquipier"
+        "label": "Mentionner un coéquipier",
+        "allBots": "Tous les coéquipiers",
+        "allBotsHint": "Coéquipiers uniquement"
       },
       "composer": {
         "label": "Message de la conversation de groupe",
@@ -10729,7 +10771,9 @@
         "projectDirClear": "Effacer le dossier",
         "projectDirNote": "Les coéquipiers travaillent ici lorsqu'ils se répartissent le travail. Vous pouvez laisser ce champ vide : ils utiliseront alors le dossier propre à cette conversation de groupe. Si vous choisissez un projet git, chaque répartition du travail obtient un nouveau worktree et une nouvelle branche, afin que votre propre code reste intact.",
         "autoContinueSaveFailed": "Impossible d'enregistrer le passage entre étapes. Réessayez.",
-        "projectDirSaveFailed": "Impossible d'enregistrer le dossier du projet. Vérifiez que le dossier existe toujours, puis réessayez."
+        "projectDirSaveFailed": "Impossible d'enregistrer le dossier du projet. Vérifiez que le dossier existe toujours, puis réessayez.",
+        "allowMentionAllBots": "Autoriser @tous les coéquipiers",
+        "allowMentionAllBotsHint": "Seul le propriétaire du groupe peut modifier ce réglage. Tous les coéquipiers peuvent répondre ; à utiliser avec précaution dans les grands groupes. Les réponses de l'IA en votre nom restent indépendantes."
       },
       "errors": {
         "memberLimit": "Une conversation de groupe nécessite de 2 à 6 coéquipiers",
@@ -10753,7 +10797,8 @@
         "quoteUnavailable": "Le message cité a été supprimé ou n'est plus visible. La citation a été retirée. Renvoyez le message.",
         "lifecycleUnavailable": "Le serveur ou l'ordinateur actuel ne prend pas encore en charge cette action.",
         "groupDissolved": "Ce groupe a été dissous. Vous pouvez toujours lire l'historique disponible.",
-        "lastOwner": "Transférez la propriété ou dissolvez ce groupe avant de le quitter."
+        "lastOwner": "Transférez la propriété ou dissolvez ce groupe avant de le quitter.",
+        "allBotsMentionDisabled": "Le propriétaire du groupe n'a pas encore activé la mention @tous les coéquipiers."
       },
       "organizer": "Organisateur",
       "plan": {
@@ -13897,6 +13942,42 @@
       "closeDescription": "Ce suivi va s'arrêter et son historique sera supprimé. La tâche principale continue de s'exécuter.",
       "closeConfirm": "Fermer et supprimer",
       "closeFailed": "Impossible de fermer la conversation annexe. Veuillez réessayer."
+    },
+    "teammateProcess": {
+      "actions": {
+        "done": {
+          "command": "A exécuté des commandes",
+          "delegate": "A délégué un travail",
+          "edit": "A modifié des fichiers",
+          "plan": "A mis à jour le plan",
+          "read": "A lu des fichiers",
+          "search": "A effectué une recherche",
+          "tools": "A utilisé des outils",
+          "web": "A consulté le web"
+        },
+        "running": {
+          "command": "Exécute des commandes",
+          "delegate": "Délègue un travail",
+          "edit": "Modifie des fichiers",
+          "plan": "Met à jour le plan",
+          "read": "Lit des fichiers",
+          "search": "Effectue une recherche",
+          "tools": "Utilise des outils",
+          "web": "Consulte le web"
+        }
+      },
+      "elapsed": "Travaille depuis {{duration}}",
+      "operations": "Journal d'activité",
+      "processing": "En cours",
+      "record": "Activité",
+      "separator": ", ",
+      "thinking": "Réfléchit",
+      "thought": "A réfléchi",
+      "took": "A pris {{duration}}",
+      "worked": "Activité",
+      "failed_one": "{{count}} appel a échoué",
+      "failed_many": "{{count}} d'appels ont échoué",
+      "failed_other": "{{count}} appels ont échoué"
     }
   },
   "ccAgent": {
