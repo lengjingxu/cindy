@@ -165,6 +165,7 @@ import {
   restoreHiddenProjectIfPresent,
   restoreSelectedHiddenProject,
 } from './lib/sidebarProjectRestore';
+import { matchesSidebarAutomationFilter } from './lib/scheduledSessionGrouping';
 import { PinnedSection, type PinnedSidebarEntry } from './sidebar/sections/PinnedSection';
 import { ProjectNode as ProjectNodeView } from './sidebar/sections/ProjectNode';
 import { compareDialogueSessions, type DialogueSortBy } from './sidebar/sections/DialogueSection';
@@ -1350,11 +1351,26 @@ function ExpandedView({
     [scopedSidebarSessions, hiddenProjectKeys, localPlatform],
   );
 
+  const pinnedProjectKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const entryId of filter.manualPinnedOrder) {
+      const projectKey = projectKeyFromPinnedEntryId(entryId);
+      if (projectKey) keys.add(projectKey);
+    }
+    return keys;
+  }, [filter.manualPinnedOrder]);
+
   const activityFilteredSessions = useMemo(() => {
+    let result = sidebarSessions;
     const cutoff = cutoffForLastActivity(filter.lastActivity);
-    if (cutoff === null) return sidebarSessions;
-    return sidebarSessions.filter((s) => sessionActivityMs(s) >= cutoff);
-  }, [sidebarSessions, filter.lastActivity]);
+    if (cutoff !== null) result = result.filter((s) => sessionActivityMs(s) >= cutoff);
+    // 自动化记录筛选与其他内容筛选同层：只作用于普通列表段；置顶区(allGroups)
+    // 按 §3.3 既有裁决不受筛选影响。
+    if (filter.hideAutomation) {
+      result = result.filter((s) => matchesSidebarAutomationFilter(s, pinnedProjectKeys));
+    }
+    return result;
+  }, [sidebarSessions, filter.lastActivity, filter.hideAutomation, pinnedProjectKeys]);
 
   /* ---- Grouping & collapse ---- */
   const allGroups = useProjectGroups(sidebarSessions, projectAliases.aliases);
@@ -1507,24 +1523,23 @@ function ExpandedView({
     return (s: { agentKind?: string | null }) => (s.agentKind ?? 'cc') === v;
   }, [filter.vendor]);
 
-  const pinnedProjectKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const entryId of filter.manualPinnedOrder) {
-      const projectKey = projectKeyFromPinnedEntryId(entryId);
-      if (projectKey) keys.add(projectKey);
-    }
-    return keys;
-  }, [filter.manualPinnedOrder]);
-
   const restorableProjectKeys = useMemo(
     () =>
       collectRestorableProjectKeys({
-        sessions: scopedSidebarSessions,
+        sessions: filter.hideAutomation
+          ? scopedSidebarSessions.filter((s) => matchesSidebarAutomationFilter(s, pinnedProjectKeys))
+          : scopedSidebarSessions,
         lastActivityCutoff: cutoffForLastActivity(filter.lastActivity),
         pinnedProjectKeys,
         vendorPredicate,
       }),
-    [filter.lastActivity, pinnedProjectKeys, scopedSidebarSessions, vendorPredicate],
+    [
+      filter.hideAutomation,
+      filter.lastActivity,
+      pinnedProjectKeys,
+      scopedSidebarSessions,
+      vendorPredicate,
+    ],
   );
   const restorableProjectKeysRef = useRef(restorableProjectKeys);
   restorableProjectKeysRef.current = restorableProjectKeys;

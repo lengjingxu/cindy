@@ -9518,7 +9518,7 @@
       "createProjectFailed": "Failed to create project",
       "projectsToggleExpand": "Expand all project sessions",
       "projectsToggleCollapse": "Collapse all project sessions",
-      "filterAria": "Sidebar display settings (Status: {{status}}, Vendor: {{vendor}}, Last activity: {{lastActivity}}, Group by: {{groupBy}}, Sort by: {{sortBy}}, Projects: {{projects}})",
+      "filterAria": "Sidebar display settings (Status: {{status}}, Vendor: {{vendor}}, Last activity: {{lastActivity}}, Automation: {{automation}}, Group by: {{groupBy}}, Sort by: {{sortBy}}, Projects: {{projects}})",
       "organizeSidebar": "Sidebar display settings",
       "filterAllText": "all",
       "filterSelectedProjects": "{{count}} selected",
@@ -9572,6 +9572,11 @@
       "filterStatusHeading": "Status",
       "filterAgentHeading": "Agent",
       "filterLastActivityHeading": "Last activity",
+      "filterAutomationHeading": "Automation",
+      "filterAutomation": {
+        "all": "All",
+        "hidden": "Hidden"
+      },
       "filterGroupByHeading": "Group by",
       "filterSortByHeading": "Sort by",
       "filterTaskSortHeading": "Session sort",

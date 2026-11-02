@@ -9503,7 +9503,7 @@
       "createProjectFailed": "新建项目失败",
       "projectsToggleExpand": "展开所有项目任务",
       "projectsToggleCollapse": "收起所有项目任务",
-      "filterAria": "侧边栏显示设置（状态：{{status}}，Agent：{{vendor}}，最近活跃：{{lastActivity}}，分组：{{groupBy}}，排序：{{sortBy}}，项目：{{projects}}）",
+      "filterAria": "侧边栏显示设置（状态：{{status}}，Agent：{{vendor}}，最近活跃：{{lastActivity}}，自动化：{{automation}}，分组：{{groupBy}}，排序：{{sortBy}}，项目：{{projects}}）",
       "organizeSidebar": "侧边栏显示设置",
       "filterAllText": "全部",
       "filterSelectedProjects": "已选 {{count}} 个",
@@ -9557,6 +9557,11 @@
       "filterStatusHeading": "状态",
       "filterAgentHeading": "Agent",
       "filterLastActivityHeading": "最近活跃",
+      "filterAutomationHeading": "自动化",
+      "filterAutomation": {
+        "all": "全部",
+        "hidden": "隐藏"
+      },
       "filterGroupByHeading": "分组",
       "filterSortByHeading": "排序",
       "filterTaskSortHeading": "任务排序",

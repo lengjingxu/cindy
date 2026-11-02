@@ -38,6 +38,7 @@ import {
   Info,
   LayoutList,
   SlidersHorizontal,
+  Timer,
   Wallet,
   type LucideIcon,
 } from 'lucide-react';
@@ -367,6 +368,7 @@ export function SidebarFilterPopover({
     isSessionContentFiltered,
     vendor,
     lastActivity,
+    hideAutomation,
     groupBy,
     groupDialogue,
     groupDevice,
@@ -378,6 +380,7 @@ export function SidebarFilterPopover({
     setProjectsAll,
     setVendor,
     setLastActivity,
+    setHideAutomation,
     setGroupBy,
     setGroupDialogue,
     setGroupDevice,
@@ -395,6 +398,11 @@ export function SidebarFilterPopover({
   const statusValue = optionLabel(STATUS_OPTIONS, status, t);
   const vendorValue = optionLabel(VENDOR_OPTIONS, vendor, t);
   const lastActivityValue = optionLabel(LAST_ACTIVITY_OPTIONS, lastActivity, t);
+  const automationValue = t(
+    hideAutomation
+      ? 'ccAgent.sidebar.filterAutomation.hidden'
+      : 'ccAgent.sidebar.filterAutomation.all',
+  );
   const groupByValue = t(
     groupBy === 'project'
       ? 'ccAgent.sidebar.filterGroupBy.project'
@@ -481,6 +489,7 @@ export function SidebarFilterPopover({
     (status !== 'active' ? 1 : 0) +
     (projects !== 'all' ? 1 : 0) +
     (vendor !== 'all' ? 1 : 0) +
+    (hideAutomation ? 1 : 0) +
     (lastActivity !== 'all' ? 1 : 0);
   const filterSummary =
     activeFilterCount > 0
@@ -502,6 +511,7 @@ export function SidebarFilterPopover({
     status: statusValue,
     vendor: vendorValue,
     lastActivity: lastActivityValue,
+    automation: automationValue,
     groupBy: groupByValue,
     sortBy: sortByValue,
     projects: projectValue,
@@ -780,6 +790,25 @@ export function SidebarFilterPopover({
                   keepOpen
                 />
               ))}
+            </MenuSubRow>
+
+            <MenuSubRow
+              label={t('ccAgent.sidebar.filterAutomationHeading')}
+              value={automationValue}
+              Icon={Timer}
+            >
+              <SelectMenuItem
+                label={t('ccAgent.sidebar.filterAutomation.all')}
+                selected={!hideAutomation}
+                onSelect={() => setHideAutomation(false)}
+                keepOpen
+              />
+              <SelectMenuItem
+                label={t('ccAgent.sidebar.filterAutomation.hidden')}
+                selected={hideAutomation}
+                onSelect={() => setHideAutomation(true)}
+                keepOpen
+              />
             </MenuSubRow>
 
             <DropdownMenuSeparator className={MENU_SEPARATOR_CLASS} />

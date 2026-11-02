@@ -8,6 +8,7 @@ import {
   restoreSelectedHiddenProject,
 } from '@/features/cc-agent/lib/sidebarProjectRestore';
 import type { Session } from '@/lib/ccAgent.types';
+import { matchesSidebarAutomationFilter } from '@/features/cc-agent/lib/scheduledSessionGrouping';
 
 const PROJECT_KEY = 'local:/workspace/cindy';
 
@@ -42,6 +43,33 @@ function projectSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('collectRestorableProjectKeys', () => {
+  it('hides automation records while preserving pinned tasks and projects', () => {
+    const automated = projectSession({ source: 'scheduler' });
+    const legacy = projectSession({ title: '[Schedule] legacy' });
+    expect(matchesSidebarAutomationFilter(automated, new Set())).toBe(false);
+    expect(matchesSidebarAutomationFilter(legacy, new Set())).toBe(false);
+    expect(matchesSidebarAutomationFilter(projectSession(), new Set())).toBe(true);
+    expect(matchesSidebarAutomationFilter(
+      projectSession({ source: 'scheduler', pinnedAt: '2026-09-01T00:00:00Z' }),
+      new Set(),
+    )).toBe(true);
+
+    const pinnedProjectKeys = new Set([PROJECT_KEY]);
+    expect(matchesSidebarAutomationFilter(
+      projectSession({ source: 'scheduler', workspaceKind: 'dialogue' }),
+      pinnedProjectKeys,
+    )).toBe(false);
+    const sessions = [automated, legacy].filter((session) =>
+      matchesSidebarAutomationFilter(session, pinnedProjectKeys));
+    expect(sessions).toHaveLength(2);
+    expect(collectRestorableProjectKeys({
+      sessions,
+      lastActivityCutoff: null,
+      pinnedProjectKeys,
+      vendorPredicate: null,
+    }).has(PROJECT_KEY)).toBe(true);
+  });
+
   it('excludes projects filtered out by vendor', () => {
     const keys = collectRestorableProjectKeys({
       sessions: [projectSession()],

@@ -10,7 +10,7 @@
 
 import type { Session, AgentKind } from '@/lib/ccAgent.types';
 
-import { extractDisplayName, normalizeWorkingDir } from './projectGrouping';
+import { extractDisplayName, normalizeWorkingDir, projectIdentityKeyForSession } from './projectGrouping';
 
 /**
  * legacy automation 会话的标题前缀。**非 i18n 串**:它是旧数据唯一的来源标记
@@ -27,6 +27,17 @@ export function isScheduledSession(s: Session): boolean {
 
 export function isAutomationGeneratedSession(s: Session): boolean {
   return s.source === 'scheduler' || isScheduledSession(s);
+}
+
+/** Pinned tasks and projects remain visible in both expanded and collapsed sidebars. */
+export function matchesSidebarAutomationFilter(
+  session: Session,
+  pinnedProjectKeys: ReadonlySet<string>,
+): boolean {
+  if (!isAutomationGeneratedSession(session) || session.pinnedAt != null) return true;
+  if (session.workspaceKind === 'dialogue') return false;
+  const projectKey = projectIdentityKeyForSession(session);
+  return projectKey != null && pinnedProjectKeys.has(projectKey);
 }
 
 /** 从 `[Schedule] my-cron-job` 切掉前缀；不匹配时返回原 title 保兜底显示。 */
