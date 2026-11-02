@@ -85,7 +85,7 @@ describe('pinned project sidebar integration', () => {
     expect(sidebarSource).toContain('collectRestorableProjectKeys({');
     expect(sidebarSource).toContain('sessions: filter.hideAutomation');
     expect(sidebarSource).toContain(
-      '? scopedSidebarSessions.filter((s) => !isAutomationGeneratedSession(s))',
+      '? scopedSidebarSessions.filter((s) => matchesSidebarAutomationFilter(s, pinnedProjectKeys))',
     );
     expect(sidebarSource).toContain(': scopedSidebarSessions,');
     expect(sidebarSource).toContain('const restored = await restoreHiddenProjectIfPresent({');
