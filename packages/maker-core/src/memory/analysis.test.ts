@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { analyzeRecommendations, computeInsights } from './analysis.js';
 import type { MemoryRecord, MemoryEvent } from './types.js';
 
@@ -13,6 +13,17 @@ function entry(filename: string, type: string, title: string, description: strin
 }
 
 describe('analyzeRecommendations', () => {
+  beforeEach(() => {
+    // 陈旧天数基于真实时钟计算,而 fixture 日期是写死的:不锁时钟的话,
+    // "fresh" 跨过 90 天阈值后(2026-10-30 起)该用例必然失败。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('flags stale entries (90+ days)', () => {
     const stale = entry('user_old.md', 'user', 'Old', 'desc', '2025-01-01T00:00:00Z');
     const fresh = entry('user_new.md', 'user', 'New', 'other', '2026-08-01T00:00:00Z');
