@@ -297,13 +297,13 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
         if (cancelled) return;
         // 本地 office 文件超限:readFileBytes 以稳定文案 reject → F5 超限态
         // (大小未知 → -1,工具栏容量显示占位)。文本读取路径不会产生该文案。
-        if (err instanceof Error && err.message === READ_BYTES_OVERSIZE_MESSAGE) {
+        if (err instanceof Error && err.message.includes(READ_BYTES_OVERSIZE_MESSAGE)) {
           setLoadState({ phase: 'oversize', size: -1, limitMb: OFFICE_PREVIEW_LIMIT_MB });
           return;
         }
         setLoadState({
           phase: 'error',
-          message: err instanceof Error ? err.message : String(err),
+          message: officeKind ? t('chat.textLightbox.unreadable') : err instanceof Error ? err.message : String(err),
         });
       }
     })();

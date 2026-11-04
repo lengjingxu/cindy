@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import JSZip from "jszip";
 import * as XLSX from "xlsx";
@@ -7,6 +8,7 @@ import {
   isOfficePreviewSupported,
   officePreviewKind,
   parseOfficeDocument,
+  sanitizeOfficeHtml,
 } from '../officePreview';
 import { shouldOpenTextLightbox } from '../filePreview';
 
@@ -70,6 +72,28 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('sanitizeOfficeHtml', () => {
+  it('keeps document layout and embedded raster images without active content', () => {
+    const html = sanitizeOfficeHtml(
+      '<h1>Title</h1><table><tr><td colspan="2">Value</td></tr></table>' +
+      '<img src="data:image/png;base64,aGVsbG8=" alt="embedded">' +
+      '<a href="javascript:alert(1)">Link text</a><script>alert(1)</script>' +
+      '<img src="https://tracker.example/image" onerror="alert(1)">' +
+      '<img src="xdt-file:///private/file.png">' +
+      '<img src="data:image/svg+xml;base64,PHN2Zz4=">' +
+      '<svg onload="alert(1)"></svg><iframe src="https://example.com"></iframe>',
+    );
+    const root = document.createElement('div');
+    root.innerHTML = html;
+    expect(root.querySelector('h1')?.textContent).toBe('Title');
+    expect(root.querySelector('td')?.getAttribute('colspan')).toBe('2');
+    expect(root.querySelectorAll('img')).toHaveLength(1);
+    expect(root.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8=');
+    expect(root.textContent).toContain('Link text');
+    expect(root.querySelector('a, script, svg, iframe, [onerror], [onload]')).toBeNull();
+  });
+});
+
 describe('officePreviewKind / isOfficePreviewSupported', () => {
   it("routes by extension, case-insensitive, across path separators", () => {
     expect(officePreviewKind('/tmp/report.docx')).toBe('word');
@@ -122,6 +146,30 @@ describe('parseOfficeDocument', () => {
     expect(doc.html).toContain('Hello');
     expect(doc.html).toContain('&lt;b&gt;Office&lt;/b&gt;');
     expect(doc.html).not.toContain('<b>Office</b>');
+  });
+
+  it('rejects a tiny xlsx declaring an enormous cell range before rendering it', async () => {
+    const zip = await JSZip.loadAsync(buildXlsx());
+    const path = 'xl/worksheets/sheet1.xml';
+    const xml = await zip.file(path)!.async('string');
+    zip.file(path, xml.replace(/<dimension ref="[^"]*"\s*\/>/, '<dimension ref="A1:XFD1048576"/>'));
+    const bytes = await zip.generateAsync({ type: 'uint8array' });
+    stubReadFileBytes(async () => ({ bytes, size: bytes.byteLength }));
+    await expect(parseOfficeDocument('/tmp/oversized-range.xlsx')).rejects.toThrow('exceeds preview capacity');
+  });
+
+  it('rejects excessive merge traversal even when the cell range is within the limit', async () => {
+    const zip = await JSZip.loadAsync(buildXlsx());
+    const path = 'xl/worksheets/sheet1.xml';
+    const xml = await zip.file(path)!.async('string');
+    const merges = '<mergeCells count="100"><mergeCell ref="A1:A1"/>'.replace(
+      '<mergeCell ref="A1:A1"/>', '<mergeCell ref="A1:A1"/>'.repeat(100),
+    ) + '</mergeCells>';
+    zip.file(path, xml.replace(/<dimension ref="[^"]*"\s*\/>/, '<dimension ref="A1:A100000"/>')
+      .replace('</worksheet>', merges + '</worksheet>'));
+    const bytes = await zip.generateAsync({ type: 'uint8array' });
+    stubReadFileBytes(async () => ({ bytes, size: bytes.byteLength }));
+    await expect(parseOfficeDocument('/tmp/excessive-merges.xlsx')).rejects.toThrow('merge complexity');
   });
 });
 

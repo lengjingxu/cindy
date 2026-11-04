@@ -177,7 +177,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('redacts upstream application errors before custom startup rejects', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     let provider: RealtimeAsrWebSocketProvider | undefined;
     server.on('connection', (socket) => {
       socket.on('message', (data) => {
@@ -251,6 +251,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
 
   it('fails startup instead of hanging when an OpenAI-compatible realtime socket does not open in time', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         setTimeout(() => done(true), 200);
@@ -292,6 +293,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
 
   it('reports OpenAI-compatible realtime handshake failures without waiting for the connect timeout', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         done(false, 403, 'Forbidden');
@@ -327,6 +329,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
 
   it('redacts custom handshake details while preserving the HTTP status for classification', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         done(false, 401, 'token=upstream-secret');
@@ -363,7 +366,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('does not reuse a prewarmed socket across credential cache identities', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const authorizations: Array<string | undefined> = [];
     const sockets: WebSocket[] = [];
     let provider: RealtimeAsrWebSocketProvider | undefined;
@@ -410,7 +413,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('immediately closes a prewarmed socket when credentials are invalidated', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     let serverSocket: WebSocket | undefined;
     server.on('connection', (socket) => {
       serverSocket = socket;
@@ -445,7 +448,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('closes a prewarmed socket when readiness fails after upgrade', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     let serverSocket: WebSocket | undefined;
     server.on('connection', (socket) => {
       serverSocket = socket;
@@ -483,7 +486,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('does not install a prewarm whose credential lookup finishes after invalidation', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     let connectionCount = 0;
     server.on('connection', () => {
       connectionCount += 1;
@@ -522,6 +525,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   it('does not reopen a socket after stop while recovery is connecting', async () => {
     let handshakeCount = 0;
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         handshakeCount += 1;
@@ -585,7 +589,7 @@ describe('RealtimeAsrWebSocketProvider helpers', () => {
   });
 
   it('does not open a managed socket when stopped during session allocation', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     server.on('connection', (socket) => sockets.push(socket));
     let allocationStarted = false;

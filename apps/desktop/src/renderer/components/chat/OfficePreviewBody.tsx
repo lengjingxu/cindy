@@ -16,8 +16,7 @@ export function OfficePreviewBody({ doc }: { doc: ParsedOfficeDocument }) {
       <div className="min-h-0 flex-1 overflow-y-auto select-text [scrollbar-gutter:stable_both-edges]">
         <div
           className="office-word-doc mx-auto max-w-4xl px-6 py-5"
-          // mammoth 产物是文档结构派生的转义 HTML(见 officePreview.ts 头注),
-          // 没有原文 HTML 直通面;排版走 globals.css 的 .office-word-doc 作用域。
+          // 两类解析产物都已通过 sanitizeOfficeHtml 的阅读内容白名单。
           dangerouslySetInnerHTML={{ __html: doc.html }}
         />
       </div>
@@ -56,7 +55,7 @@ export function OfficePreviewBody({ doc }: { doc: ParsedOfficeDocument }) {
       )}
       <div
         className="office-sheet-body min-h-0 flex-1 overflow-auto px-3 py-3 select-text"
-        // SheetJS sheet_to_html 逐单元格转义(见 officePreview.ts 头注)。
+        // 同上:只接收经过 sanitizeOfficeHtml 净化的内容。
         dangerouslySetInnerHTML={{ __html: sheet.html }}
       />
     </div>

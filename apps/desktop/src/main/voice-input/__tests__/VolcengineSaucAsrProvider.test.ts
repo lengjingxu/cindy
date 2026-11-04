@@ -109,7 +109,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
   });
 
   it('recovers by replaying unconfirmed audio and preserving the visible transcript prefix', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     const messageCounts: number[] = [];
     let provider: VolcengineSaucAsrProvider | undefined;
@@ -167,7 +167,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
   });
 
   it('requests a fresh one-shot connection ticket when transport recovery reconnects', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     const authorizations: Array<string | undefined> = [];
     let provider: VolcengineSaucAsrProvider | undefined;
@@ -208,7 +208,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
   });
 
   it('waits for a provider protocol response before reporting connected', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     let provider: VolcengineSaucAsrProvider | undefined;
     server.on('connection', (socket) => {
@@ -249,7 +249,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
   });
 
   it('does not open a managed socket when stopped during session allocation', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     server.on('connection', (socket) => {
       sockets.push(socket);
@@ -290,7 +290,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
   });
 
   it('waits for the protocol last response before completing flush', async () => {
-    const server = new WebSocketServer({ port: 0 });
+    const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     const sockets: WebSocket[] = [];
     let provider: VolcengineSaucAsrProvider | undefined;
     server.on('connection', (socket) => {
@@ -340,6 +340,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
 
   it('does not reopen a socket after stop while recovery is connecting', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         setTimeout(() => done(true), 80);
@@ -392,6 +393,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
 
   it('fails startup instead of hanging when the provider-native socket does not open in time', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         setTimeout(() => done(true), 200);
@@ -433,6 +435,7 @@ describe('VolcengineSaucAsrProvider protocol helpers', () => {
 
   it('reports provider-native handshake failures without waiting for the connect timeout', async () => {
     const server = new WebSocketServer({
+      host: '127.0.0.1',
       port: 0,
       verifyClient(_info, done) {
         done(false, 403, 'Forbidden');

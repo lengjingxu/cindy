@@ -84,7 +84,7 @@
 | 文件 | 证据 | 清理边界 |
 | --- | --- | --- |
 | [WelcomePage.tsx](../../apps/desktop/src/renderer/components/welcome/WelcomePage.tsx):6 | `WelcomePage` 仅在定义处出现；[router.tsx](../../apps/desktop/src/renderer/router.tsx) 的首页进入 `CCAgentIndexRedirect` | 可删除旧组件；品牌 hook 和翻译 key 要独立查引用，不能连带删 |
-| [effortMapping.ts](../../apps/desktop/src/renderer/lib/effortMapping.ts):23–34 | `EFFORT_TO_BUDGET_TOKENS` 只被同文件函数读取，`effortToSdkExtendedThinking` 无外部引用；文件头明确写“本轮无消费方”及待确认 SDK 形态 | 删除这个预置实现；不触碰 maker-core 的真实 effort 处理 |
+| [effortMapping.ts](https://github.com/lengjingxu/cindy/blob/3223fd29cc11a38a0eeaae2c9c77ea66eda22518/apps/desktop/src/renderer/lib/effortMapping.ts):23–34 | `EFFORT_TO_BUDGET_TOKENS` 只被同文件函数读取，`effortToSdkExtendedThinking` 无外部引用；文件头明确写“本轮无消费方”及待确认 SDK 形态 | 删除这个预置实现；不触碰 maker-core 的真实 effort 处理 |
 | [scheduleGrouping.ts](../../apps/desktop/src/renderer/features/cc-agent/lib/scheduleGrouping.ts):45 | 文件名和 `groupSchedules` 均没有外部生产或测试引用 | 不连带删除仍被使用的 `projectGrouping` / `scheduledSessionGrouping` |
 
 查了文件名、导出标识符、路由及 Renderer 的动态批量加载入口，没有发现这些文件通过配置自动注册。这里的“死”指当前仓内运行链不可达，不推算 bundle 节省量。
