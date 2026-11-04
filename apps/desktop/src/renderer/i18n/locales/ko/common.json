@@ -269,7 +269,8 @@
       "windowBehavior": "앱 동작",
       "shortcuts": "키보드 단축키",
       "mcpServers": "사용자 지정 MCP",
-      "bots": "파트너"
+      "bots": "파트너",
+      "voiceOutput": "음성 읽어주기"
     },
     "remote": {
       "title": "원격 머신",
@@ -1087,6 +1088,18 @@
     "apiKey": {
       "showKey": "키 표시",
       "hideKey": "키 숨기기"
+    },
+    "voiceOutput": {
+      "title": "음성 읽어주기",
+      "description": "채팅 입력창 옆 음성 모드를 켜면 답변이 자동으로 읽어줍니다. 합성에 사용할 음성 소스를 선택하세요.",
+      "model": {
+        "label": "합성 모델",
+        "automatic": "자동 (Cindy 음성 서비스)",
+        "description": "기본적으로 Cindy 음성 서비스를 사용합니다. 음성 합성이 아직 없으면 모델 카탈로그에서 음성 합성 모델을 선택할 수 있습니다.",
+        "gatewayOffline": "Cindy AI가 연결되지 않았습니다. 로그인 후 모델 카탈로그에서 음성 합성 모델을 선택할 수 있으며, 현재는 시스템 음성을 사용합니다.",
+        "empty": "모델 카탈로그에 음성 합성 모델이 아직 없습니다",
+        "ariaLabel": "음성 합성 모델 선택"
+      }
     },
     "voiceInput": {
       "title": "음성 입력",
@@ -8147,6 +8160,10 @@
       "defaultPlaceholder": "오늘은 무엇을 할까요~",
       "createAgentPlaceholder": "안녕하세요, {{appName}}!",
       "recommendationShortcut": "Tab",
+      "voiceMode": {
+        "turnOn": "음성 모드 켜기: 답변 읽어주기",
+        "turnOff": "음성 모드 끄기"
+      },
       "voiceInput": {
         "start": "음성 입력 시작",
         "stop": "음성 입력 중지",

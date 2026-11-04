@@ -26,6 +26,8 @@ type CustomProviderUpdateResult =
 type RsbWindowCommand = import('../shared/rightSidebarWindow').RsbWindowCommand;
 type VoiceInputPowerStatePayload =
   import('../shared/voiceInputPowerIpc').VoiceInputPowerStatePayload;
+type VoiceOutputSynthesisResult =
+  import('../shared/voiceOutputIpc').VoiceOutputSynthesisResult;
 type VoiceInputConnectionTestResult =
   import('../shared/voiceInputConnectionTest').VoiceInputConnectionTestResult;
 type DesktopLoginAction = import('../shared/authIpc').DesktopLoginAction;
@@ -1706,6 +1708,16 @@ interface ElectronAPI {
     onProgress: (callback: (progress: unknown) => void) => () => void;
     onConfirm: (callback: (request: unknown) => void) => () => void;
     resolveConfirm: (requestId: string, confirmed: boolean) => Promise<{ handled: boolean }>;
+  };
+  voiceOutput: {
+    synthesize: (input: {
+      text: string;
+      voice?: string;
+      modelId?: string;
+      providerId?: string;
+    }) => Promise<
+      import('../shared/voiceOutputIpc').VoiceOutputSynthesisResult
+    >;
   };
   voiceInput: {
     prewarm: (payload?: {

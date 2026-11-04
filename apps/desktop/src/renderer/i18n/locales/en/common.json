@@ -269,7 +269,8 @@
       "windowBehavior": "App Behavior",
       "shortcuts": "Keyboard Shortcuts",
       "mcpServers": "Custom MCP",
-      "bots": "Teammates"
+      "bots": "Teammates",
+      "voiceOutput": "Voice readout"
     },
     "remote": {
       "title": "Remote machines",
@@ -1087,6 +1088,18 @@
     "apiKey": {
       "showKey": "Show key",
       "hideKey": "Hide key"
+    },
+    "voiceOutput": {
+      "title": "Voice readout",
+      "description": "With voice mode on (the toggle next to the chat composer), replies are read aloud automatically. Choose the voice source used for synthesis.",
+      "model": {
+        "label": "Synthesis model",
+        "automatic": "Automatic (Cindy voice service)",
+        "description": "Uses the Cindy voice service by default. When Cindy has no built-in speech synthesis yet, pick a text-to-speech model from the model catalog.",
+        "gatewayOffline": "Cindy AI is not connected. Sign in to pick a text-to-speech model from the catalog; system voice is used for now.",
+        "empty": "No text-to-speech models in the catalog yet",
+        "ariaLabel": "Choose speech synthesis model"
+      }
     },
     "voiceInput": {
       "title": "Voice input",
@@ -8149,6 +8162,10 @@
       "defaultPlaceholder": "What shall we work on today~",
       "createAgentPlaceholder": "Hi {{appName}}!",
       "recommendationShortcut": "Tab",
+      "voiceMode": {
+        "turnOn": "Turn on voice mode: replies are read aloud",
+        "turnOff": "Turn off voice mode"
+      },
       "voiceInput": {
         "start": "Start voice input",
         "stop": "Stop voice input",

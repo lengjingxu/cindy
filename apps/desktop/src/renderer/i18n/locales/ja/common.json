@@ -269,7 +269,8 @@
       "windowBehavior": "アプリの動作",
       "shortcuts": "キーボードショートカット",
       "mcpServers": "カスタム MCP",
-      "bots": "パートナー"
+      "bots": "パートナー",
+      "voiceOutput": "音声読み上げ"
     },
     "remote": {
       "title": "リモートマシン",
@@ -1087,6 +1088,18 @@
     "apiKey": {
       "showKey": "キーを表示",
       "hideKey": "キーを非表示"
+    },
+    "voiceOutput": {
+      "title": "音声読み上げ",
+      "description": "チャット入力欄のボイスモードをオンにすると、返信が自動で読み上げられます。合成に使う音声ソースを選択します。",
+      "model": {
+        "label": "合成モデル",
+        "automatic": "自動（Cindy 音声サービス）",
+        "description": "既定では Cindy 音声サービスを使用します。音声合成が未提供の場合は、モデルカタログから音声合成モデルを選択できます。",
+        "gatewayOffline": "Cindy AI が未接続です。ログインするとモデルカタログから音声合成モデルを選択できます。現在はシステム音声を使用します。",
+        "empty": "モデルカタログに音声合成モデルがまだありません",
+        "ariaLabel": "音声合成モデルを選択"
+      }
     },
     "voiceInput": {
       "title": "音声入力",
@@ -8147,6 +8160,10 @@
       "defaultPlaceholder": "今日は何をしましょうか〜",
       "createAgentPlaceholder": "{{appName}}さん、こんにちは！",
       "recommendationShortcut": "Tab",
+      "voiceMode": {
+        "turnOn": "ボイスモードをオン：返信を読み上げます",
+        "turnOff": "ボイスモードをオフ"
+      },
       "voiceInput": {
         "start": "音声入力を開始",
         "stop": "音声入力を停止",
