@@ -60,6 +60,7 @@
     "./session-operation": "./src/sessionOperation.ts",
     "./session-selection": "./src/sessionSelection.ts",
     "./session-title": "./src/sessionTitle.ts",
+    "./speech-text": "./src/speechText.ts",
     "./synthetic-trigger": "./src/syntheticTrigger.ts",
     "./subagent-observation": "./src/subagentObservation.ts",
     "./subagent-workspace": "./src/subagentWorkspace.ts",

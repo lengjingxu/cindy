@@ -11,6 +11,7 @@ import type { SettingsTab } from '@/lib/tabLabels';
 import { SettingsSidebarNav } from './SettingsSidebarNav';
 import { UserProfileCard } from './UserProfileCard';
 import { VoiceInputSection } from './VoiceInputSection';
+import { VoiceOutputSection } from './VoiceOutputSection';
 import { AppearanceSection } from './AppearanceSection';
 import { SubagentModelSection } from './SubagentModelSection';
 import { AuxiliaryModelSection } from './AuxiliaryModelSection';
@@ -510,6 +511,10 @@ export function SettingsView() {
               >
                 <section aria-label={t('settings.sections.voiceInput')}>
                   <VoiceInputSection key={`voice-input:${mode}:${dataOwnerId ?? 'none'}`} />
+                </section>
+                {/* 语音朗读（伙伴说话）：合成模型选择，与语音输入同页。 */}
+                <section className="pb-[18px]" aria-label={t('settings.sections.voiceOutput')}>
+                  <VoiceOutputSection />
                 </section>
               </div>
             )}

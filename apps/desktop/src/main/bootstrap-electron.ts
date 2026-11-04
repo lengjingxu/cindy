@@ -826,6 +826,7 @@ import { disposeRemoteFileBrowser } from './file-browser/remote-deps.js';
 import { registerFileBrowserDeviceOp } from './file-browser/device-op.js';
 import { registerSearchIpc } from './file-browser/search/index.js';
 import { registerVoiceInputIpc } from './voice-input/index.js';
+import { registerVoiceOutputIpc } from './voice-output/index.js';
 import { installWindowHiddenBroadcast } from './windowHiddenBroadcast.js';
 import {
   isSecondaryAppWindow,
@@ -8995,6 +8996,7 @@ app.on('ready', async () => {
   });
   registerLocalThemesIpc();
   registerVoiceInputIpc();
+  registerVoiceOutputIpc();
   registerGlobalVoiceInputIpc({
     getMainWindow: () => mainWindowRef,
     // 会话副窗口跑同一套路由,设置页在里面照样打得开,所以弹系统授权窗那两条 IPC 要认它。

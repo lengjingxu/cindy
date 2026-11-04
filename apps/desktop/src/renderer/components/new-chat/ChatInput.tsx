@@ -371,6 +371,7 @@ import {
   shouldBlockLegacyRemotePiModelWindowSwitch,
 } from '../../../shared/modelSwitchAssessment';
 import { useVoiceInput } from '@/voice-input/useVoiceInput';
+import { VoiceModeToggleButton } from '@/voice-output/VoiceModeToggleButton';
 import { useVoiceInputSettings } from '@/hooks/useVoiceInputSettings';
 import { VoiceInputStatusNotice } from '@/voice-input/VoiceInputStatusNotice';
 import type { VoiceInputState } from '@cindy/voice-input-core';
@@ -8911,6 +8912,7 @@ export function ChatInput({
                       visualVariant={isCreateAgentVariant ? 'create-agent' : 'default'}
                     />
                   )}
+                  <VoiceModeToggleButton disabled={disabled || settingsLocked} />
                   <VoiceInputButton
                     state={voiceBusyOnCurrentComposer ? voiceInput.state : 'idle'}
                     // The surrounding controls stay locked during voice input, but

@@ -124,6 +124,7 @@ import {
 import { RESOURCE_USAGE_WINDOW_OPEN_CHANNEL } from '../shared/resourceUsageWindow';
 import { SESSION_ATTENTION_CLEARED_CHANNEL } from '../shared/sessionAttention';
 import { VOICE_INPUT_POWER_STATE_CHANNEL } from '../shared/voiceInputPowerIpc';
+import { VOICE_OUTPUT_SYNTHESIZE_CHANNEL } from '../shared/voiceOutputIpc';
 import {
   VOICE_INPUT_TEST_CONNECTION_CHANNEL,
   type VoiceInputConnectionTestResult,
@@ -1517,6 +1518,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onConfirm: fanOutPluginPublisherConfirm,
     resolveConfirm: (requestId: string, confirmed: boolean): Promise<{ handled: boolean }> =>
       ipcRenderer.invoke('plugin-publisher:resolve-confirm', { requestId, confirmed }),
+  },
+  voiceOutput: {
+    /** 云端合成（Cindy 语音服务 / 指定供应商的 OpenAI 兼容端点）；都不可用时返回结构化降级码。 */
+    synthesize: (input: {
+      text: string;
+      voice?: string;
+      modelId?: string;
+      providerId?: string;
+    }): Promise<import('../shared/voiceOutputIpc').VoiceOutputSynthesisResult> =>
+      ipcRenderer.invoke(VOICE_OUTPUT_SYNTHESIZE_CHANNEL, input),
   },
   voiceInput: {
     prewarm: (payload?: {

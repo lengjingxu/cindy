@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Volume2,
 } from 'lucide-react-native';
 import {
   ActivityIndicator,
@@ -36,6 +37,7 @@ import {
   Animated,
   Pressable,
   StyleSheet,
+  Switch,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -128,6 +130,8 @@ export interface SessionMenuSheetProps {
   onOpenWorkspace(): void;
   /** Pi 原生会话树入口；只有 host runtime 真正返回 Pi 会话时由父级注入。 */
   onOpenSessionTree?: () => void;
+  /** 语音朗读（伙伴说话）：开关态与回调；缺省隐藏该行（老调用方不传）。 */
+  voiceReadout?: { enabled: boolean; onToggle(enabled: boolean): void };
   onTogglePinned(): void;
   onArchive(): void;
   onRestore(): void;
@@ -159,6 +163,7 @@ export function SessionMenuSheet({
   onRegenerateTitle,
   onOpenWorkspace,
   onOpenSessionTree,
+  voiceReadout,
   onTogglePinned,
   onArchive,
   onRestore,
@@ -587,6 +592,18 @@ export function SessionMenuSheet({
                 onPress={onOpenSessionTree}
                 testID="session.branchesButton"
                 trailing={<ChevronRight color={colors.textTertiary} size={iconSize.md} strokeWidth={iconStroke.regular} />}
+              />
+            </View>
+          ) : null}
+
+          {voiceReadout ? (
+            <View style={styles.actionGroup}>
+              <MenuActionRow
+                icon={Volume2}
+                label={t('session.menu.voiceReadout')}
+                onPress={() => voiceReadout.onToggle(!voiceReadout.enabled)}
+                testID="session.voiceReadoutButton"
+                trailing={<Switch value={voiceReadout.enabled} onValueChange={voiceReadout.onToggle} />}
               />
             </View>
           ) : null}

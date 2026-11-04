@@ -88,6 +88,8 @@ import { subscribeWorkLouderCodexAction } from '@/lib/workLouderCodexActions';
 import { joystickScrollDelta } from '../../../shared/workLouderCodexScroll';
 import { stopAllMedia } from '@/lib/mediaPlaybackBus';
 import { basename, cn } from '@/lib/utils';
+import { useAutoSpeakTurns } from '@/voice-output/useAutoSpeakTurns';
+import { useVoiceModeEnabled } from '@/voice-output/voiceModePreference';
 import {
   readSessionScroll,
   saveSessionScroll,
@@ -2837,6 +2839,13 @@ export function MessageStream({
     () => collectTurnFinalAssistantClientIds(visibleMessages),
     [visibleMessages],
   );
+  // 语音模式：开着时，新完成的 turn 收尾回复自动朗读（仅新增，不回放历史）。
+  const voiceModeEnabled = useVoiceModeEnabled();
+  useAutoSpeakTurns({
+    messages: visibleMessages,
+    turnFinalClientIds: turnFinalAssistantClientIds,
+    enabled: voiceModeEnabled,
+  });
   // subagent-model-chip: parentToolUseId(Agent/Task 行 id)→ 子代理模型,
   // 供 AgentActionsBlock 给 Agent/Task 行反查并渲染模型 chip。
   const subagentModelByToolUseId = useMemo(() => buildSubagentModelMap(messages), [messages]);

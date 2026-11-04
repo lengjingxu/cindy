@@ -269,7 +269,8 @@
       "windowBehavior": "应用行为",
       "shortcuts": "键盘快捷键",
       "mcpServers": "自定义 MCP",
-      "bots": "伙伴"
+      "bots": "伙伴",
+      "voiceOutput": "语音朗读"
     },
     "remote": {
       "title": "远端机器",
@@ -1087,6 +1088,18 @@
     "apiKey": {
       "showKey": "显示密钥",
       "hideKey": "隐藏密钥"
+    },
+    "voiceOutput": {
+      "title": "语音朗读",
+      "description": "打开输入框旁的语音模式后，伙伴的回复会自动朗读。这里选择对话朗读用的声音来源。",
+      "model": {
+        "label": "合成模型",
+        "automatic": "自动（Cindy 语音服务）",
+        "description": "默认走 Cindy 语音服务；Cindy 未提供默认语音合成时，可从模型目录选择一个语音合成模型。",
+        "gatewayOffline": "Cindy AI 连接未就绪，登录后可从模型目录选择语音合成模型；当前将使用系统语音。",
+        "empty": "模型目录里暂时没有语音合成模型",
+        "ariaLabel": "选择语音合成模型"
+      }
     },
     "voiceInput": {
       "title": "语音输入",
@@ -8147,6 +8160,10 @@
       "defaultPlaceholder": "今天我们做点什么呢~",
       "createAgentPlaceholder": "你好，{{appName}}！",
       "recommendationShortcut": "Tab",
+      "voiceMode": {
+        "turnOn": "开启语音模式，回复自动朗读",
+        "turnOff": "关闭语音模式"
+      },
       "voiceInput": {
         "start": "开始语音输入",
         "stop": "停止语音输入",

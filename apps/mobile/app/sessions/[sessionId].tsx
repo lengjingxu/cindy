@@ -430,6 +430,11 @@ import {
   type MobileVoiceState,
 } from '@/session/mobileVoiceInput';
 import {
+  setVoiceReadoutEnabled,
+  useAutoSpeakVoiceReadout,
+  useVoiceReadoutEnabled,
+} from '@/session/voiceReadout';
+import {
   resolveComposerVoiceHoldActive,
   shouldArmComposerVoiceHold,
 } from '@/session/composerVoiceHold';
@@ -2392,6 +2397,9 @@ export default function SessionScreen() {
     () => currentTurnHasStreamingAssistant(latestMessagesRef.current),
     [messageStructureToken],
   );
+  // 语音朗读（伙伴说话）：开关在会话设置 sheet；开着时自动朗读新完成的回复。
+  const voiceReadoutEnabled = useVoiceReadoutEnabled();
+  useAutoSpeakVoiceReadout(messages, currentTurnStreaming, voiceReadoutEnabled);
   const canStopCurrentRun = (remoteSessionRunning || currentTurnStreaming)
     && !inputProjection.queueAbortPending;
   const canStopComposer = canStopQueue || canStopCurrentRun;
@@ -8984,6 +8992,7 @@ export default function SessionScreen() {
             onLoadExtraDirPath={(path) => void loadExtraDirBrowsePath(path)}
             onRefreshAccountUsage={() => void refreshAccountUsage()}
             onResetCodexRateLimits={() => void resetCodexRateLimits()}
+            voiceReadout={{ enabled: voiceReadoutEnabled, onToggle: setVoiceReadoutEnabled }}
             onOpenWorkspace={() => {
               if (!currentSession.workingDir) return;
               setSettingsOpen(false);
