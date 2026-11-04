@@ -32,6 +32,15 @@ import { chatFileErrorText, fetchChatFileToCache } from '@/lib/remoteFileOpen';
 import { useChatSessionFile } from './ChatSessionFileContext';
 import { PlaintextEditor, type PlaintextEditorHandle } from '@/components/markdown/PlaintextEditor';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import {
+  OFFICE_PREVIEW_LIMIT,
+  OFFICE_PREVIEW_LIMIT_MB,
+  READ_BYTES_OVERSIZE_MESSAGE,
+  officePreviewKind,
+  parseOfficeDocument,
+  type ParsedOfficeDocument,
+} from '@/lib/officePreview';
+import { OfficePreviewBody } from './OfficePreviewBody';
 
 interface TextLightboxProps {
   /** Absolute path of the file being previewed. */
@@ -101,6 +110,7 @@ export function pickSourceLineAnchor<T extends { line: number }>(
 type LoadState =
   | { phase: 'loading' }
   | { phase: 'ready'; content: string; size: number }
+  | { phase: 'ready-office'; doc: ParsedOfficeDocument; size: number }
   | { phase: 'oversize'; size: number; limitMb: number }
   | { phase: 'error'; message: string };
 
@@ -140,7 +150,8 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
   const contentReady =
     loadState.phase === 'oversize' ||
     loadState.phase === 'error' ||
-    loadState.phase === 'ready';
+    loadState.phase === 'ready' ||
+    loadState.phase === 'ready-office';
   // 远端会话:「定位 / 系统打开」操作的是缓存副本,副本未取回前按钮置灰,
   // 避免点击静默无响应(本地会话恒可用,行为不变)。
   const localActionsReady = !remoteOrigin || remoteCopy !== null;
@@ -211,8 +222,32 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
   // response so we don't have to re-statically encode the MB number in two places.
   useEffect(() => {
     let cancelled = false;
+    const officeKind = officePreviewKind(filePath);
     (async () => {
       try {
+        if (officeKind) {
+          // Word/Excel:本地直读;远程先取回缓存副本再读副本(与文本路径同一套
+          // 取回/进度/断线兜底语义),字节 → 可渲染数据的解析在 lib/officePreview。
+          let readPath = filePath;
+          if (remoteOrigin) {
+            const fetched = await fetchChatFileToCache(remoteOrigin, sessionFileCtx.workingDir, filePath);
+            if (cancelled) return;
+            if (!fetched.ok) {
+              setLoadState({ phase: 'error', message: chatFileErrorText(fetched.code) });
+              return;
+            }
+            setRemoteCopy({ cachePath: fetched.cachePath, stale: fetched.stale });
+            if (fetched.size >= 0 && fetched.size > OFFICE_PREVIEW_LIMIT) {
+              setLoadState({ phase: 'oversize', size: fetched.size, limitMb: OFFICE_PREVIEW_LIMIT_MB });
+              return;
+            }
+            readPath = fetched.cachePath;
+          }
+          const doc = await parseOfficeDocument(readPath);
+          if (cancelled) return;
+          setLoadState({ phase: 'ready-office', doc, size: doc.size });
+          return;
+        }
         // 远程:先取回缓存副本(同 identity 与侧边栏共享,命中秒回),再读副本。
         if (remoteOrigin) {
           const fetched = await fetchChatFileToCache(remoteOrigin, sessionFileCtx.workingDir, filePath);
@@ -260,6 +295,12 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
         });
       } catch (err) {
         if (cancelled) return;
+        // 本地 office 文件超限:readFileBytes 以稳定文案 reject → F5 超限态
+        // (大小未知 → -1,工具栏容量显示占位)。文本读取路径不会产生该文案。
+        if (err instanceof Error && err.message === READ_BYTES_OVERSIZE_MESSAGE) {
+          setLoadState({ phase: 'oversize', size: -1, limitMb: OFFICE_PREVIEW_LIMIT_MB });
+          return;
+        }
         setLoadState({
           phase: 'error',
           message: err instanceof Error ? err.message : String(err),
@@ -361,8 +402,12 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
   // placeholder so the Toolbar size slot doesn't shift width when the read
   // resolves. Matches design node `PSTiX` in the Loading frame.
   const displaySize =
-    loadState.phase === 'ready' || loadState.phase === 'oversize'
-      ? formatBytes(loadState.size)
+    loadState.phase === 'ready' ||
+    loadState.phase === 'ready-office' ||
+    loadState.phase === 'oversize'
+      ? loadState.size >= 0
+        ? formatBytes(loadState.size)
+        : '—'
       : loadState.phase === 'loading'
         ? '—'
         : null;
@@ -667,6 +712,10 @@ export function TextLightbox({ filePath, fileName, initialLine, triggerRef, onCl
               </div>
             </div>
           )}
+
+        {contentReady && loadState.phase === 'ready-office' && (
+          <OfficePreviewBody doc={loadState.doc} />
+        )}
 
       </div>
 

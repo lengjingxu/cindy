@@ -2210,3 +2210,56 @@ body.resizing-pane [data-ghost-webview] {
     animation: none;
   }
 }
+
+/* ── Office 内嵌预览(mammoth / SheetJS 产物,TextLightbox office 分支)──
+   解析产物是第三方生成的 HTML 片段,无法挂 class,只能按容器作用域给基础
+   排版;颜色一律走语义 token,Light/Dark 双模式跟随主题。 */
+.office-word-doc {
+  color: var(--msg-tool-card-text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+.office-word-doc h1,
+.office-word-doc h2,
+.office-word-doc h3,
+.office-word-doc h4,
+.office-word-doc h5,
+.office-word-doc h6 {
+  margin: 1.2em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.office-word-doc h1 { font-size: 1.5em; }
+.office-word-doc h2 { font-size: 1.3em; }
+.office-word-doc h3 { font-size: 1.15em; }
+.office-word-doc p {
+  margin: 0.6em 0;
+}
+.office-word-doc ul,
+.office-word-doc ol {
+  margin: 0.6em 0;
+  padding-left: 1.5em;
+}
+.office-word-doc img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+.office-word-doc table,
+.office-sheet-body table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+.office-word-doc th,
+.office-word-doc td,
+.office-sheet-body th,
+.office-sheet-body td {
+  border: 1px solid var(--msg-tool-card-border);
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.office-sheet-body table {
+  margin: 0;
+}
+.office-sheet-body td {
+  white-space: nowrap;
+}
