@@ -55,6 +55,7 @@ describe('local theme export', () => {
     expect(buildCopyFromTheme(source).theme.brand).toEqual({
       icon: '/absolute/path/to/your-image-folder/icon-square-50x50px.png',
       logo: '/absolute/path/to/your-image-folder/logo-horizontal-110x37.5px.png',
+      wallpaper: '/absolute/path/to/your-image-folder/wallpaper.png',
     });
   });
 
@@ -122,5 +123,35 @@ describe('local theme export', () => {
 
     await refreshLocalThemes();
     expect(getLocalThemes()[0]?.brand?.icon).not.toBe(firstAsset);
+  });
+
+  it('maps wallpaper paths, bounds, and revisions for the renderer', () => {
+    const payload = {
+      success: true as const,
+      diagnostics: [],
+      themes: [
+        {
+          id: 'wallpaper-local',
+          name: 'Wallpaper',
+          type: 'dark' as const,
+          colors: {},
+          brand: { wallpaper: '/tmp/wallpaper.mp4' },
+          brandBounds: {
+            wallpaper: { x: 1, y: 2, width: 3, height: 4, sourceWidth: 5, sourceHeight: 6 },
+          },
+          brandRevisions: { wallpaper: '12:34.5' },
+        },
+      ],
+    };
+    vi.stubGlobal('window', {
+      electronAPI: { localThemes: { listSync: () => payload } },
+    });
+
+    bootstrapLocalThemesSync();
+    expect(getLocalThemes()[0]?.brand?.wallpaper).toEqual({
+      src: 'xdt-file://local/?path=%2Ftmp%2Fwallpaper.mp4&v=12%3A34.5',
+      mediaType: 'video',
+      visibleBounds: { x: 1, y: 2, width: 3, height: 4, sourceWidth: 5, sourceHeight: 6 },
+    });
   });
 });
