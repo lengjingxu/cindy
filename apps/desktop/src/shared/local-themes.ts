@@ -11,16 +11,20 @@ export interface LocalThemeBrandConfig {
   icon?: string;
   /** 新建对话页右侧横向 logo 的本地图片绝对路径。 */
   logo?: string;
+  /** 新建对话页品牌画布壁纸的本地图片或视频绝对路径；缺省不渲染壁纸层。 */
+  wallpaper?: string;
 }
 
 export interface LocalThemeBrandBounds {
   icon?: ImageVisibleBounds;
   logo?: ImageVisibleBounds;
+  wallpaper?: ImageVisibleBounds;
 }
 
 export interface LocalThemeBrandRevisions {
   icon?: string;
   logo?: string;
+  wallpaper?: string;
 }
 
 export interface LocalThemeWire {
@@ -77,6 +81,7 @@ export interface LocalThemeWriteRequest {
     brand?: {
       icon: string;
       logo: string;
+      wallpaper?: string;
     };
     colors: Record<string, string>;
   };

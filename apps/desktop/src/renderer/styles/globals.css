@@ -2189,6 +2189,12 @@ body.resizing-pane [data-ghost-webview] {
 .ghost-panel-enter {
   animation: ghost-panel-expand 200ms ease-out;
 }
+
+/* 全局自定义背景(#3810)启用时接管整张应用画布；主题壁纸只在没有全局背景时
+   铺底，避免同一窗口出现两层互相争抢的壁纸。该属性由 MainLayout 统一维护。 */
+[data-appearance-background='active'] .theme-brand-wallpaper {
+  display: none;
+}
 /* exit 在 enter 之后声明:出现瞬间就点收起时,后者整段覆盖前者。 */
 .ghost-panel-exit {
   animation: ghost-panel-collapse 180ms ease-in forwards;

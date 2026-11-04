@@ -48,6 +48,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { themeService } from '@/themes/theme-service';
 import type { Theme as ColorTheme } from '@/themes/types';
 import { ThemeBrandLockup } from '@/components/branding/ThemeBrandLockup';
+import { ThemeBrandWallpaper } from '@/components/branding/ThemeBrandWallpaper';
 import { ChatInput } from '@/components/new-chat/ChatInput';
 import { WorktreeChipsRow } from '@/components/new-chat/WorktreeChipsRow';
 import {
@@ -5279,6 +5280,8 @@ export function NewMakerDraftRoute() {
             'relative flex h-full w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-[var(--surface)] px-3 py-8', // px-3:外壳12+main32=44,与技能页(32+12滚动条槽)对齐(实测定稿 2026-07-19)
           )}
         >
+          <ThemeBrandWallpaper theme={activeColorTheme} />
+
           {/* 整页拖入遮罩(与 CCAgentSessionView 聊天区同款 token):提示文案由
             ChatInput 卡内渲染(externalDragOver),遮罩只描边界。 */}
           {pageDragOver && (

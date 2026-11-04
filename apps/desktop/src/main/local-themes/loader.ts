@@ -108,8 +108,13 @@ function parseBrand(value: unknown): LocalThemeBrandConfig | undefined {
   if (!isRecord(value)) return undefined;
   const icon = asOptionalPath(value.icon);
   const logo = asOptionalPath(value.logo);
-  return icon || logo
-    ? { ...(icon ? { icon } : {}), ...(logo ? { logo } : {}) }
+  const wallpaper = asOptionalPath(value.wallpaper);
+  return icon || logo || wallpaper
+    ? {
+        ...(icon ? { icon } : {}),
+        ...(logo ? { logo } : {}),
+        ...(wallpaper ? { wallpaper } : {}),
+      }
     : undefined;
 }
 
@@ -204,16 +209,20 @@ function inspectBrandAssets(theme: LocalThemeJson): {
   const logoPath = theme.brand?.logo;
   const icon = iconPath ? inspectBrandAsset(iconPath) : undefined;
   const logo = logoPath ? inspectBrandAsset(logoPath) : undefined;
-  const bounds = icon?.bounds || logo?.bounds
+  const wallpaperPath = theme.brand?.wallpaper;
+  const wallpaper = wallpaperPath ? inspectBrandAsset(wallpaperPath) : undefined;
+  const bounds = icon?.bounds || logo?.bounds || wallpaper?.bounds
     ? {
         ...(icon?.bounds ? { icon: icon.bounds } : {}),
         ...(logo?.bounds ? { logo: logo.bounds } : {}),
+        ...(wallpaper?.bounds ? { wallpaper: wallpaper.bounds } : {}),
       }
     : undefined;
-  const revisions = icon || logo
+  const revisions = icon || logo || wallpaper
     ? {
         ...(icon ? { icon: icon.revision } : {}),
         ...(logo ? { logo: logo.revision } : {}),
+        ...(wallpaper ? { wallpaper: wallpaper.revision } : {}),
       }
     : undefined;
   return {

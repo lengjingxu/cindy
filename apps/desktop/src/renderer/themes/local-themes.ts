@@ -14,6 +14,8 @@ import type { Theme, ThemeType } from './types';
 
 const log = createLogger('themes/local-themes');
 
+const WALLPAPER_VIDEO_EXT_RE = /\.(?:m4v|mov|mp4|webm)$/i;
+
 let cachedThemes: Theme[] = [];
 let cachedSignature = '';
 const didChange = new Emitter<void>();
@@ -21,10 +23,22 @@ const didChange = new Emitter<void>();
 function mapWireTheme(theme: LocalThemeWire): Theme {
   const iconPath = theme.brand?.icon;
   const logoPath = theme.brand?.logo;
+  const wallpaperPath = theme.brand?.wallpaper;
   const icon = iconPath
     ? {
         src: toLocalFileUrl(iconPath, theme.brandRevisions?.icon),
         ...(theme.brandBounds?.icon ? { visibleBounds: theme.brandBounds.icon } : {}),
+      }
+    : undefined;
+  const wallpaper = wallpaperPath
+    ? {
+        src: toLocalFileUrl(wallpaperPath, theme.brandRevisions?.wallpaper),
+        ...(WALLPAPER_VIDEO_EXT_RE.test(wallpaperPath)
+          ? { mediaType: 'video' as const }
+          : {}),
+        ...(theme.brandBounds?.wallpaper
+          ? { visibleBounds: theme.brandBounds.wallpaper }
+          : {}),
       }
     : undefined;
   const logo = logoPath
@@ -41,8 +55,14 @@ function mapWireTheme(theme: LocalThemeWire): Theme {
     // 加载期兼容归一化:把 text-placeholder slot 引入前创建的旧本地主题统一收口
     // 到新 slot(详见 local-themes-normalize.ts / docs/design-rules/cindy-design-system.md §13 G3)。
     colors: normalizeLocalThemeColors(theme.colors),
-    ...(icon || logo
-      ? { brand: { ...(icon ? { icon } : {}), ...(logo ? { logo } : {}) } }
+    ...(icon || logo || wallpaper
+      ? {
+          brand: {
+            ...(icon ? { icon } : {}),
+            ...(logo ? { logo } : {}),
+            ...(wallpaper ? { wallpaper } : {}),
+          },
+        }
       : {}),
   };
 }
@@ -97,6 +117,7 @@ export function buildCopyFromTheme(source: Theme): {
     brand: {
       icon: string;
       logo: string;
+      wallpaper?: string;
     };
     colors: Record<string, string>;
   };
@@ -116,6 +137,7 @@ export function buildCopyFromTheme(source: Theme): {
       brand: {
         icon: '/absolute/path/to/your-image-folder/icon-square-50x50px.png',
         logo: '/absolute/path/to/your-image-folder/logo-horizontal-110x37.5px.png',
+        wallpaper: '/absolute/path/to/your-image-folder/wallpaper.png',
       },
       colors: exportThemeColors(source),
     },

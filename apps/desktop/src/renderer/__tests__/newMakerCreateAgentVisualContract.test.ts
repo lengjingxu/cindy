@@ -93,6 +93,7 @@ describe('NewMakerDraftRoute CREATE AGENT visual contract', () => {
     expect(source).not.toContain('surface-translucent-sidebar');
     expect(source).not.toContain('agent-island-annie');
     expect(source).toContain('<ThemeBrandLockup');
+    expect(source).toContain('<ThemeBrandWallpaper');
     expect(brandLockupSource).toContain('head-image-dark.png');
   });
 

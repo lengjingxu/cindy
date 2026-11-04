@@ -16,15 +16,19 @@ export interface ColorContribution {
 }
 
 export interface ThemeBrandAsset {
-  /** 可直接用于 <img src> 的打包 URL 或 xdt-file URL。 */
+  /** 可直接用于图片或视频元素的打包 URL 或 xdt-file URL。 */
   src: string;
   /** local loader 计算出的透明边距裁切范围。 */
   visibleBounds?: ImageVisibleBounds;
+  /** 仅壁纸使用；缺省视为静态图片。 */
+  mediaType?: 'image' | 'video';
 }
 
 export interface ThemeBrand {
   icon?: ThemeBrandAsset;
   logo?: ThemeBrandAsset;
+  /** 新建对话页品牌画布壁纸；仅本地主题经 loader 提供。 */
+  wallpaper?: ThemeBrandAsset;
 }
 
 export interface Theme {
